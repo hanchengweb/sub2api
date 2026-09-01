@@ -111,6 +111,9 @@ func (a *Alipay) MerchantIdentityMetadata() map[string]string {
 //     get a scannable QR payload. If precreate is unavailable for the merchant,
 //     fall back to alipay.trade.page.pay and expose pay_url only — the frontend
 //     opens the Alipay checkout in a new tab.
+//   - Desktop, paymentMode == "qrcode": use alipay.trade.precreate only and
+//     return its error when the merchant cannot create a QR trade. This keeps an
+//     explicit QR-only configuration from silently opening a checkout page.
 //   - Desktop, paymentMode == "redirect": skip precreate and go straight to
 //     alipay.trade.page.pay so the frontend always opens the Alipay checkout
 //     in a new tab. Use this when the merchant has not enabled FACE_TO_FACE_PAYMENT.
@@ -161,11 +164,17 @@ func (a *Alipay) createWapTrade(client *alipay.Client, req payment.CreatePayment
 }
 
 func (a *Alipay) createDesktopTrade(ctx context.Context, client *alipay.Client, req payment.CreatePaymentRequest, notifyURL, returnURL string) (*payment.CreatePaymentResponse, error) {
+	mode := strings.ToLower(strings.TrimSpace(a.config["paymentMode"]))
 	// Explicit redirect mode: merchant opted into "always open the Alipay
 	// checkout page in a new tab" via the provider instance's payment_mode.
 	// Skip precreate to avoid a wasted API call.
-	if strings.EqualFold(strings.TrimSpace(a.config["paymentMode"]), "redirect") {
+	if mode == "redirect" {
 		return a.createPagePayTrade(client, req, notifyURL, returnURL)
+	}
+	// Explicit QR mode must not fall back to page.pay. A fallback would violate
+	// the selected in-page QR flow and can hide a merchant-side limitation.
+	if mode == "qrcode" || mode == "native" {
+		return a.createPrecreateTrade(ctx, client, req, notifyURL)
 	}
 
 	resp, precreateErr := a.createPrecreateTrade(ctx, client, req, notifyURL)

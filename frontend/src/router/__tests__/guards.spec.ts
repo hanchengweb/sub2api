@@ -63,7 +63,8 @@ interface MockAuthState {
 function simulateGuard(
   toPath: string,
   toMeta: Record<string, any>,
-  authState: MockAuthState
+  authState: MockAuthState,
+  query: Record<string, unknown> = {},
 ): string | null {
   const requiresAuth = toMeta.requiresAuth !== false
   const requiresAdmin = toMeta.requiresAdmin === true
@@ -78,6 +79,16 @@ function simulateGuard(
       authState.isAuthenticated &&
       (toPath === '/login' || toPath === '/register')
     ) {
+      if (toPath === '/login' && Object.keys(query).some((key) => [
+        'desktop',
+        'client_id',
+        'redirect_uri',
+        'state',
+        'code_challenge',
+        'code_challenge_method',
+      ].includes(key))) {
+        return null
+      }
       if (authState.backendModeEnabled && !authState.isAdmin) {
         return null
       }
@@ -205,6 +216,18 @@ describe('路由守卫逻辑', () => {
     it('访问 /login 重定向到 /dashboard', () => {
       const redirect = simulateGuard('/login', { requiresAuth: false }, authState)
       expect(redirect).toBe('/dashboard')
+    })
+
+    it('已有会话访问桌面授权登录页时保留授权参数', () => {
+      const redirect = simulateGuard('/login', { requiresAuth: false }, authState, {
+        desktop: '1',
+        client_id: 'com.fengxingzhonghe.desktop',
+        redirect_uri: 'fengxingzhonghe://auth/callback',
+        state: 'state-1',
+        code_challenge: 'challenge-1',
+        code_challenge_method: 'S256',
+      })
+      expect(redirect).toBeNull()
     })
 
     it('访问 /register 重定向到 /dashboard', () => {

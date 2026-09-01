@@ -199,6 +199,12 @@ func TestBackendModeAuthGuard(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:       "enabled_allows_desktop_token_exchange",
+			enabled:    "true",
+			path:       "/api/v1/auth/desktop/token",
+			wantStatus: http.StatusOK,
+		},
+		{
 			name:       "enabled_blocks_linuxdo_oauth_start",
 			enabled:    "true",
 			path:       "/api/v1/auth/oauth/linuxdo/start",

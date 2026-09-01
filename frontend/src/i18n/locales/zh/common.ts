@@ -225,6 +225,21 @@ export default {
     passwordRequired: '请输入密码',
     passwordMinLength: '密码至少需要 6 个字符',
     loginFailed: '登录失败，请检查您的凭据后重试。',
+    desktopAuthorization: {
+      title: '连接风合智联',
+      description: '请确认使用当前账号连接桌面端。',
+      currentAccount: '当前账号',
+      unknownAccount: 'WindHub 账号',
+      accessTitle: '授权范围',
+      confirmIdentity: '使用当前账号登录',
+      useModelService: '使用模型服务',
+      deny: '拒绝',
+      allow: '允许连接',
+      approving: '授权中...',
+      switchAccount: '切换账号',
+      sessionNote: '不是你的账号？切换账号后再继续。',
+      deniedDescription: '你拒绝了风合智联桌面端授权。'
+    },
     errors: {
       USER_NOT_ACTIVE: '账号已被禁用',
     },

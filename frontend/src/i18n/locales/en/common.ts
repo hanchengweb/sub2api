@@ -225,6 +225,21 @@ export default {
     passwordRequired: 'Password is required',
     passwordMinLength: 'Password must be at least 6 characters',
     loginFailed: 'Login failed. Please check your credentials and try again.',
+    desktopAuthorization: {
+      title: 'Connect Fenghe Zhilian',
+      description: 'Confirm this account to connect the desktop app.',
+      currentAccount: 'Current account',
+      unknownAccount: 'WindHub account',
+      accessTitle: 'Access requested',
+      confirmIdentity: 'Sign in with this account',
+      useModelService: 'Use the model service',
+      deny: 'Deny',
+      allow: 'Allow connection',
+      approving: 'Authorizing...',
+      switchAccount: 'Switch account',
+      sessionNote: 'Not your account? Switch accounts to continue.',
+      deniedDescription: 'You denied Fenghe Zhilian desktop authorization.'
+    },
     errors: {
       USER_NOT_ACTIVE: 'Account has been disabled.',
     },

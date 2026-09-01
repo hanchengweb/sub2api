@@ -21,6 +21,7 @@ const showInfo = vi.hoisted(() => vi.fn())
 const showWarning = vi.hoisted(() => vi.fn())
 const getCheckoutInfo = vi.hoisted(() => vi.fn())
 const bridgeInvoke = vi.hoisted(() => vi.fn())
+const deviceState = vi.hoisted(() => ({ isMobile: true }))
 
 vi.mock('vue-router', async () => {
   const actual = await vi.importActual<typeof import('vue-router')>('vue-router')
@@ -83,7 +84,7 @@ vi.mock('@/api/payment', () => ({
 }))
 
 vi.mock('@/utils/device', () => ({
-  isMobileDevice: () => true,
+  isMobileDevice: () => deviceState.isMobile,
 }))
 
 function checkoutInfoFixture(overrides: Partial<CheckoutInfoResponse> = {}) {
@@ -329,6 +330,7 @@ describe('PaymentView subscription confirmation amounts', () => {
 describe('PaymentView payment recovery', () => {
   beforeEach(() => {
     vi.useRealTimers()
+    deviceState.isMobile = true
     routeState.path = '/purchase'
     routeState.query = {}
     routerReplace.mockReset().mockResolvedValue(undefined)
@@ -343,6 +345,70 @@ describe('PaymentView payment recovery', () => {
     bridgeInvoke.mockReset()
     window.localStorage.clear()
     ;(window as Window & { WeixinJSBridge?: { invoke: typeof bridgeInvoke } }).WeixinJSBridge = undefined
+  })
+
+  it('uses the current tab for desktop redirect payments', async () => {
+    deviceState.isMobile = false
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
+      methods: {
+        alipay: {
+          ...checkoutInfoFixture().data.methods.wxpay,
+          currency: 'CNY',
+        },
+      },
+    }))
+    createOrder.mockResolvedValue({
+      order_id: 1001,
+      amount: 10,
+      pay_amount: 10,
+      fee_rate: 0,
+      expires_at: '2099-01-01T00:10:00.000Z',
+      payment_type: 'alipay',
+      out_trade_no: 'sub2_redirect_1001',
+      pay_url: 'https://openapi.alipay.com/gateway.do?redirect=1',
+      payment_mode: 'redirect',
+    })
+
+    const originalLocation = window.location
+    const locationState = {
+      href: 'http://localhost/purchase',
+      origin: 'http://localhost',
+    }
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: locationState,
+    })
+    const openWindow = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: {
+            template: '<div><slot /></div>',
+          },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    const vm = wrapper.vm as unknown as {
+      createOrder: (amount: number, orderType: 'balance') => Promise<void>
+      selectedMethod: string
+    }
+    vm.selectedMethod = 'alipay'
+    await vm.createOrder(10, 'balance')
+
+    expect(locationState.href).toBe('https://openapi.alipay.com/gateway.do?redirect=1')
+    expect(openWindow).not.toHaveBeenCalled()
+
+    openWindow.mockRestore()
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: originalLocation,
+    })
   })
 
   it('restores a custom EasyPay method as the selected payment method', async () => {

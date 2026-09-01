@@ -288,6 +288,26 @@ export async function prepareOAuthBindAccessTokenCookie(): Promise<void> {
   await apiClient.post('/auth/oauth/bind-token')
 }
 
+export interface DesktopAuthorizationRequest {
+  client_id: string
+  redirect_uri: string
+  state: string
+  code_challenge: string
+  code_challenge_method: 'S256'
+}
+
+export interface DesktopAuthorizationResponse {
+  code: string
+  expires_in: number
+}
+
+export async function createDesktopAuthorizationCode(
+  request: DesktopAuthorizationRequest,
+): Promise<DesktopAuthorizationResponse> {
+  const { data } = await apiClient.post<DesktopAuthorizationResponse>('/auth/desktop/authorize', request)
+  return data
+}
+
 /**
  * Refresh the access token using the refresh token
  * @returns New token pair
@@ -672,6 +692,7 @@ export const authAPI = {
   getRefreshToken,
   getTokenExpiresAt,
   clearAuthToken,
+  createDesktopAuthorizationCode,
   getPublicSettings,
   sendVerifyCode,
   sendPendingOAuthVerifyCode,

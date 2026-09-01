@@ -25,6 +25,7 @@ func TestIsFingerprintedEmbeddedAssetPath(t *testing.T) {
 		{name: "unhashed_asset", path: "assets/index.js", want: false},
 		{name: "short_suffix", path: "assets/index-abc123.js", want: false},
 		{name: "logo", path: "logo.png", want: false},
+		{name: "logo_ico", path: "logo.ico", want: false},
 		{name: "favicon", path: "favicon.ico", want: false},
 		{name: "fingerprint_outside_assets", path: "downloads/index-AbCd1234.js", want: false},
 		{name: "index_html", path: "index.html", want: false},
@@ -52,7 +53,7 @@ func TestApplyStaticAssetCacheHeaders(t *testing.T) {
 		assert.Equal(t, staticAssetsCacheControl, header.Get("Cache-Control"))
 	})
 
-	for _, path := range []string{"assets/index.js", "logo.png", "favicon.ico", "index.html"} {
+	for _, path := range []string{"assets/index.js", "logo.png", "logo.ico", "favicon.ico", "index.html"} {
 		path := path
 		t.Run("skips_"+path, func(t *testing.T) {
 			t.Parallel()
