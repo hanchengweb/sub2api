@@ -3,7 +3,7 @@
     <div class="space-y-6">
       <div v-if="loading" class="flex items-center justify-center py-12"><LoadingSpinner /></div>
       <template v-else-if="stats">
-        <UserDashboardStats :stats="stats" :balance="user?.balance || 0" :is-simple="authStore.isSimpleMode" :platform-quotas="platformQuotas" />
+        <UserDashboardStats :stats="stats" :balance="user?.balance || 0" :is-simple="authStore.isSimpleMode" :platform-quotas="platformQuotas" :models="platformModelStats" :today-models="todayModelStats" />
         <UserDashboardCharts v-model:startDate="startDate" v-model:endDate="endDate" v-model:granularity="granularity" :loading="loadingCharts" :trend="trendData" :models="modelStats" @dateRangeChange="loadCharts" @granularityChange="loadCharts" @refresh="refreshAll" />
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div class="lg:col-span-2"><UserDashboardRecentUsage :data="recentUsage" :loading="loadingUsage" /></div>
@@ -25,16 +25,18 @@ import { formatDateLocalInput } from '@/utils/format'
 
 const authStore = useAuthStore(); const user = computed(() => authStore.user)
 const stats = ref<UserStatsType | null>(null); const loading = ref(false); const loadingUsage = ref(false); const loadingCharts = ref(false)
-const trendData = ref<TrendDataPoint[]>([]); const modelStats = ref<ModelStat[]>([]); const recentUsage = ref<UsageLog[]>([])
+const trendData = ref<TrendDataPoint[]>([]); const modelStats = ref<ModelStat[]>([]); const platformModelStats = ref<ModelStat[]>([]); const todayModelStats = ref<ModelStat[]>([]); const recentUsage = ref<UsageLog[]>([])
 const platformQuotas = ref<PlatformQuotaItem[] | null>(null)
 
 const startDate = ref(formatDateLocalInput(new Date(Date.now() - 6 * 86400000))); const endDate = ref(formatDateLocalInput(new Date())); const granularity = ref('day')
+const ALL_TIME_START_DATE = '1970-01-01'
 
 const loadStats = async () => { loading.value = true; try { await authStore.refreshUser(); stats.value = await usageAPI.getDashboardStats() } catch (error) { console.error('Failed to load dashboard stats:', error) } finally { loading.value = false } }
-const loadCharts = async () => { loadingCharts.value = true; try { const res = await Promise.all([usageAPI.getDashboardTrend({ start_date: startDate.value, end_date: endDate.value, granularity: granularity.value as any }), usageAPI.getDashboardModels({ start_date: startDate.value, end_date: endDate.value })]); trendData.value = res[0].trend || []; modelStats.value = res[1].models || [] } catch (error) { console.error('Failed to load charts:', error) } finally { loadingCharts.value = false } }
+const loadCharts = async () => { loadingCharts.value = true; try { const today = formatDateLocalInput(new Date()); const res = await Promise.all([usageAPI.getDashboardTrend({ start_date: startDate.value, end_date: endDate.value, granularity: granularity.value as any }), usageAPI.getDashboardModels({ start_date: startDate.value, end_date: endDate.value }), usageAPI.getDashboardModels({ start_date: today, end_date: today })]); trendData.value = res[0].trend || []; modelStats.value = res[1].models || []; todayModelStats.value = res[2].models || [] } catch (error) { console.error('Failed to load charts:', error) } finally { loadingCharts.value = false } }
+const loadPlatformModels = async () => { try { const today = formatDateLocalInput(new Date()); const res = await usageAPI.getDashboardModels({ start_date: ALL_TIME_START_DATE, end_date: today }); platformModelStats.value = res.models || [] } catch (error) { console.error('Failed to load platform model stats:', error) } }
 const loadRecent = async () => { loadingUsage.value = true; try { const res = await usageAPI.getByDateRange(startDate.value, endDate.value); recentUsage.value = res.items.slice(0, 5) } catch (error) { console.error('Failed to load recent usage:', error) } finally { loadingUsage.value = false } }
 const loadPlatformQuotas = async () => { try { const data = await getMyPlatformQuotas(); platformQuotas.value = data.platform_quotas ?? [] } catch (error) { console.warn('Failed to load platform quotas:', error); platformQuotas.value = [] } }
-const refreshAll = () => { loadStats(); loadCharts(); loadRecent(); loadPlatformQuotas() }
+const refreshAll = () => { loadStats(); loadCharts(); loadPlatformModels(); loadRecent(); loadPlatformQuotas() }
 
 onMounted(() => { refreshAll() })
 </script>
