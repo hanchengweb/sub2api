@@ -250,6 +250,7 @@ import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMi
 import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeUrl } from '@/utils/url'
+import { currencySymbol } from '@/components/payment/currency'
 
 const router = useRouter()
 const route = useRoute()
@@ -350,8 +351,8 @@ function handleReplayGuide() {
 }
 
 function formatHeaderMoney(value: number) {
-  if (!Number.isFinite(value)) return '$0.00'
-  return `$${value.toFixed(2)}`
+  if (!Number.isFinite(value)) return `${currencySymbol()}0.00`
+  return `${currencySymbol()}${value.toFixed(2)}`
 }
 
 function handleClickOutside(event: MouseEvent) {
