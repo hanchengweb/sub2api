@@ -249,6 +249,42 @@ func TestCreateTradeRedirectModeSkipsPrecreate(t *testing.T) {
 	}
 }
 
+func TestCreateTradeQRCodeModeDoesNotFallbackToPagePay(t *testing.T) {
+	origPreCreate := alipayTradePreCreate
+	origPagePay := alipayTradePagePay
+	t.Cleanup(func() {
+		alipayTradePreCreate = origPreCreate
+		alipayTradePagePay = origPagePay
+	})
+
+	preCreateCalls := 0
+	pagePayCalls := 0
+	alipayTradePreCreate = func(_ context.Context, _ *alipay.Client, _ alipay.TradePreCreate) (*alipay.TradePreCreateRsp, error) {
+		preCreateCalls++
+		return nil, errors.New("merchant collection limit is zero")
+	}
+	alipayTradePagePay = func(_ *alipay.Client, _ alipay.TradePagePay) (*url.URL, error) {
+		pagePayCalls++
+		return url.Parse("https://openapi.alipay.com/gateway.do?page-pay")
+	}
+
+	provider := &Alipay{config: map[string]string{"paymentMode": "qrcode"}}
+	_, err := provider.createDesktopTrade(context.Background(), &alipay.Client{}, payment.CreatePaymentRequest{
+		OrderID: "sub2_qrcode_only",
+		Amount:  "10.00",
+		Subject: "Balance recharge",
+	}, "https://merchant.example.com/api/v1/payment/webhook/alipay", "https://merchant.example.com/payment/result")
+	if err == nil {
+		t.Fatal("expected QR-only precreate error")
+	}
+	if preCreateCalls != 1 {
+		t.Fatalf("precreate calls = %d, want 1", preCreateCalls)
+	}
+	if pagePayCalls != 0 {
+		t.Fatalf("page pay calls = %d, want 0 in QR-only mode", pagePayCalls)
+	}
+}
+
 func TestCreateTradeUsesWapPayForMobile(t *testing.T) {
 	origWapPay := alipayTradeWapPay
 	t.Cleanup(func() {

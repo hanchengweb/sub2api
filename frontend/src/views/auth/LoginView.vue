@@ -1,6 +1,109 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div v-if="desktopAuthorizationVisible" class="space-y-5">
+      <div class="flex items-start gap-3">
+        <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+          <Icon name="shield" size="lg" />
+        </div>
+        <div class="min-w-0 pt-0.5">
+          <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+            {{ t('auth.desktopAuthorization.title') }}
+          </h2>
+          <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-dark-400">
+            {{ t('auth.desktopAuthorization.description') }}
+          </p>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-800/50">
+        <div class="flex items-center gap-3">
+          <div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-100 text-lg font-semibold text-primary-700 dark:bg-primary-900/50 dark:text-primary-200">
+            <img
+              v-if="desktopAccountAvatar"
+              :src="desktopAccountAvatar"
+              alt=""
+              class="h-full w-full object-cover"
+            />
+            <span v-else>{{ desktopAccountInitial }}</span>
+          </div>
+          <div class="min-w-0">
+            <p class="text-xs font-medium text-gray-500 dark:text-dark-400">
+              {{ t('auth.desktopAuthorization.currentAccount') }}
+            </p>
+            <p class="truncate text-sm font-semibold text-gray-900 dark:text-white">
+              {{ desktopAccountName }}
+            </p>
+            <p class="truncate text-xs text-gray-500 dark:text-dark-400">
+              {{ desktopAccountEmail }}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="mb-2 text-sm font-semibold text-gray-900 dark:text-white">
+          {{ t('auth.desktopAuthorization.accessTitle') }}
+        </p>
+        <div class="divide-y divide-gray-200 overflow-hidden rounded-xl border border-gray-200 bg-white dark:divide-dark-700 dark:border-dark-700 dark:bg-dark-800/50">
+          <div class="flex items-center gap-2.5 px-3.5 py-3 text-sm text-gray-700 dark:text-gray-200">
+            <Icon name="checkCircle" size="sm" class="shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span>{{ t('auth.desktopAuthorization.confirmIdentity') }}</span>
+          </div>
+          <div class="flex items-center gap-2.5 px-3.5 py-3 text-sm text-gray-700 dark:text-gray-200">
+            <Icon name="checkCircle" size="sm" class="shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span>{{ t('auth.desktopAuthorization.useModelService') }}</span>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="errorMessage" class="text-sm text-red-600 dark:text-red-400" role="status">
+        {{ errorMessage }}
+      </p>
+
+      <div class="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          class="btn btn-secondary w-full"
+          :disabled="isLoading"
+          @click="rejectDesktopAuthorization"
+        >
+          {{ t('auth.desktopAuthorization.deny') }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary w-full"
+          :disabled="isLoading"
+          @click="approveDesktopAuthorization"
+        >
+          <svg
+            v-if="isLoading"
+            class="h-4 w-4 animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          {{ isLoading ? t('auth.desktopAuthorization.approving') : t('auth.desktopAuthorization.allow') }}
+        </button>
+      </div>
+
+      <button
+        type="button"
+        class="mx-auto flex items-center gap-1.5 text-sm font-medium text-primary-700 transition-colors hover:text-primary-600 dark:text-primary-300 dark:hover:text-primary-200"
+        :disabled="isLoading"
+        @click="switchDesktopAccount"
+      >
+        <Icon name="login" size="sm" />
+        {{ t('auth.desktopAuthorization.switchAccount') }}
+      </button>
+
+      <p class="text-center text-xs leading-5 text-gray-400 dark:text-dark-500">
+        {{ t('auth.desktopAuthorization.sessionNote') }}
+      </p>
+    </div>
+
+    <div v-else class="space-y-6">
       <!-- Title -->
       <div class="text-center">
         <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
@@ -173,7 +276,7 @@
     </div>
 
     <!-- Footer -->
-    <template v-if="!backendModeEnabled" #footer>
+    <template v-if="!desktopAuthorizationVisible && !backendModeEnabled" #footer>
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.dontHaveAccount') }}
         <router-link
@@ -212,9 +315,14 @@ import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
-import { getPublicSettings, isTotp2FARequired, isWeChatWebOAuthEnabled } from '@/api/auth'
+import { authAPI, getPublicSettings, isTotp2FARequired, isWeChatWebOAuthEnabled } from '@/api/auth'
 import type { LoginAgreementDocument, TotpLoginResponse } from '@/types'
 import { extractI18nErrorMessage } from '@/utils/apiError'
+import {
+  buildDesktopAuthorizationCallback,
+  buildDesktopAuthorizationErrorCallback,
+  parseDesktopAuthorizationRequest,
+} from '@/utils/desktopAuthorization'
 import { clearAllAffiliateReferralCodes } from '@/utils/oauthAffiliate'
 
 const { t } = useI18n()
@@ -231,6 +339,7 @@ const appStore = useAppStore()
 const isLoading = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
+const showDesktopAuthorization = ref<boolean>(false)
 const publicSettingsLoaded = ref<boolean>(false)
 
 // Public settings
@@ -297,6 +406,75 @@ const showOAuthLogin = computed(
       googleOAuthEnabled.value)
 )
 
+function getDesktopAuthorizationRequest() {
+  return parseDesktopAuthorizationRequest(router.currentRoute.value.query)
+}
+
+async function redirectDesktopClientIfNeeded(): Promise<boolean> {
+  const request = getDesktopAuthorizationRequest()
+  if (!request) return false
+  const result = await authAPI.createDesktopAuthorizationCode(request)
+  if (!result?.code) throw new Error('WindHub 未返回桌面授权码，请重试。')
+  window.location.replace(buildDesktopAuthorizationCallback(request, result.code))
+  return true
+}
+
+function enterDesktopAuthorizationIfNeeded(): boolean {
+  if (!getDesktopAuthorizationRequest()) return false
+  showDesktopAuthorization.value = true
+  errorMessage.value = ''
+  return true
+}
+
+function resumeDesktopAuthorizationIfAuthenticated(): void {
+  if (!authStore.isAuthenticated) return
+  enterDesktopAuthorizationIfNeeded()
+}
+
+const desktopAuthorizationRequest = computed(() => getDesktopAuthorizationRequest())
+const desktopAuthorizationVisible = computed(
+  () => Boolean(desktopAuthorizationRequest.value && showDesktopAuthorization.value && authStore.isAuthenticated),
+)
+const desktopAccountName = computed(
+  () => authStore.user?.username || authStore.user?.email || t('auth.desktopAuthorization.unknownAccount'),
+)
+const desktopAccountEmail = computed(() => authStore.user?.email || '')
+const desktopAccountAvatar = computed(() => authStore.user?.avatar_url || '')
+const desktopAccountInitial = computed(() => desktopAccountName.value.trim().charAt(0).toUpperCase() || 'W')
+
+async function approveDesktopAuthorization(): Promise<void> {
+  try {
+    isLoading.value = true
+    errorMessage.value = ''
+    await redirectDesktopClientIfNeeded()
+  } catch (error: unknown) {
+    errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', '桌面授权失败，请重试。')
+    appStore.showError(errorMessage.value)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function rejectDesktopAuthorization(): void {
+  const request = desktopAuthorizationRequest.value
+  if (!request) return
+  window.location.replace(
+    buildDesktopAuthorizationErrorCallback(request, 'access_denied', t('auth.desktopAuthorization.deniedDescription')),
+  )
+}
+
+async function switchDesktopAccount(): Promise<void> {
+  isLoading.value = true
+  try {
+    await authStore.logout()
+    showDesktopAuthorization.value = false
+    formData.email = ''
+    formData.password = ''
+  } finally {
+    isLoading.value = false
+  }
+}
+
 watch(validationToastMessage, (value, previousValue) => {
   if (value && value !== previousValue) {
     appStore.showError(value)
@@ -306,6 +484,8 @@ watch(validationToastMessage, (value, previousValue) => {
 // ==================== Lifecycle ====================
 
 onMounted(async () => {
+  resumeDesktopAuthorizationIfAuthenticated()
+
   const expiredFlag = sessionStorage.getItem('auth_expired')
   if (expiredFlag) {
     sessionStorage.removeItem('auth_expired')
@@ -336,6 +516,7 @@ onMounted(async () => {
   } finally {
     publicSettingsLoaded.value = true
   }
+
 })
 
 // ==================== Login Agreement ====================
@@ -493,6 +674,8 @@ async function handleLogin(): Promise<void> {
       return
     }
 
+    if (enterDesktopAuthorizationIfNeeded()) return
+
     // Show success toast
     clearAllAffiliateReferralCodes()
     appStore.showSuccess(t('auth.loginSuccess'))
@@ -525,6 +708,8 @@ async function handle2FAVerify(code: string): Promise<void> {
 
   try {
     await authStore.login2FA(totpTempToken.value, code)
+
+    if (enterDesktopAuthorizationIfNeeded()) return
 
     // Close modal and show success
     show2FAModal.value = false

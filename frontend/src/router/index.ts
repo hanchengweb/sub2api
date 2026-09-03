@@ -13,6 +13,7 @@ import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
+import { hasDesktopAuthorizationQuery } from '@/utils/desktopAuthorization'
 
 /**
  * Route definitions with lazy loading
@@ -797,6 +798,10 @@ router.beforeEach(async (to, _from, next) => {
   if (!requiresAuth) {
     // If already authenticated and trying to access login/register, redirect to appropriate dashboard
     if (authStore.isAuthenticated && (to.path === '/login' || to.path === '/register')) {
+      if (to.path === '/login' && hasDesktopAuthorizationQuery(to.query)) {
+        next()
+        return
+      }
       // In backend mode, non-admin users should NOT be redirected away from login
       // (they are blocked from all protected routes, so redirecting would cause a loop)
       if (appStore.backendModeEnabled && !authStore.isAdmin) {
@@ -955,7 +960,9 @@ router.onError((error) => {
     if (!lastReload || now - parseInt(lastReload) > 10000) {
       sessionStorage.setItem(reloadKey, now.toString())
       console.warn('Chunk load error detected, reloading page to fetch latest version...')
-      window.location.reload()
+      const freshUrl = new URL(window.location.href)
+      freshUrl.searchParams.set('__chunk_reload', String(now))
+      window.location.replace(freshUrl.toString())
     } else {
       console.error('Chunk load error persists after reload. Please clear browser cache.')
     }

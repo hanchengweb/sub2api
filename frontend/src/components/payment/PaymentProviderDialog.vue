@@ -332,8 +332,8 @@ import {
 /** Default payment_mode per provider key — "" means "no preference, use
  * provider's built-in default behavior". */
 function defaultPaymentMode(providerKey: string): string {
-  if (providerKey === 'easypay') return PAYMENT_MODE_QRCODE
-  return ''
+	if (providerKey === 'easypay' || providerKey === 'alipay') return PAYMENT_MODE_QRCODE
+	return ''
 }
 
 /** Provider keys whose admin UI exposes a payment_mode selector.
@@ -349,8 +349,8 @@ function isValidPaymentMode(providerKey: string, mode: string): boolean {
     return mode === PAYMENT_MODE_QRCODE || mode === PAYMENT_MODE_POPUP
   }
   if (providerKey === 'alipay') {
-    return mode === '' || mode === PAYMENT_MODE_REDIRECT
-  }
+		return mode === '' || mode === PAYMENT_MODE_QRCODE || mode === PAYMENT_MODE_REDIRECT
+	}
   return mode === ''
 }
 
@@ -435,10 +435,9 @@ const supportsPaymentMode = computed(() => providerSupportsPaymentMode(form.prov
 
 const paymentModeOptions = computed(() => {
   if (form.provider_key === 'alipay') {
-    // For Alipay official: "" = default (precreate → page.pay fallback);
-    // "redirect" = always open the Alipay checkout page in a new tab.
-    return [
-      { value: '', label: t('admin.settings.payment.modeQRCode') },
+	    // For Alipay official: qrcode is QR-only; redirect opens the checkout page.
+	    return [
+	      { value: PAYMENT_MODE_QRCODE, label: t('admin.settings.payment.modeQRCode') },
       { value: PAYMENT_MODE_REDIRECT, label: t('admin.settings.payment.modeRedirect') },
     ]
   }
@@ -806,7 +805,7 @@ function loadProvider(provider: ProviderInstance) {
   // (e.g. "popup" written by an older client) showing up as an unselected
   // button in the dialog.
   form.payment_mode = isValidPaymentMode(provider.provider_key, provider.payment_mode || '')
-    ? (provider.payment_mode || '')
+    ? (provider.payment_mode || defaultPaymentMode(provider.provider_key))
     : defaultPaymentMode(provider.provider_key)
   form.refund_enabled = provider.refund_enabled
   form.allow_user_refund = provider.allow_user_refund

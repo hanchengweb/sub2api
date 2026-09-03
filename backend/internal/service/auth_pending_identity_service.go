@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -24,13 +26,14 @@ import (
 )
 
 var (
-	ErrPendingAuthSessionNotFound = infraerrors.NotFound("PENDING_AUTH_SESSION_NOT_FOUND", "pending auth session not found")
-	ErrPendingAuthSessionExpired  = infraerrors.Unauthorized("PENDING_AUTH_SESSION_EXPIRED", "pending auth session has expired")
-	ErrPendingAuthSessionConsumed = infraerrors.Unauthorized("PENDING_AUTH_SESSION_CONSUMED", "pending auth session has already been used")
-	ErrPendingAuthCodeInvalid     = infraerrors.Unauthorized("PENDING_AUTH_CODE_INVALID", "pending auth completion code is invalid")
-	ErrPendingAuthCodeExpired     = infraerrors.Unauthorized("PENDING_AUTH_CODE_EXPIRED", "pending auth completion code has expired")
-	ErrPendingAuthCodeConsumed    = infraerrors.Unauthorized("PENDING_AUTH_CODE_CONSUMED", "pending auth completion code has already been used")
-	ErrPendingAuthBrowserMismatch = infraerrors.Unauthorized("PENDING_AUTH_BROWSER_MISMATCH", "pending auth completion code does not match this browser session")
+	ErrPendingAuthSessionNotFound  = infraerrors.NotFound("PENDING_AUTH_SESSION_NOT_FOUND", "pending auth session not found")
+	ErrPendingAuthSessionExpired   = infraerrors.Unauthorized("PENDING_AUTH_SESSION_EXPIRED", "pending auth session has expired")
+	ErrPendingAuthSessionConsumed  = infraerrors.Unauthorized("PENDING_AUTH_SESSION_CONSUMED", "pending auth session has already been used")
+	ErrPendingAuthCodeInvalid      = infraerrors.Unauthorized("PENDING_AUTH_CODE_INVALID", "pending auth completion code is invalid")
+	ErrPendingAuthCodeExpired      = infraerrors.Unauthorized("PENDING_AUTH_CODE_EXPIRED", "pending auth completion code has expired")
+	ErrPendingAuthCodeConsumed     = infraerrors.Unauthorized("PENDING_AUTH_CODE_CONSUMED", "pending auth completion code has already been used")
+	ErrPendingAuthBrowserMismatch  = infraerrors.Unauthorized("PENDING_AUTH_BROWSER_MISMATCH", "pending auth completion code does not match this browser session")
+	ErrDesktopAuthorizationInvalid = infraerrors.Unauthorized("DESKTOP_AUTHORIZATION_INVALID", "desktop authorization request is invalid")
 )
 
 const (
@@ -67,6 +70,13 @@ type IssuePendingAuthCompletionCodeInput struct {
 type IssuePendingAuthCompletionCodeResult struct {
 	Code      string
 	ExpiresAt time.Time
+}
+
+type ConsumeDesktopAuthCompletionCodeInput struct {
+	ClientID     string
+	RedirectURI  string
+	State        string
+	CodeVerifier string
 }
 
 type PendingIdentityAdoptionDecisionInput struct {
@@ -294,6 +304,51 @@ func (s *AuthPendingIdentityService) ConsumeCompletionCode(ctx context.Context, 
 	}
 
 	return s.consumeSession(ctx, session, browserSessionKey, ErrPendingAuthCodeExpired, ErrPendingAuthCodeConsumed)
+}
+
+func (s *AuthPendingIdentityService) ConsumeDesktopCompletionCode(ctx context.Context, rawCode string, input ConsumeDesktopAuthCompletionCodeInput) (*dbent.PendingAuthSession, error) {
+	if s == nil || s.entClient == nil {
+		return nil, fmt.Errorf("pending auth ent client is not configured")
+	}
+	if !validPKCEVerifier(strings.TrimSpace(input.CodeVerifier)) {
+		return nil, ErrDesktopAuthorizationInvalid
+	}
+
+	codeHash := hashPendingAuthCode(strings.TrimSpace(rawCode))
+	session, err := s.entClient.PendingAuthSession.Query().
+		Where(pendingauthsession.CompletionCodeHashEQ(codeHash)).
+		Only(ctx)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, ErrPendingAuthCodeInvalid
+		}
+		return nil, err
+	}
+
+	metadata, ok := pendingDesktopAuthMetadata(session.LocalFlowState)
+	if !ok ||
+		strings.TrimSpace(session.Intent) != "login" ||
+		strings.TrimSpace(session.ProviderType) != "email" ||
+		strings.TrimSpace(session.ProviderKey) != strings.TrimSpace(input.ClientID) ||
+		session.TargetUserID == nil || *session.TargetUserID <= 0 ||
+		metadata["client_id"] != strings.TrimSpace(input.ClientID) ||
+		metadata["redirect_uri"] != strings.TrimSpace(input.RedirectURI) ||
+		metadata["state"] != strings.TrimSpace(input.State) ||
+		metadata["code_challenge_method"] != "S256" {
+		return nil, ErrDesktopAuthorizationInvalid
+	}
+
+	expectedChallenge, ok := metadata["code_challenge"].(string)
+	if !ok || strings.TrimSpace(expectedChallenge) == "" {
+		return nil, ErrDesktopAuthorizationInvalid
+	}
+	verifierHash := sha256.Sum256([]byte(strings.TrimSpace(input.CodeVerifier)))
+	actualChallenge := base64.RawURLEncoding.EncodeToString(verifierHash[:])
+	if subtle.ConstantTimeCompare([]byte(actualChallenge), []byte(strings.TrimSpace(expectedChallenge))) != 1 {
+		return nil, ErrDesktopAuthorizationInvalid
+	}
+
+	return s.consumeSession(ctx, session, strings.TrimSpace(input.State), ErrPendingAuthCodeExpired, ErrPendingAuthCodeConsumed)
 }
 
 func (s *AuthPendingIdentityService) ConsumeBrowserSession(ctx context.Context, sessionToken, browserSessionKey string) (*dbent.PendingAuthSession, error) {
@@ -540,4 +595,28 @@ func randomOpaqueToken(byteLen int) (string, error) {
 func hashPendingAuthCode(code string) string {
 	sum := sha256.Sum256([]byte(code))
 	return hex.EncodeToString(sum[:])
+}
+
+func pendingDesktopAuthMetadata(localFlowState map[string]any) (map[string]any, bool) {
+	if len(localFlowState) == 0 {
+		return nil, false
+	}
+	metadata, ok := localFlowState["desktop_authorization"].(map[string]any)
+	return metadata, ok && len(metadata) > 0
+}
+
+func validPKCEVerifier(value string) bool {
+	if len(value) < 43 || len(value) > 128 {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		char := value[i]
+		if (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') {
+			continue
+		}
+		if char != '-' && char != '.' && char != '_' && char != '~' {
+			return false
+		}
+	}
+	return true
 }
