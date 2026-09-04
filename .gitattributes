@@ -20,3 +20,7 @@ backend/migrations/*.sql text eol=lf
 
 # Dockerfile
 Dockerfile text eol=lf
+
+# WindHub stable baseline artifacts
+deploy/gateway/windhub/windhub-home.html text eol=lf
+deploy/WINDHUB_STABLE_BASELINE_20260904.md text eol=lf
