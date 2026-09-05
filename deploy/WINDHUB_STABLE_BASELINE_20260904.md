@@ -39,6 +39,13 @@ production-verified gateway homepage, including the `/logo.ico` reference.
   frontend asset. The gateway copy is tracked separately because these are
   different serving paths and different production inputs.
 
+The stable gateway icon is `deploy/gateway/windhub/logo.ico`.
+
+- SHA256: `26439e31abb1415985d04674ba39f9783a039c87a78d862c1fac68e9b8e7fb8a`
+- The exact Nginx route is `deploy/gateway/WINDHUB_LOGO_LOCATION.conf` and
+  must be included inside the `windhub.online` TLS server block. Without this
+  route, `/logo.ico` falls through to the application SPA and returns HTML.
+
 ## Stable references
 
 - Baseline branch: `codex/windhub-stable-baseline-20260904`
