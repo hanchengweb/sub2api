@@ -629,7 +629,7 @@ func (s *OpenAIGatewayService) ForwardOpenAIImageTask(ctx context.Context, c *gi
 		proxyURL = account.Proxy.URL()
 	}
 	upstreamStart := time.Now()
-	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		return fmt.Errorf("upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
