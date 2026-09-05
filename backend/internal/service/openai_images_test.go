@@ -1143,7 +1143,7 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyGenerationUsesConfiguredV1BaseU
 					"Content-Type": []string{"application/json"},
 					"X-Request-Id": []string{"req_img_apikey"},
 				},
-				Body: io.NopCloser(strings.NewReader(`{"created":1710000007,"data":[{"b64_json":"aGVsbG8=","revised_prompt":"draw a cat"}]}`)),
+				Body: io.NopCloser(strings.NewReader(`{"id":"task_img_abc123","created":1710000007,"data":[{"b64_json":"aGVsbG8=","revised_prompt":"draw a cat"}]}`)),
 			},
 		},
 	}
@@ -1167,6 +1167,7 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyGenerationUsesConfiguredV1BaseU
 	require.Equal(t, 1, result.ImageCount)
 	require.Equal(t, "gpt-image-2", result.Model)
 	require.Equal(t, "gpt-image-2", result.UpstreamModel)
+	require.Equal(t, "task_img_abc123", result.ResponseID)
 
 	upstream, ok := svc.httpUpstream.(*httpUpstreamRecorder)
 	require.True(t, ok)
@@ -1179,6 +1180,29 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyGenerationUsesConfiguredV1BaseU
 	require.Equal(t, "aGVsbG8=", gjson.Get(rec.Body.String(), "data.0.b64_json").String())
 }
 
+func TestOpenAIImageTaskSessionHashIsOwnerScoped(t *testing.T) {
+	base := OpenAIImageTaskSessionHash("task_img_abc123", 101, 202)
+	require.NotEmpty(t, base)
+	require.NotEqual(t, base, OpenAIImageTaskSessionHash("task_img_abc123", 999, 202))
+	require.NotEqual(t, base, OpenAIImageTaskSessionHash("task_img_abc123", 101, 999))
+}
+
+func TestOpenAIGatewayServiceImageTaskBindingResolvesOriginalAccount(t *testing.T) {
+	cache := &stubGatewayCache{}
+	account := Account{ID: 22, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	svc := &OpenAIGatewayService{
+		cache:       cache,
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
+	}
+	groupID := int64(7)
+
+	require.NoError(t, svc.BindOpenAIImageTaskAccount(context.Background(), &groupID, "task_img_abc123", 101, 202, account.ID))
+	resolved, err := svc.ResolveOpenAIImageTaskAccount(context.Background(), &groupID, "task_img_abc123", 101, 202)
+	require.NoError(t, err)
+	require.Equal(t, account.ID, resolved.ID)
+	_, err = svc.ResolveOpenAIImageTaskAccount(context.Background(), &groupID, "task_img_abc123", 999, 202)
+	require.Error(t, err)
+}
 func TestOpenAIGatewayServiceForwardImages_APIKeyStreamJSONResponseBillsImage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","stream":true,"response_format":"b64_json"}`)

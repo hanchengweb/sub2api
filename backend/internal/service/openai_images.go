@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -40,6 +41,7 @@ const (
 	openAIImageMaxDownloadBytes    = 20 << 20 // 20MB per image download
 	openAIImageMaxUploadPartSize   = 20 << 20 // 20MB per multipart upload part
 	openAIImagesResponsesMainModel = "gpt-5.4-mini"
+	openAIImageTaskBindingTTL      = 24 * time.Hour
 )
 
 type OpenAIImagesCapability string
@@ -548,6 +550,104 @@ func normalizeOpenAIImageSizeTier(size string) string {
 	return NormalizeImageBillingTierOrDefault(size)
 }
 
+func OpenAIImageTaskSessionHash(taskID string, userID, apiKeyID int64) string {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" || userID <= 0 || apiKeyID <= 0 {
+		return ""
+	}
+	return "openai-image-task:" + DeriveSessionHashFromSeed(fmt.Sprintf("%d:%d:%s", userID, apiKeyID, taskID))
+}
+
+func (s *OpenAIGatewayService) BindOpenAIImageTaskAccount(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID, accountID int64) error {
+	if s == nil || s.cache == nil {
+		return fmt.Errorf("openai image task binding cache is unavailable")
+	}
+	cacheKey := s.openAISessionCacheKey(OpenAIImageTaskSessionHash(taskID, userID, apiKeyID))
+	if cacheKey == "" || accountID <= 0 {
+		return fmt.Errorf("openai image task binding is invalid")
+	}
+	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), cacheKey, accountID, openAIImageTaskBindingTTL)
+}
+
+func (s *OpenAIGatewayService) ResolveOpenAIImageTaskAccount(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64) (*Account, error) {
+	if s == nil || s.cache == nil || s.accountRepo == nil {
+		return nil, fmt.Errorf("openai image task binding is unavailable")
+	}
+	cacheKey := s.openAISessionCacheKey(OpenAIImageTaskSessionHash(taskID, userID, apiKeyID))
+	if cacheKey == "" {
+		return nil, fmt.Errorf("openai image task binding is invalid")
+	}
+	accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), cacheKey)
+	if err != nil || accountID <= 0 {
+		return nil, fmt.Errorf("openai image task binding not found")
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil || account == nil || account.Platform != PlatformOpenAI {
+		return nil, fmt.Errorf("openai image task account not found")
+	}
+	return account, nil
+}
+
+func (s *OpenAIGatewayService) ForwardOpenAIImageTask(ctx context.Context, c *gin.Context, account *Account, taskID string) error {
+	if account == nil || account.Platform != PlatformOpenAI {
+		return fmt.Errorf("openai image task account is invalid")
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return fmt.Errorf("openai image task id is required")
+	}
+
+	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	defer releaseUpstreamCtx()
+	token, _, err := s.GetAccessToken(upstreamCtx, account)
+	if err != nil {
+		return err
+	}
+	baseURL, err := s.validateUpstreamBaseURL(account.GetOpenAIBaseURL())
+	if err != nil {
+		return err
+	}
+	targetURL := buildOpenAIEndpointURL(baseURL, openAIImagesGenerationsEndpoint+"/"+url.PathEscape(taskID))
+	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return err
+	}
+	authHeaders, err := s.buildOpenAIAuthenticationHeaders(upstreamCtx, account, token)
+	if err != nil {
+		return fmt.Errorf("build openai authentication headers: %w", err)
+	}
+	for key, values := range authHeaders {
+		for _, value := range values {
+			upstreamReq.Header.Add(key, value)
+		}
+	}
+	upstreamReq.Header.Set("Accept", "application/json")
+	account.ApplyHeaderOverrides(upstreamReq.Header)
+
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	upstreamStart := time.Now()
+	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
+	if err != nil {
+		return fmt.Errorf("upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+	if err != nil {
+		return err
+	}
+	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	c.Data(resp.StatusCode, contentType, body)
+	return nil
+}
+
 func (s *OpenAIGatewayService) ForwardImages(
 	ctx context.Context,
 	c *gin.Context,
@@ -706,7 +806,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			ImageOutputSizes: imageOutputSizes,
 		}, nil
 	} else {
-		nonStreamUsage, nonStreamCount, nonStreamSizes, err := s.handleOpenAIImagesNonStreamingResponse(resp, c)
+		nonStreamUsage, nonStreamCount, nonStreamSizes, responseID, err := s.handleOpenAIImagesNonStreamingResponse(resp, c)
 		if err != nil {
 			return nil, err
 		}
@@ -716,6 +816,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		}
 		return &OpenAIForwardResult{
 			RequestID:        resp.Header.Get("x-request-id"),
+			ResponseID:       responseID,
 			Usage:            usage,
 			Model:            requestModel,
 			UpstreamModel:    upstreamModel,
@@ -877,10 +978,10 @@ func cloneMultipartHeader(src textproto.MIMEHeader) textproto.MIMEHeader {
 	return dst
 }
 
-func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context) (OpenAIUsage, int, []string, error) {
+func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context) (OpenAIUsage, int, []string, string, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
-		return OpenAIUsage{}, 0, nil, err
+		return OpenAIUsage{}, 0, nil, "", err
 	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := "application/json"
@@ -892,7 +993,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http
 	c.Data(resp.StatusCode, contentType, body)
 
 	usage, _ := extractOpenAIUsageFromJSONBytes(body)
-	return usage, extractOpenAIImageCountFromJSONBytes(body), collectOpenAIResponseImageOutputSizesFromJSONBytes(body), nil
+	return usage, extractOpenAIImageCountFromJSONBytes(body), collectOpenAIResponseImageOutputSizesFromJSONBytes(body), strings.TrimSpace(gjson.GetBytes(body, "id").String()), nil
 }
 
 func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(

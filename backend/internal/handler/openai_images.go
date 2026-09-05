@@ -353,6 +353,15 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			}
 		}
 		if result != nil {
+			if taskID := strings.TrimSpace(result.ResponseID); taskID != "" {
+				if err := h.gatewayService.BindOpenAIImageTaskAccount(requestCtx, apiKey.GroupID, taskID, subject.UserID, apiKey.ID, account.ID); err != nil {
+					reqLog.Error("openai.images.bind_task_account_failed",
+						zap.Int64("account_id", account.ID),
+						zap.String("task_id", taskID),
+						zap.Error(err),
+					)
+				}
+			}
 			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
@@ -410,6 +419,37 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			zap.Int("switch_count", switchCount),
 		)
 		return
+	}
+}
+
+// ImageGenerationTask proxies an asynchronous image task lookup through the
+// same upstream account that accepted the creation request.
+func (h *OpenAIGatewayHandler) ImageGenerationTask(c *gin.Context) {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok {
+		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+		return
+	}
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+		return
+	}
+	taskID := strings.TrimSpace(c.Param("task_id"))
+	if taskID == "" {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "task_id is required")
+		return
+	}
+
+	account, err := h.gatewayService.ResolveOpenAIImageTaskAccount(c.Request.Context(), apiKey.GroupID, taskID, subject.UserID, apiKey.ID)
+	if err != nil {
+		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Image task not found")
+		return
+	}
+	setOpsSelectedAccount(c, account.ID, account.Platform)
+	setOpsEndpointContext(c, "/v1/images/generations/:task_id", int16(service.RequestTypeSync))
+	if err := h.gatewayService.ForwardOpenAIImageTask(c.Request.Context(), c, account, taskID); err != nil && !service.IsResponseCommitted(c) {
+		h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
 	}
 }
 
