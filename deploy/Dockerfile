@@ -18,7 +18,12 @@ ARG GOSUMDB=sum.golang.google.cn
 FROM ${NODE_IMAGE} AS frontend-builder
 
 WORKDIR /app/frontend
-ENV NODE_OPTIONS=--max-old-space-size=1536
+# vue-tsc + vite build 的峰值堆已超过 1536MB：2026-09-07 在 14GB 内存的构建机上
+# 实测 V8 在 ~1530MB 触顶后 FATAL ERROR: Ineffective mark-compacts near heap limit
+# 而中止（SIGABRT / exit 134），整个前端阶段无法完成。这是 V8 的堆上限而非机器
+# 内存不足，故直接抬高上限。根 Dockerfile 不设此变量、用 Node 默认值，所以只有
+# 这个经典 builder 路径会撞上。
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 # Install pnpm. Keep this pinned to the lockfile-compatible major version so
 # Docker builds remain reproducible when pnpm changes config validation rules.
