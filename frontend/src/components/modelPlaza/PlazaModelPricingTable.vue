@@ -1,15 +1,20 @@
 <template>
   <div class="plaza-pricing-table overflow-x-auto" :style="accentStyle">
-    <table class="w-full min-w-[860px] table-fixed border-collapse text-sm tabular-nums">
+    <table
+      class="w-full table-fixed border-collapse text-sm tabular-nums"
+      :class="showOfficial ? 'min-w-[860px]' : 'min-w-[600px]'"
+    >
       <colgroup>
-        <col class="w-[22%]" />
-        <col class="w-[10%]" />
-        <col class="w-[10%]" />
-        <col class="w-[14%]" />
-        <col class="w-[10%]" />
-        <col class="w-[10%]" />
-        <col class="w-[14%]" />
-        <col class="w-[10%]" />
+        <col :class="showOfficial ? 'w-[22%]' : 'w-[28%]'" />
+        <col :class="showOfficial ? 'w-[10%]' : 'w-[17%]'" />
+        <col :class="showOfficial ? 'w-[10%]' : 'w-[15%]'" />
+        <col :class="showOfficial ? 'w-[14%]' : 'w-[25%]'" />
+        <template v-if="showOfficial">
+          <col class="w-[10%]" />
+          <col class="w-[10%]" />
+          <col class="w-[14%]" />
+        </template>
+        <col :class="showOfficial ? 'w-[10%]' : 'w-[15%]'" />
       </colgroup>
       <thead>
         <tr
@@ -28,6 +33,7 @@
             </div>
           </th>
           <th
+            v-if="showOfficial"
             colspan="3"
             class="border-l border-gray-100 pt-2 text-center dark:border-dark-700/60"
           >
@@ -49,11 +55,13 @@
           <th class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.input') }}</th>
           <th class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.output') }}</th>
           <th class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.cache') }}</th>
-          <th class="border-l border-gray-100 px-3 py-2 font-medium dark:border-dark-700/60">
-            {{ t('modelPlaza.table.input') }}
-          </th>
-          <th class="px-3 py-2 font-medium">{{ t('modelPlaza.table.output') }}</th>
-          <th class="px-3 py-2 font-medium">{{ t('modelPlaza.table.cache') }}</th>
+          <template v-if="showOfficial">
+            <th class="border-l border-gray-100 px-3 py-2 font-medium dark:border-dark-700/60">
+              {{ t('modelPlaza.table.input') }}
+            </th>
+            <th class="px-3 py-2 font-medium">{{ t('modelPlaza.table.output') }}</th>
+            <th class="px-3 py-2 font-medium">{{ t('modelPlaza.table.cache') }}</th>
+          </template>
         </tr>
       </thead>
       <tbody>
@@ -148,7 +156,8 @@
             </td>
           </template>
 
-          <!-- 官方价格(LiteLLM 参考价,不乘倍率) -->
+          <!-- 官方价格(LiteLLM 参考价,不乘倍率;默认整列隐藏) -->
+          <template v-if="showOfficial">
           <td
             class="border-l border-gray-100 px-3 py-2.5 align-middle font-mono text-xs text-gray-500 dark:border-dark-700/60 dark:text-dark-400"
           >
@@ -177,6 +186,7 @@
             </div>
             <span v-else class="text-gray-400 dark:text-dark-500">-</span>
           </td>
+          </template>
 
           <!-- 折扣倍率(专属倍率划线展示原倍率) -->
           <td
@@ -215,6 +225,16 @@ const props = defineProps<{
   rateMultiplier: number
   /** 用户专属倍率;与默认不同,实付价按此计算并划线展示原倍率。 */
   userRateMultiplier?: number | null
+  /**
+   * 是否展示官方参考价整列。默认关闭。
+   *
+   * 关闭原因:本站按积分计价(渠道自定义定价直接以积分配置),而官方参考价来自
+   * LiteLLM 目录、单位是 USD/token。两者不同量纲并排展示会让用户按数字直接
+   * 相比,误判加价倍数;该列还会把中转上游的成本价直接暴露给终端用户。
+   *
+   * 传 true 即整列恢复——表头、列宽、单元格都受此开关控制。
+   */
+  showOfficialPricing?: boolean
 }>()
 
 const { t } = useI18n()
@@ -223,6 +243,9 @@ const { t } = useI18n()
 const accentStyle = computed(() => ({ '--plaza-accent': platformAccentColor(props.platform ?? '') }))
 
 const PER_MILLION = 1_000_000
+
+/** 官方参考价列开关,默认关闭;语义见 props.showOfficialPricing。 */
+const showOfficial = computed(() => props.showOfficialPricing === true)
 
 /** 展示顺序:官方输出价从高到低;无官方价的排最后;同价按名称升序。 */
 const sortedModels = computed(() => {
@@ -266,10 +289,13 @@ function paidRequestPrice(value: number | null | undefined): string {
   return formatScaled(value * effectiveRate.value, 1, MIN_DECIMALS)
 }
 
-/** 官方参考价不乘倍率。 */
+/**
+ * 官方参考价不乘倍率,且单位是 USD/token(来自 LiteLLM 目录),
+ * 与实付的积分不同量纲,必须显式按美元格式化。
+ */
 function official(value: number | null | undefined): string {
   if (value == null) return '-'
-  return formatScaled(value, PER_MILLION, MIN_DECIMALS)
+  return formatScaled(value, PER_MILLION, MIN_DECIMALS, 'usd')
 }
 
 /** 非 token 计费的单位后缀:按图片 → “/ 张”,按次 → “/ 次”。 */
