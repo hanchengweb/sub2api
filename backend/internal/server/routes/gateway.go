@@ -94,7 +94,8 @@ func RegisterGatewayRoutes(
 		}
 	}
 	imageUploadHandler := func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok {
+		// Image uploads do not carry a model for composite route resolution.
+		if platform := getGroupPlatform(c); platform == service.PlatformGrok || platform == service.PlatformComposite {
 			h.OpenAIGateway.GrokImageUpload(c)
 			return
 		}

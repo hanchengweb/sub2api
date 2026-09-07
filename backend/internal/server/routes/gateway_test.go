@@ -184,13 +184,20 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesGrokImageUploadIsRegisteredAndGrokOnly(t *testing.T) {
+func TestGatewayRoutesGrokImageUploadIsRegisteredForGrokAndComposite(t *testing.T) {
 	grokRouter := newGatewayRoutesTestRouter(service.PlatformGrok)
 	grokRequest := httptest.NewRequest(http.MethodPost, "/v1/uploads/images", strings.NewReader("image"))
 	grokRequest.Header.Set("Content-Type", "multipart/form-data; boundary=test")
 	grokResponse := httptest.NewRecorder()
 	grokRouter.ServeHTTP(grokResponse, grokRequest)
 	require.NotEqual(t, http.StatusNotFound, grokResponse.Code)
+
+	compositeRouter := newGatewayRoutesTestRouter(service.PlatformComposite)
+	compositeRequest := httptest.NewRequest(http.MethodPost, "/v1/uploads/images", strings.NewReader("image"))
+	compositeRequest.Header.Set("Content-Type", "multipart/form-data; boundary=test")
+	compositeResponse := httptest.NewRecorder()
+	compositeRouter.ServeHTTP(compositeResponse, compositeRequest)
+	require.NotEqual(t, http.StatusNotFound, compositeResponse.Code)
 
 	openAIRouter := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 	openAIRequest := httptest.NewRequest(http.MethodPost, "/v1/uploads/images", strings.NewReader("image"))
