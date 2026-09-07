@@ -244,3 +244,53 @@ func TestListPlazaGroups_CompositeKeepsSameNameAcrossPlatforms(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{"openai", "anthropic"}, platforms)
 }
+
+
+func TestListPlazaGroups_CustomModelsListFiltersDisplay(t *testing.T) {
+	// 分组启用自定义模型列表时,广场只展示白名单内的模型;旧别名仍在渠道定价里
+	// (照常可调用与计费),只是不对外宣传。
+	ch := Channel{
+		ID: 1, Name: "multi", Status: StatusActive, GroupIDs: []int64{30},
+		ModelPricing: []ChannelModelPricing{
+			{Platform: "openai", Models: []string{"t-gpt-image-2", "gpt-image-2"}, InputPrice: testPtrFloat64(3e-6)},
+			{Platform: "openai", Models: []string{"gpt-image-1"}, InputPrice: testPtrFloat64(3e-6)},
+		},
+	}
+	groups := []Group{{
+		ID: 30, Name: "g-composite", Platform: PlatformComposite, RateMultiplier: 1,
+		ModelsListConfig: GroupModelsListConfig{
+			Enabled: true,
+			Models:  []string{"t-gpt-image-2"},
+		},
+	}}
+	svc := newPlazaChannelService([]Channel{ch}, groups, nil)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].Models, 1, "白名单外的模型不应出现在广场")
+	require.Equal(t, "t-gpt-image-2", out[0].Models[0].Name)
+}
+
+func TestListPlazaGroups_CustomModelsListDisabledShowsAll(t *testing.T) {
+	// 未启用(或白名单为空)时不过滤,保持既有行为。
+	mk := func(cfg GroupModelsListConfig) []PlazaGroup {
+		ch := Channel{
+			ID: 1, Name: "multi", Status: StatusActive, GroupIDs: []int64{30},
+			ModelPricing: []ChannelModelPricing{
+				{Platform: "openai", Models: []string{"t-gpt-image-2", "gpt-image-2"}, InputPrice: testPtrFloat64(3e-6)},
+			},
+		}
+		groups := []Group{{ID: 30, Name: "g", Platform: PlatformComposite, RateMultiplier: 1, ModelsListConfig: cfg}}
+		out, err := newPlazaChannelService([]Channel{ch}, groups, nil).ListPlazaGroups(context.Background())
+		require.NoError(t, err)
+		return out
+	}
+
+	// 开关关闭:即使配了名单也不过滤
+	off := mk(GroupModelsListConfig{Enabled: false, Models: []string{"t-gpt-image-2"}})
+	require.Len(t, off[0].Models, 2)
+
+	// 开关打开但名单为空:同样不过滤(避免误配导致整组为空而消失)
+	empty := mk(GroupModelsListConfig{Enabled: true})
+	require.Len(t, empty[0].Models, 2)
+}

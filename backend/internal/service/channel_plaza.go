@@ -58,6 +58,8 @@ type PlazaGroup struct {
 // 平台隔离），仅把顶层从渠道换成分组：
 //   - 渠道按 lower(name) 排序后遍历，保证同名模型去重结果确定；
 //   - 同分组同名模型「先见者胜」，仅当已存条目无定价而新条目有定价时升级替换；
+//   - 分组启用自定义模型列表（ModelsListConfig）时只展示白名单内的模型，与
+//     /v1/models 共用同一份配置；旧别名仍可调用与计费，只是不对外宣传；
 //   - 每个模型附带 LiteLLM 官方参考价（查不到为 nil）；
 //   - 只返回 Models 非空的分组；分组按 RateMultiplier 升序（同倍率按名称），
 //     组内模型按名称排序。
@@ -79,8 +81,21 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 
 	byGroup := make(map[int64]*PlazaGroup, len(groups))
 	order := make([]int64, 0, len(groups))
+	// allowByGroup[groupID] 是该分组自定义模型列表的白名单集合；未启用自定义列表的
+	// 分组不入表，表示不过滤。广场与 /v1/models 共用同一份配置：运营者配一次，
+	// 对外宣传面与客户端可见的模型列表保持一致，不会出现「列表里没有、定价页却在展示」。
+	allowByGroup := make(map[int64]map[string]struct{})
 	for i := range groups {
 		g := groups[i]
+		if g.CustomModelsListEnabled() {
+			allow := make(map[string]struct{}, len(g.ModelsListConfig.Models))
+			for _, m := range g.ModelsListConfig.Models {
+				if m = strings.TrimSpace(m); m != "" {
+					allow[m] = struct{}{}
+				}
+			}
+			allowByGroup[g.ID] = allow
+		}
 		byGroup[g.ID] = &PlazaGroup{
 			ID:                 g.ID,
 			Name:               g.Name,
@@ -122,8 +137,16 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 				idx = make(map[plazaModelKey]int, len(supported))
 				modelIdx[gid] = idx
 			}
+			allow := allowByGroup[gid]
 			for j := range supported {
 				m := supported[j]
+				// 分组启用自定义模型列表时，广场只展示白名单内的模型。旧别名仍可调用
+				// 与计费（渠道定价的 models 数组不受影响），只是不再对外宣传。
+				if allow != nil {
+					if _, ok := allow[m.Name]; !ok {
+						continue
+					}
+				}
 				// Composite 分组本身没有具体平台，按「渠道已配置的具体平台」展开；
 				// 普通分组仍按分组平台隔离。与「可用渠道」页口径一致。
 				if pg.Platform == PlatformComposite {
