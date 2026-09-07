@@ -466,22 +466,22 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	return nil, fmt.Errorf("calculate OpenAI usage cost failed for billing models %s: %w", strings.Join(billingModels, ","), lastErr)
 }
 
-func isGrokVideoBillingModel(model string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "grok-imagine-video")
-}
-
-func isGrokVideoUsageResult(result *OpenAIForwardResult, billingModels []string) bool {
-	if result == nil || result.VideoCount <= 0 {
-		return false
-	}
-	candidates := append([]string{}, billingModels...)
-	candidates = append(candidates, result.BillingModel, result.Model, result.UpstreamModel)
-	for _, candidate := range candidates {
-		if isGrokVideoBillingModel(candidate) {
-			return true
-		}
-	}
-	return false
+// isGrokVideoUsageResult 判断一次转发结果是否属于视频用量。
+//
+// 只看 VideoCount：它仅由 grokMediaUsageFromResponse 在视频生成/编辑/延长三个
+// 端点分支里置 1（参见 grok_media.go），本身就是「这是一次视频请求」的权威信号。
+//
+// 历史坑（2026-09-08 修）：这里原本还要求模型名前缀是 "grok-imagine-video"。
+// 线上实际跑的模型叫 grok-video-1.5，不匹配，导致：
+//  1. 计费分派跳过视频分支，因视频生成会顺带置 ImageCount=1（遗留计数器），
+//     落到图片分支按图计费，分组的 video_price_* 从未生效；
+//  2. usage_logs 的 video_count / video_resolution / video_duration_seconds 全为空；
+//  3. 对视频结果误跑 ApplyOpenAIImageBillingResolution，把 image_size 填成 2K。
+//
+// 三个症状同一根因。再挂一个新名字的视频模型就会重蹈覆辙，所以不再按
+// 厂商名字判定，改由端点判定。
+func isGrokVideoUsageResult(result *OpenAIForwardResult, _ []string) bool {
+	return result != nil && result.VideoCount > 0
 }
 
 func isUsagePricingUnavailableError(err error) bool {
