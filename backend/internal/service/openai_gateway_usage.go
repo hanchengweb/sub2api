@@ -613,7 +613,28 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 		logger.LegacyPrintf("service.openai_gateway", "Calculate video channel cost failed: %v", err)
 	}
 
-	return s.billingService.CalculateVideoCost(billingModel, resolution, videoCount, durationSeconds, groupConfig, multiplier)
+	// 走到这里说明分组与渠道都没给出视频价，CalculateVideoCost 会回落到
+	// getDefaultVideoPrice——而那条路按厂商名前缀匹配（grok-imagine-*），对其他
+	// 命名的视频模型最终会得到 0，也就是白送一段视频。
+	//
+	// 今天只有分组 4 配了视频路由且三档 video_price_* 都有值，打不到这里；
+	// 但新分组只要加了视频路由而忘了配价，就会静默计 0。不改行为（fail-open
+	// 是刻意的安全网），但必须留下可 grep 的痕迹。
+	cost := s.billingService.CalculateVideoCost(billingModel, resolution, videoCount, durationSeconds, groupConfig, multiplier)
+	if cost != nil && cost.TotalCost == 0 && videoCount > 0 {
+		fields := []zap.Field{
+			zap.String("model", billingModel),
+			zap.String("resolution", resolution),
+			zap.Int("duration_seconds", durationSeconds),
+			zap.Int("video_count", videoCount),
+		}
+		if apiKey != nil && apiKey.Group != nil {
+			fields = append(fields, zap.Int64("group_id", apiKey.Group.ID))
+		}
+		logger.L().With(zap.String("component", "service.openai_gateway")).
+			Warn("openai.video.zero_price_billed", fields...)
+	}
+	return cost
 }
 
 func (s *OpenAIGatewayService) apiKeyWithFreshGroupMediaPricing(ctx context.Context, apiKey *APIKey) *APIKey {
