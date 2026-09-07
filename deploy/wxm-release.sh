@@ -37,9 +37,9 @@ VERSION="${WXM_VERSION:-0.1.165}"
 PREFIX="${WXM_TAG_PREFIX:-sub2api:${VERSION}-wxm2}"
 MIRROR="docker.m.daocloud.io/library"
 GO_IMAGE="${WXM_GO_IMAGE:-$MIRROR/golang:1.26.5-alpine}"
-# Go 模块与构建缓存挂持久卷。实测：冷 10m22s~10m53s → 热 9m06s。只省 15%，因为
-# 大头不是下模块而是编译 + 跑测（internal/service 单包 157s）。留着仍值，但别指望
-# 它把关卡变快——真正的解法是下面的「测试与构建并行」。
+# Go 模块与构建缓存挂持久卷。实测：冷 10m22s~10m53s → 热 9m06s，只省 15%。
+# 大头不是下模块而是编译 + 跑测（internal/service 单包 157s）。卷确实在用（模块
+# 868M，构建缓存 2.1G / 约 1 万条目），所以剩下的时间就是真活，不是缓存未命中。
 GO_CACHE_MOUNTS="-v s2a-gomodcache:/go/pkg/mod -v s2a-gobuildcache:/root/.cache/go-build"
 
 ssh_do() { ssh -o ConnectTimeout=20 -o BatchMode=yes "$HOST" "$@"; }
@@ -62,6 +62,13 @@ run_tests() {
   sha=$(git rev-parse --short=9 "$ref")
   work="/tmp/s2a-test-${sha}"
 
+  # 没碰 Go 源码就不用跑：只改前端 / 脚本 / 文档的提交没必要付这九分钟。
+  if [ -z "$(git diff-tree --no-commit-id --name-only -r "$sha" -- 'backend/**/*.go' 'backend/go.mod' 'backend/go.sum')" ]; then
+    echo "== 校验 $sha =="
+    echo "  本提交未改动 Go 源码，跳过单测"
+    return 0
+  fi
+
   echo "== 校验 $sha =="
   ssh_do "rm -rf $work && mkdir -p $work"
   git archive "$sha" --format=tar | ssh_do "tar x -C $work"
@@ -81,8 +88,11 @@ run_tests() {
     echo "  gofmt: ok"
   fi
 
-  echo "  vet + 单测中（实测：冷缓存 10~11 分钟，热缓存 9 分钟）…"
-  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go vet -tags unit ./internal/... && go test -tags unit ./internal/... -count=1' 2>&1       | grep -vE '^go: downloading' | tail -40"; then
+  # 不跑独立的 go vet：go test 自带 vet 子集（printf/bool/atomic 等），而全量 vet
+  # 要把所有包再编一遍；编译错误随后的 Docker 构建一定会抳到。
+  # 实测：带 vet 9m06s → 不带 8m05s。
+  echo "  单测中（约 8 分钟）…"
+  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go test -tags unit ./internal/... -count=1' 2>&1       | grep -vE '^go: downloading' | tail -40"; then
     echo "  校验失败，不发布" >&2
     ssh_do "rm -rf $work"; return 1
   fi
@@ -124,6 +134,22 @@ echo "== 发布 =="
 echo "  提交: $SHA   镜像: $TAG"
 echo "  当前: $(current_image)"
 
+# 计费服务：测试不过就不构建。
+#
+# 曾改成「测试与构建并行」想把墙钟成本压到 0，实测失败：发布全程 20m11s，
+# 几乎等于两者之和。原因是两边都是 Go 工具链、都按核数并行，而这台机器只有
+# 8 核且跑着 20+ 个其他容器——CPU-bound 的活在同一台机上并行不了。
+#
+# 关卡实测成本：改了 Go 源码 8m05s；没改 0.2s（直接跳过）。
+#
+# 串行反而更好：成功路径上两者相当（~20 分钟），失败路径上串行 8 分钟
+# 就能告诉你挂了并直接不构建，并行得等满 20 分钟。
+if [ "${WXM_SKIP_TESTS:-}" = "1" ]; then
+  echo "  ⚠ 已跳过测试（WXM_SKIP_TESTS=1）"
+else
+  run_tests "$SHA" || exit 1
+fi
+
 # 1) 推送源码（独立 ssh，不与构建混在一条命令里）
 ssh_do "rm -rf $WORK $LOG && mkdir -p $WORK"
 git archive "$SHA" --format=tar | ssh_do "tar x -C $WORK"
@@ -139,19 +165,6 @@ ssh_do "cd $WORK && nohup docker build -t '$TAG' \
   -f deploy/Dockerfile . > $LOG 2>&1 &" >/dev/null
 echo "  构建中（约 8~12 分钟）…"
 
-# 3) 测试与构建并行跑。
-#
-# 两者都在服务器上，串行会把发布从 12 分钟拉到 21 分钟，人会开始习惯性地
-# WXM_SKIP_TESTS=1，关卡就形同虚设。并行后测试（9 分钟）藏在构建（8~12 分钟）
-# 后面，墙钟成本几乎为 0。镜像先构好不要紧——测试没过就不换镜像，
-# 构出来的 tag 放着即可。
-TESTS_OK=1
-if [ "${WXM_SKIP_TESTS:-}" = "1" ]; then
-  echo "  ⚠ 已跳过测试（WXM_SKIP_TESTS=1）"
-else
-  run_tests "$SHA" || TESTS_OK=0
-fi
-
 for _ in $(seq 1 60); do
   sleep 20
   if ssh_do "grep -q 'Successfully tagged' $LOG 2>/dev/null"; then break; fi
@@ -162,12 +175,6 @@ for _ in $(seq 1 60); do
 done
 ssh_do "grep -q 'Successfully tagged' $LOG" || { echo "构建超时" >&2; exit 1; }
 echo "  构建完成: $(ssh_do "docker images '$TAG' --format '{{.Size}}'")"
-
-if [ "$TESTS_OK" != "1" ]; then
-  echo "  镜像已构好（$TAG），但测试未过，不换镜像。" >&2
-  echo "  修完重跑；确认无关可配 WXM_SKIP_TESTS=1 强发。" >&2
-  exit 1
-fi
 
 # 3) 备份 compose 并换镜像
 OLD=$(current_image)
