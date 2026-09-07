@@ -25,10 +25,18 @@ type PlazaModel struct {
 	OfficialPricing *PlazaOfficialPricing
 }
 
+// plazaModelKey 是组内模型去重键。带平台是必需的：Composite 分组会展开多个具体
+// 平台，同名模型可能来自不同平台且定价不同，只按名字去重会互相吞掉。
+type plazaModelKey struct {
+	platform string
+	name     string
+}
+
 // PlazaGroup 模型广场中以分组为顶层的条目。
 //
 // 与 AvailableGroupRef 相比多了 Description 与 Models；Models 来自该分组关联渠道的
-// 支持模型（按分组平台隔离，防跨平台泄漏），与「可用渠道」页口径一致。
+// 支持模型（普通分组按分组平台隔离防跨平台泄漏，Composite 分组展开关联渠道已配置
+// 的具体平台），与「可用渠道」页口径一致。
 type PlazaGroup struct {
 	ID                 int64
 	Name               string
@@ -89,8 +97,12 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 		order = append(order, g.ID)
 	}
 
-	// modelIdx[groupID][modelName] = index into byGroup[groupID].Models
-	modelIdx := make(map[int64]map[string]int, len(groups))
+	// modelIdx[groupID][{platform,name}] = index into byGroup[groupID].Models
+	//
+	// 键必须带平台：Composite 分组会同时展开多个具体平台，同一个模型名可能来自
+	// 不同平台且定价不同（如 deepseek-v4-flash 同时配在 openai 与 anthropic 上），
+	// 只按模型名去重会让后者被前者吞掉。
+	modelIdx := make(map[int64]map[plazaModelKey]int, len(groups))
 	for i := range channels {
 		ch := &channels[i]
 		if ch.Status != StatusActive {
@@ -107,22 +119,29 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 			}
 			idx := modelIdx[gid]
 			if idx == nil {
-				idx = make(map[string]int, len(supported))
+				idx = make(map[plazaModelKey]int, len(supported))
 				modelIdx[gid] = idx
 			}
 			for j := range supported {
 				m := supported[j]
-				if m.Platform != pg.Platform {
+				// Composite 分组本身没有具体平台，按「渠道已配置的具体平台」展开；
+				// 普通分组仍按分组平台隔离。与「可用渠道」页口径一致。
+				if pg.Platform == PlatformComposite {
+					if !isConcreteRequestPlatform(m.Platform) {
+						continue
+					}
+				} else if m.Platform != pg.Platform {
 					continue
 				}
-				if at, seen := idx[m.Name]; seen {
+				key := plazaModelKey{platform: m.Platform, name: m.Name}
+				if at, seen := idx[key]; seen {
 					// 先见者胜；仅当已存条目无定价而新条目有定价时升级。
 					if pg.Models[at].Pricing == nil && m.Pricing != nil {
 						pg.Models[at].Pricing = m.Pricing
 					}
 					continue
 				}
-				idx[m.Name] = len(pg.Models)
+				idx[key] = len(pg.Models)
 				pg.Models = append(pg.Models, PlazaModel{
 					Name:     m.Name,
 					Platform: m.Platform,

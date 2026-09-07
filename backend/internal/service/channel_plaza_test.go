@@ -192,3 +192,55 @@ func TestListPlazaGroups_RepoErrorsPropagate(t *testing.T) {
 	require.Nil(t, out2)
 	require.ErrorIs(t, err2, sentinel)
 }
+
+
+func TestListPlazaGroups_CompositeExpandsConcretePlatforms(t *testing.T) {
+	// Composite 分组本身没有具体平台,应展开渠道已配置的所有具体平台;
+	// 非具体平台(如 composite 自身)的定价条目不进广场。
+	ch := Channel{
+		ID: 1, Name: "multi", Status: StatusActive, GroupIDs: []int64{30},
+		ModelPricing: []ChannelModelPricing{
+			{Platform: "openai", Models: []string{"deepseek-v4-flash"}, InputPrice: testPtrFloat64(3e-4)},
+			{Platform: "anthropic", Models: []string{"claude-sonnet"}, InputPrice: testPtrFloat64(3e-6)},
+			{Platform: "grok", Models: []string{"grok-video-1.5"}, InputPrice: testPtrFloat64(1e-6)},
+			{Platform: PlatformComposite, Models: []string{"should-not-appear"}, InputPrice: testPtrFloat64(1e-6)},
+		},
+	}
+	groups := []Group{{ID: 30, Name: "g-composite", Platform: PlatformComposite, RateMultiplier: 1}}
+	svc := newPlazaChannelService([]Channel{ch}, groups, nil)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1, "composite 分组不应因平台不等被整组丢弃")
+
+	names := make([]string, 0, len(out[0].Models))
+	for _, m := range out[0].Models {
+		names = append(names, m.Name)
+	}
+	require.ElementsMatch(t, []string{"claude-sonnet", "deepseek-v4-flash", "grok-video-1.5"}, names)
+	require.NotContains(t, names, "should-not-appear", "非具体平台的条目不应展开")
+}
+
+func TestListPlazaGroups_CompositeKeepsSameNameAcrossPlatforms(t *testing.T) {
+	// 同一模型名配在两个平台上(线上 deepseek-v4-flash 就同时挂 openai 与 anthropic),
+	// 去重键必须带平台,否则后者会被前者吞掉。
+	ch := Channel{
+		ID: 1, Name: "dual", Status: StatusActive, GroupIDs: []int64{30},
+		ModelPricing: []ChannelModelPricing{
+			{Platform: "openai", Models: []string{"deepseek-v4-flash"}, InputPrice: testPtrFloat64(3e-4)},
+			{Platform: "anthropic", Models: []string{"deepseek-v4-flash"}, InputPrice: testPtrFloat64(3e-4)},
+		},
+	}
+	groups := []Group{{ID: 30, Name: "g-composite", Platform: PlatformComposite, RateMultiplier: 1}}
+	svc := newPlazaChannelService([]Channel{ch}, groups, nil)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].Models, 2, "同名模型应按平台各保留一条")
+
+	platforms := make([]string, 0, 2)
+	for _, m := range out[0].Models {
+		require.Equal(t, "deepseek-v4-flash", m.Name)
+		platforms = append(platforms, m.Platform)
+	}
+	require.ElementsMatch(t, []string{"openai", "anthropic"}, platforms)
+}
