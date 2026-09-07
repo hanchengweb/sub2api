@@ -685,9 +685,19 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	if err := validateOpenAIImagesModel(requestModel); err != nil {
 		return nil, err
 	}
+	// 上游真名不再按 gpt-image-*/grok-imagine-* 的命名习惯校验。
+	//
+	// validateOpenAIImagesModel 靠模型名前缀猜「是不是图片模型」，那只对 OpenAI 与
+	// Grok 的命名成立。账号 model_mapping 的值是运营者显式配置的上游真名——配了就
+	// 等于声明「该账号用这个名字服务图片请求」，再用 OpenAI 的命名习惯去否决它，会
+	// 把所有非该命名的图片上游锁在门外（火山方舟 doubao-seedream-*、Gemini image、
+	// nano_banana 等一概接不进来），且无法通过任何配置绕开。
+	//
+	// 对外契约不受影响：用户请求的模型名仍在上面两处（解析期与渠道映射后）校验，
+	// 拿文本模型调图片接口照样返回 400。这里放行的只是运营者自己写的映射目标。
 	upstreamModel := account.GetMappedModel(requestModel)
-	if err := validateOpenAIImagesModel(upstreamModel); err != nil {
-		return nil, err
+	if strings.TrimSpace(upstreamModel) == "" {
+		return nil, fmt.Errorf("images endpoint requires an image model")
 	}
 	logger.LegacyPrintf(
 		"service.openai_gateway",
