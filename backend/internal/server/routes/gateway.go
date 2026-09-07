@@ -94,7 +94,14 @@ func RegisterGatewayRoutes(
 		}
 	}
 	imageUploadHandler := func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok {
+		// Reference-image uploads are multipart payloads that do not carry a model,
+		// so composite groups cannot be resolved by compositeTargetPlatformMiddleware
+		// and would always fall through to 404 even when the group owns a Grok
+		// account. Route them through the Grok handler like video status/content
+		// lookups and let account selection enforce capability: ForwardGrokMedia
+		// rejects any non-Grok account, so a group without one still fails loudly
+		// instead of reaching the wrong upstream.
+		if getGroupPlatform(c) == service.PlatformGrok || getGroupPlatform(c) == service.PlatformComposite {
 			h.OpenAIGateway.GrokImageUpload(c)
 			return
 		}

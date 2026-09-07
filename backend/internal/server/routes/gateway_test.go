@@ -184,20 +184,27 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesGrokImageUploadIsRegisteredAndGrokOnly(t *testing.T) {
-	grokRouter := newGatewayRoutesTestRouter(service.PlatformGrok)
-	grokRequest := httptest.NewRequest(http.MethodPost, "/v1/uploads/images", strings.NewReader("image"))
-	grokRequest.Header.Set("Content-Type", "multipart/form-data; boundary=test")
-	grokResponse := httptest.NewRecorder()
-	grokRouter.ServeHTTP(grokResponse, grokRequest)
-	require.NotEqual(t, http.StatusNotFound, grokResponse.Code)
+func TestGatewayRoutesGrokImageUploadAllowsGrokAndComposite(t *testing.T) {
+	upload := func(platform string) *httptest.ResponseRecorder {
+		router := newGatewayRoutesTestRouter(platform)
+		req := httptest.NewRequest(http.MethodPost, "/v1/uploads/images", strings.NewReader("image"))
+		req.Header.Set("Content-Type", "multipart/form-data; boundary=test")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
 
-	openAIRouter := newGatewayRoutesTestRouter(service.PlatformOpenAI)
-	openAIRequest := httptest.NewRequest(http.MethodPost, "/v1/uploads/images", strings.NewReader("image"))
-	openAIRequest.Header.Set("Content-Type", "multipart/form-data; boundary=test")
-	openAIResponse := httptest.NewRecorder()
-	openAIRouter.ServeHTTP(openAIResponse, openAIRequest)
-	require.Equal(t, http.StatusNotFound, openAIResponse.Code)
+	require.NotEqual(t, http.StatusNotFound, upload(service.PlatformGrok).Code)
+
+	// 上传是 multipart 且不带 model，composite 分组无法被 compositeTargetPlatformMiddleware
+	// 解析出平台；若按分组平台一刀切，持有 Grok 账号的 composite 分组也永远 404。
+	// 与视频状态/内容查询同样处理，由账号选择兜底能力校验。
+	compositeResponse := upload(service.PlatformComposite)
+	require.NotEqual(t, http.StatusNotFound, compositeResponse.Code)
+	require.NotContains(t, compositeResponse.Body.String(), "not supported for this platform")
+
+	// 具体平台仍按能力隔离：openai 分组没有上传能力，照旧 404。
+	require.Equal(t, http.StatusNotFound, upload(service.PlatformOpenAI).Code)
 }
 
 func TestGatewayRoutesCompositeVideoLookupsUseGrokHandler(t *testing.T) {
