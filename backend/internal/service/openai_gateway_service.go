@@ -266,6 +266,10 @@ type OpenAIForwardResult struct {
 	// 上游不返回 usage 字段，>0 时走按次计费（分组单价 × 次数 × 倍率）。
 	WebSearchCalls int
 
+	// TaskFailed 仅在异步媒体任务的状态查询响应上有意义：任务已终态失败。
+	// 提交阶段已全额扣费，调用方据此退回。
+	TaskFailed bool
+
 	wsReplayInput       []json.RawMessage
 	wsReplayInputExists bool
 }

@@ -440,6 +440,20 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				)
 			}
 		}
+		// 视频生成是异步的：提交时已按时长全额扣费，任务随后可能失败，而上游对失败
+		// 任务不计费。状态查询发现终态失败时按原额退回；退款额来自提交阶段的记录，
+		// 取出即删，反复轮询同一失败任务只会退一次。
+		if endpoint.IsVideoLookupRequest() && result.TaskFailed {
+			if credits, refunded := h.gatewayService.RefundOpenAIImageTaskCharge(
+				requestCtx, apiKey.GroupID, requestID, subject.UserID, apiKey.ID,
+			); refunded {
+				reqLog.Info("grok_media.task_failed_refunded",
+					zap.Int64("account_id", account.ID),
+					zap.String("request_id", requestID),
+					zap.Float64("credits", credits),
+				)
+			}
+		}
 		if shouldRecordGrokMediaUsage(endpoint, requestModel) {
 			recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestModel, body, requestID)
 		}

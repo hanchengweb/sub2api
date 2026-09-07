@@ -465,6 +465,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		ImageSize:            usage.ImageSize,
 		ImageInputSize:       usage.ImageInputSize,
 		ImageOutputSizes:     usage.ImageOutputSizes,
+		TaskFailed:           usage.TaskFailed,
 		VideoCount:           usage.VideoCount,
 		VideoResolution:      usage.VideoResolution,
 		VideoDurationSeconds: usage.VideoDurationSeconds,
@@ -807,6 +808,9 @@ type grokMediaUsageMetadata struct {
 	VideoCount           int
 	VideoResolution      string
 	VideoDurationSeconds int
+	// TaskFailed 仅在视频状态查询时有意义：任务已终态失败。
+	// 视频生成是异步的——提交时就已全额扣费，任务随后可能失败，需要据此退款。
+	TaskFailed bool
 }
 
 func grokMediaUsageFromResponse(endpoint GrokMediaEndpoint, requestInfo GrokMediaRequestInfo, responseBody []byte) grokMediaUsageMetadata {
@@ -825,6 +829,9 @@ func grokMediaUsageFromResponse(endpoint GrokMediaEndpoint, requestInfo GrokMedi
 		meta.VideoDurationSeconds = requestInfo.DurationSeconds
 		// Keep the legacy media-unit counter populated for existing usage displays.
 		meta.ImageCount = 1
+	case GrokMediaEndpointVideoStatus:
+		// 状态查询本身不计费，只用来判断是否需要退回提交阶段已扣的积分。
+		meta.TaskFailed = MediaTaskFailedFromBody(responseBody)
 	}
 	return meta
 }

@@ -671,9 +671,9 @@ func (s *OpenAIGatewayService) RefundOpenAIImageTaskCharge(ctx context.Context, 
 	return credits, true
 }
 
-// OpenAIImageTaskFailed 判断异步图片任务的响应体是否表示「已终态失败」。
-// 只认明确的失败终态；pending/running/completed 一律返回 false，避免误退。
-func OpenAIImageTaskFailed(body []byte) bool {
+// MediaTaskFailedFromBody 判断异步媒体任务（图片/视频）的响应体是否表示「已终态失败」。
+// 只认明确的失败终态；pending/running/completed 一律返回 false，避免把还在跑的任务误退。
+func MediaTaskFailedFromBody(body []byte) bool {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return false
 	}
@@ -683,6 +683,9 @@ func OpenAIImageTaskFailed(body []byte) bool {
 	}
 	return false
 }
+
+// OpenAIImageTaskFailed 是 MediaTaskFailedFromBody 在图片任务查询路径上的别名。
+func OpenAIImageTaskFailed(body []byte) bool { return MediaTaskFailedFromBody(body) }
 
 // ForwardOpenAIImageTask 代理异步图片任务的状态查询，并返回上游响应体供调用方判定终态。
 func (s *OpenAIGatewayService) ForwardOpenAIImageTask(ctx context.Context, c *gin.Context, account *Account, taskID string) ([]byte, error) {
