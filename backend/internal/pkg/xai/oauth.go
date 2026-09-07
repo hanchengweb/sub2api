@@ -562,6 +562,18 @@ func BuildImagesEditsURLWithValidator(baseURL string, validator BaseURLValidator
 	return validatedBaseURL + "/images/edits", nil
 }
 
+func BuildUploadsImagesURL(baseURL string) (string, error) {
+	return BuildUploadsImagesURLWithValidator(baseURL, nil)
+}
+
+func BuildUploadsImagesURLWithValidator(baseURL string, validator BaseURLValidator) (string, error) {
+	validatedBaseURL, err := validatedBaseURLWithValidator(baseURL, validator)
+	if err != nil {
+		return "", fmt.Errorf("invalid base url: %w", err)
+	}
+	return validatedBaseURL + "/uploads/images", nil
+}
+
 func BuildVideosGenerationsURL(baseURL string) (string, error) {
 	return BuildVideosGenerationsURLWithValidator(baseURL, nil)
 }

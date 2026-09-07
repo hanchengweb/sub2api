@@ -184,6 +184,22 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesGrokImageUploadIsRegisteredAndGrokOnly(t *testing.T) {
+	grokRouter := newGatewayRoutesTestRouter(service.PlatformGrok)
+	grokRequest := httptest.NewRequest(http.MethodPost, "/v1/uploads/images", strings.NewReader("image"))
+	grokRequest.Header.Set("Content-Type", "multipart/form-data; boundary=test")
+	grokResponse := httptest.NewRecorder()
+	grokRouter.ServeHTTP(grokResponse, grokRequest)
+	require.NotEqual(t, http.StatusNotFound, grokResponse.Code)
+
+	openAIRouter := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+	openAIRequest := httptest.NewRequest(http.MethodPost, "/v1/uploads/images", strings.NewReader("image"))
+	openAIRequest.Header.Set("Content-Type", "multipart/form-data; boundary=test")
+	openAIResponse := httptest.NewRecorder()
+	openAIRouter.ServeHTTP(openAIResponse, openAIRequest)
+	require.Equal(t, http.StatusNotFound, openAIResponse.Code)
+}
+
 func TestGatewayRoutesCompositeVideoLookupsUseGrokHandler(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformComposite)
 

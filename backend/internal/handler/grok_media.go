@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +21,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var errGrokImageUploadTooLarge = errors.New("image file exceeds the 10MB limit")
+
 // GrokImages handles xAI image generation/editing through Grok groups.
 func (h *OpenAIGatewayHandler) GrokImages(c *gin.Context) {
 	endpoint := service.GrokMediaEndpointImagesGenerations
@@ -24,6 +30,11 @@ func (h *OpenAIGatewayHandler) GrokImages(c *gin.Context) {
 		endpoint = service.GrokMediaEndpointImagesEdits
 	}
 	h.handleGrokMedia(c, endpoint, "")
+}
+
+// GrokImageUpload forwards a reference image to the selected Grok media account.
+func (h *OpenAIGatewayHandler) GrokImageUpload(c *gin.Context) {
+	h.handleGrokMedia(c, service.GrokMediaEndpointUploadsImages, "")
 }
 
 // GrokVideoGeneration handles xAI video generation through Grok groups.
@@ -75,13 +86,33 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		zap.Any("group_id", apiKey.GroupID),
 		zap.String("endpoint", string(endpoint)),
 	)
+	contentType := c.GetHeader("Content-Type")
+	var body []byte
+	var err error
+	if endpoint.IsImageUploadRequest() {
+		body, err = pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+		if err != nil {
+			if maxErr, ok := extractMaxBytesError(err); ok {
+				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+				return
+			}
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+			return
+		}
+		if err := validateGrokImageUpload(contentType, body); err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, errGrokImageUploadTooLarge) {
+				status = http.StatusRequestEntityTooLarge
+			}
+			h.errorResponse(c, status, "invalid_request_error", err.Error())
+			return
+		}
+	}
 	if !h.ensureResponsesDependencies(c, reqLog) {
 		return
 	}
 
-	var body []byte
-	var err error
-	if endpoint.RequiresRequestBody() {
+	if endpoint.RequiresRequestBody() && body == nil {
 		body, err = pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 		if err != nil {
 			if maxErr, ok := extractMaxBytesError(err); ok {
@@ -97,7 +128,6 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 	}
 
-	contentType := c.GetHeader("Content-Type")
 	requestInfo := service.ParseGrokMediaRequest(contentType, body)
 	requestModel := requestInfo.Model
 	routingModel := service.NormalizeGrokMediaModelForEndpoint(endpoint, requestModel, requestInfo.HasInputImage())
@@ -110,11 +140,15 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		return
 	}
 
-	reqLog = reqLog.With(zap.String("model", requestModel))
-	setOpsRequestContext(c, requestModel, false)
+	opsModel := requestModel
+	if endpoint.IsImageUploadRequest() {
+		opsModel = routingModel
+	}
+	reqLog = reqLog.With(zap.String("model", opsModel))
+	setOpsRequestContext(c, opsModel, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
 
-	if endpoint.IsGenerationRequest() {
+	if endpoint.RequiresMediaGenerationCapability() {
 		if !service.GroupAllowsImageGeneration(apiKey.Group) {
 			h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 			return
@@ -126,6 +160,8 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				return
 			}
 		}
+	}
+	if endpoint.IsGenerationRequest() {
 		imageReleaseFunc, acquired := h.acquireImageGenerationSlot(c, streamStarted)
 		if !acquired {
 			return
@@ -218,7 +254,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				zap.Error(err),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
-			if endpoint.IsGenerationRequest() && errors.Is(err, service.ErrNoAvailableAccounts) &&
+			if endpoint.RequiresMediaGenerationCapability() && errors.Is(err, service.ErrNoAvailableAccounts) &&
 				(len(failedAccountIDs) == 0 || (mediaEligibilityRejected && lastFailoverErr == nil)) {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				h.errorResponse(c, http.StatusServiceUnavailable, "grok_media_no_eligible_account", "No eligible Grok media accounts")
@@ -240,7 +276,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			return
 		}
 		if selection == nil || selection.Account == nil {
-			if endpoint.IsGenerationRequest() {
+			if endpoint.RequiresMediaGenerationCapability() {
 				markOpsRoutingCapacityLimited(c)
 				h.errorResponse(c, http.StatusServiceUnavailable, "grok_media_no_eligible_account", "No eligible Grok media accounts")
 				return
@@ -271,7 +307,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		)
 
 		account := selection.Account
-		if endpoint.IsGenerationRequest() {
+		if endpoint.RequiresMediaGenerationCapability() {
 			eligible, eligibilityReason, eligibilityErr := h.ensureGrokMediaAccountEligibility(requestCtx, account)
 			if !eligible {
 				mediaEligibilityRejected = true
@@ -415,6 +451,49 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	}
 }
 
+func validateGrokImageUpload(contentType string, body []byte) error {
+	mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(contentType))
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") || strings.TrimSpace(params["boundary"]) == "" {
+		return errors.New("Content-Type must be multipart/form-data")
+	}
+
+	reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+	part, err := reader.NextPart()
+	if errors.Is(err, io.EOF) {
+		return errors.New("file is required")
+	}
+	if err != nil {
+		return errors.New("invalid multipart upload")
+	}
+	defer func() { _ = part.Close() }()
+	if part.FormName() != "file" || strings.TrimSpace(part.FileName()) == "" {
+		return errors.New("exactly one file field is required")
+	}
+
+	image, err := io.ReadAll(io.LimitReader(part, service.GrokMediaImageUploadMaxBytes+1))
+	if err != nil {
+		return errors.New("failed to read image file")
+	}
+	if int64(len(image)) > service.GrokMediaImageUploadMaxBytes {
+		return errGrokImageUploadTooLarge
+	}
+	switch http.DetectContentType(image) {
+	case "image/png", "image/jpeg", "image/webp", "image/gif":
+	default:
+		return errors.New("file must be a PNG, JPEG, WebP, or GIF image")
+	}
+
+	extra, err := reader.NextPart()
+	if err == nil {
+		_ = extra.Close()
+		return errors.New("only one image file is allowed")
+	}
+	if !errors.Is(err, io.EOF) {
+		return errors.New("invalid multipart upload")
+	}
+	return nil
+}
+
 func (h *OpenAIGatewayHandler) ensureGrokMediaAccountEligibility(ctx context.Context, account *service.Account) (bool, string, error) {
 	if account == nil {
 		return false, "missing_account", errors.New("grok media account is required")
@@ -430,7 +509,7 @@ func (h *OpenAIGatewayHandler) ensureGrokMediaAccountEligibility(ctx context.Con
 }
 
 func grokMediaRequiredCapability(endpoint service.GrokMediaEndpoint) service.OpenAIEndpointCapability {
-	if endpoint.IsGenerationRequest() {
+	if endpoint.RequiresMediaGenerationCapability() {
 		return service.OpenAIEndpointCapabilityGrokMediaGeneration
 	}
 	return ""

@@ -30,6 +30,13 @@ const (
 	GrokMediaEndpointVideosExtensions  GrokMediaEndpoint = "videos_extensions"
 	GrokMediaEndpointVideoStatus       GrokMediaEndpoint = "video_status"
 	GrokMediaEndpointVideoContent      GrokMediaEndpoint = "video_content"
+	GrokMediaEndpointUploadsImages     GrokMediaEndpoint = "uploads_images"
+)
+
+const (
+	// GrokMediaImageUploadMaxBytes limits a single reference image upload.
+	GrokMediaImageUploadMaxBytes       int64 = 10 << 20
+	grokMediaImageUploadSchedulerModel       = "grok-imagine-video-1.5"
 )
 
 func (e GrokMediaEndpoint) RequiresRequestBody() bool {
@@ -47,6 +54,14 @@ func (e GrokMediaEndpoint) IsGenerationRequest() bool {
 	default:
 		return false
 	}
+}
+
+func (e GrokMediaEndpoint) IsImageUploadRequest() bool {
+	return e == GrokMediaEndpointUploadsImages
+}
+
+func (e GrokMediaEndpoint) RequiresMediaGenerationCapability() bool {
+	return e.IsGenerationRequest() || e.IsImageUploadRequest()
 }
 
 type GrokMediaRequestInfo struct {
@@ -768,6 +783,8 @@ func (r GrokMediaRequestInfo) HasInputImage() bool {
 func NormalizeGrokMediaModelForEndpoint(endpoint GrokMediaEndpoint, model string, hasInputImage bool) string {
 	model = strings.TrimSpace(model)
 	switch endpoint {
+	case GrokMediaEndpointUploadsImages:
+		return grokMediaImageUploadSchedulerModel
 	case GrokMediaEndpointImagesGenerations, GrokMediaEndpointImagesEdits:
 		if model == "grok-imagine" {
 			return "grok-imagine-image-quality"

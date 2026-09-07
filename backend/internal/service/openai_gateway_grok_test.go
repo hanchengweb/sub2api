@@ -869,6 +869,7 @@ func TestNormalizeGrokMediaModelForEndpoint(t *testing.T) {
 		{name: "image edit alias", endpoint: GrokMediaEndpointImagesEdits, model: "grok-imagine", want: "grok-imagine-image-quality"},
 		{name: "image quality passthrough", endpoint: GrokMediaEndpointImagesGenerations, model: "grok-imagine-image-quality", want: "grok-imagine-image-quality"},
 		{name: "image fast passthrough", endpoint: GrokMediaEndpointImagesGenerations, model: "grok-imagine-image", want: "grok-imagine-image"},
+		{name: "image upload uses video 1.5 scheduler model", endpoint: GrokMediaEndpointUploadsImages, want: grokMediaImageUploadSchedulerModel},
 		{name: "video passthrough", endpoint: GrokMediaEndpointVideosGenerations, model: "grok-imagine-video", want: "grok-imagine-video"},
 		{name: "video 1.5 text-only fallback", endpoint: GrokMediaEndpointVideosGenerations, model: "grok-imagine-video-1.5", want: "grok-imagine-video"},
 		{name: "video 1.5 image-to-video passthrough", endpoint: GrokMediaEndpointVideosGenerations, model: "grok-imagine-video-1.5", hasInputImage: true, want: "grok-imagine-video-1.5"},
@@ -1389,6 +1390,59 @@ func TestForwardGrokMediaVideoMutationEndpoints(t *testing.T) {
 			require.Equal(t, "vendor-video-mutation", result.UpstreamModel)
 		})
 	}
+}
+
+func TestForwardGrokMediaImageUploadPreservesMultipartBody(t *testing.T) {
+	t.Setenv(xai.EnvAllowUnsafeURLOverrides, "true")
+	gin.SetMode(gin.TestMode)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "reference.png")
+	require.NoError(t, err)
+	_, err = part.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	contentType := writer.FormDataContentType()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/uploads/images", bytes.NewReader(body.Bytes()))
+	c.Request.Header.Set("Content-Type", contentType)
+
+	account := &Account{
+		ID: 71, Name: "toapis", Platform: PlatformGrok, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "api-key",
+			"base_url": "https://toapis.test/v1",
+		},
+	}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"url":"https://cdn.toapis.test/uploads/reference.png"}`)),
+	}}
+	svc := &OpenAIGatewayService{httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(),
+		c,
+		account,
+		GrokMediaEndpointUploadsImages,
+		"",
+		body.Bytes(),
+		contentType,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.MethodPost, upstream.lastReq.Method)
+	require.Equal(t, "https://toapis.test/v1/uploads/images", upstream.lastReq.URL.String())
+	require.Equal(t, "Bearer api-key", upstream.lastReq.Header.Get("Authorization"))
+	require.Equal(t, contentType, upstream.lastReq.Header.Get("Content-Type"))
+	require.Equal(t, body.Bytes(), upstream.lastBody)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"url":"https://cdn.toapis.test/uploads/reference.png"}`, recorder.Body.String())
 }
 
 func TestGrokMediaVideoRequestBindingIsScopedToUserAndAPIKey(t *testing.T) {

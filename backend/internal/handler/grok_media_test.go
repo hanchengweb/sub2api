@@ -1,11 +1,17 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,6 +25,74 @@ type grokMediaEligibilityProberStub struct {
 func (s *grokMediaEligibilityProberStub) ProbeMediaEligibility(context.Context, int64) (bool, string, error) {
 	s.calls++
 	return s.eligible, s.reason, s.err
+}
+
+func TestGrokImageUploadRejectsInvalidFilesBeforeGatewayDependencies(t *testing.T) {
+	newMultipart := func(t *testing.T, field, filename string, content []byte) ([]byte, string) {
+		t.Helper()
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		part, err := writer.CreateFormFile(field, filename)
+		require.NoError(t, err)
+		_, err = part.Write(content)
+		require.NoError(t, err)
+		require.NoError(t, writer.Close())
+		return body.Bytes(), writer.FormDataContentType()
+	}
+
+	unsupportedBody, unsupportedContentType := newMultipart(t, "file", "reference.txt", []byte("not an image"))
+	tooLargeBody, tooLargeContentType := newMultipart(
+		t,
+		"file",
+		"reference.png",
+		append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, bytes.Repeat([]byte{0}, int(service.GrokMediaImageUploadMaxBytes))...),
+	)
+
+	tests := []struct {
+		name        string
+		contentType string
+		body        []byte
+		wantStatus  int
+	}{
+		{
+			name:        "non multipart body",
+			contentType: "application/json",
+			body:        []byte(`{"file":"image"}`),
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "unsupported image type",
+			contentType: unsupportedContentType,
+			body:        unsupportedBody,
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "image exceeds ten megabytes",
+			contentType: tooLargeContentType,
+			body:        tooLargeBody,
+			wantStatus:  http.StatusRequestEntityTooLarge,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/uploads/images", bytes.NewReader(tt.body))
+			c.Request.Header.Set("Content-Type", tt.contentType)
+			groupID := int64(1)
+			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+				ID:      1,
+				GroupID: &groupID,
+				Group:   &service.Group{ID: groupID, Platform: service.PlatformGrok},
+			})
+			c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 1})
+
+			(&OpenAIGatewayHandler{}).GrokImageUpload(c)
+
+			require.Equal(t, tt.wantStatus, recorder.Code)
+		})
+	}
 }
 
 func TestShouldRecordGrokMediaUsage(t *testing.T) {
@@ -81,6 +155,7 @@ func TestGrokMediaRequiredCapability(t *testing.T) {
 	}{
 		{name: "image generation", endpoint: service.GrokMediaEndpointImagesGenerations, want: service.OpenAIEndpointCapabilityGrokMediaGeneration},
 		{name: "image edit", endpoint: service.GrokMediaEndpointImagesEdits, want: service.OpenAIEndpointCapabilityGrokMediaGeneration},
+		{name: "image upload", endpoint: service.GrokMediaEndpointUploadsImages, want: service.OpenAIEndpointCapabilityGrokMediaGeneration},
 		{name: "video generation", endpoint: service.GrokMediaEndpointVideosGenerations, want: service.OpenAIEndpointCapabilityGrokMediaGeneration},
 		{name: "video edit", endpoint: service.GrokMediaEndpointVideosEdits, want: service.OpenAIEndpointCapabilityGrokMediaGeneration},
 		{name: "video extension", endpoint: service.GrokMediaEndpointVideosExtensions, want: service.OpenAIEndpointCapabilityGrokMediaGeneration},

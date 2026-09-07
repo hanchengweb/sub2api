@@ -35,6 +35,7 @@ func RegisterGatewayRoutes(
 ) {
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
+	imageUploadBodyLimit := middleware.RequestBodyLimit(service.GrokMediaImageUploadMaxBytes + 64*1024)
 	clientRequestID := middleware.ClientRequestID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
 	endpointNorm := handler.InboundEndpointMiddleware()
@@ -91,6 +92,19 @@ func RegisterGatewayRoutes(
 				},
 			})
 		}
+	}
+	imageUploadHandler := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformGrok {
+			h.OpenAIGateway.GrokImageUpload(c)
+			return
+		}
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Image uploads API is not supported for this platform",
+			},
+		})
 	}
 	videoGenerationHandler := func(c *gin.Context) {
 		if getGroupPlatform(c) == service.PlatformGrok {
@@ -225,6 +239,7 @@ func RegisterGatewayRoutes(
 		gateway.POST("/images/generations", imagesHandler)
 		gateway.GET("/images/generations/:task_id", h.OpenAIGateway.ImageGenerationTask)
 		gateway.POST("/images/edits", imagesHandler)
+		gateway.POST("/uploads/images", imageUploadBodyLimit, imageUploadHandler)
 		gateway.POST("/images/generations/async", h.AsyncImage.Submit)
 		gateway.POST("/images/edits/async", h.AsyncImage.Submit)
 		gateway.GET("/images/tasks/:task_id", h.AsyncImage.Get)
