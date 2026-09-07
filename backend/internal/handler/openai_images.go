@@ -473,6 +473,19 @@ func (h *OpenAIGatewayHandler) ImageGenerationTask(c *gin.Context) {
 				zap.String("task_id", taskID),
 				zap.Float64("credits", credits),
 			)
+		} else {
+			// 没找到可退的扣费记录。这里混了两种情况，当前无法区分：
+			//   良性：客户端重复轮询同一个已退款的失败任务（取出即删，第二次就空）。
+			//   真问题：记录已过 TTL 或 Redis 重启丢失 → 用户为失败任务付了钱且退不回。
+			// 所以要盯的信号是「同一 task_id 首次出现」，而不是这条日志的原始条数。
+			logger.L().With(
+				zap.String("component", "handler.openai_gateway.images"),
+				zap.Int64("user_id", subject.UserID),
+				zap.Int64("api_key_id", apiKey.ID),
+				zap.Int64("account_id", account.ID),
+			).Warn("openai.images.task_failed_no_charge_record",
+				zap.String("task_id", taskID),
+			)
 		}
 	}
 }

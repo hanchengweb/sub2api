@@ -25,11 +25,68 @@ type PlazaModel struct {
 	OfficialPricing *PlazaOfficialPricing
 }
 
-// plazaModelKey 是组内模型去重键。带平台是必需的：Composite 分组会展开多个具体
-// 平台，同名模型可能来自不同平台且定价不同，只按名字去重会互相吞掉。
-type plazaModelKey struct {
-	platform string
-	name     string
+// plazaPricingEquivalent 判断两份定价对用户是否等价。
+//
+// 任一方为 nil 视为等价：nil 表示该渠道没配定价，应当并入同名的已定价
+// 条目，而不是在广场上单开一行「无价格」。
+func plazaPricingEquivalent(a, b *ChannelModelPricing) bool {
+	if a == nil || b == nil {
+		return true
+	}
+	return a.userFacingPricingKey() == b.userFacingPricingKey()
+}
+
+// userFacingPricingKey 生成「用户实际付什么价」的指纹。
+//
+// 只取价格字段，刻意排除 ID / ChannelID / Platform / 时间戳——同一个模型配在
+// 两个协议（如 deepseek-v4-flash 同时挂 openai 与 anthropic）时这些元数据必定不同，
+// 带上它们就永远合并不了。
+func (p *ChannelModelPricing) userFacingPricingKey() string {
+	if p == nil {
+		return ""
+	}
+	var b strings.Builder
+	num := func(f *float64) {
+		if f == nil {
+			b.WriteString("-|")
+			return
+		}
+		fmt.Fprintf(&b, "%.12g|", *f)
+	}
+	b.WriteString(string(p.BillingMode))
+	b.WriteByte('|')
+	for _, f := range []*float64{
+		p.InputPrice, p.OutputPrice, p.CacheWritePrice, p.CacheReadPrice,
+		p.ImageInputPrice, p.ImageOutputPrice, p.PerRequestPrice,
+	} {
+		num(f)
+	}
+
+	// 区间顺序不影响实际报价，排序后再序列化，避免两边区间同集合但存储
+	// 顺序不同时被判为不等价。
+	iv := make([]PricingInterval, len(p.Intervals))
+	copy(iv, p.Intervals)
+	sort.SliceStable(iv, func(i, j int) bool {
+		if iv[i].TierLabel != iv[j].TierLabel {
+			return iv[i].TierLabel < iv[j].TierLabel
+		}
+		return iv[i].MinTokens < iv[j].MinTokens
+	})
+	for k := range iv {
+		in := &iv[k]
+		fmt.Fprintf(&b, "#%s:%d:", in.TierLabel, in.MinTokens)
+		if in.MaxTokens == nil {
+			b.WriteString("-:")
+		} else {
+			fmt.Fprintf(&b, "%d:", *in.MaxTokens)
+		}
+		for _, f := range []*float64{
+			in.InputPrice, in.OutputPrice, in.CacheWritePrice, in.CacheReadPrice, in.PerRequestPrice,
+		} {
+			num(f)
+		}
+	}
+	return b.String()
 }
 
 // PlazaGroup 模型广场中以分组为顶层的条目。
@@ -112,12 +169,14 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 		order = append(order, g.ID)
 	}
 
-	// modelIdx[groupID][{platform,name}] = index into byGroup[groupID].Models
+	// modelIdx[groupID][modelName] = 该名字在 byGroup[groupID].Models 里占的行下标。
 	//
-	// 键必须带平台：Composite 分组会同时展开多个具体平台，同一个模型名可能来自
-	// 不同平台且定价不同（如 deepseek-v4-flash 同时配在 openai 与 anthropic 上），
-	// 只按模型名去重会让后者被前者吞掉。
-	modelIdx := make(map[int64]map[plazaModelKey]int, len(groups))
+	// 一个名字可能占多行：去重按「用户实际付什么价」而不是按平台。
+	//   同名同价（如 deepseek-v4-flash 同时挂 openai 与 anthropic，其实是同一个上游
+	//   的两种调用协议）→ 合并成一行，不在广场上出重复条目。
+	//   同名不同价（不同上游共用一个裸名）→ 保留多行，否则会互相吞掉，
+	//   用户看到的价格取决于渠道遍历顺序。
+	modelIdx := make(map[int64]map[string][]int, len(groups))
 	for i := range channels {
 		ch := &channels[i]
 		if ch.Status != StatusActive {
@@ -134,7 +193,7 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 			}
 			idx := modelIdx[gid]
 			if idx == nil {
-				idx = make(map[plazaModelKey]int, len(supported))
+				idx = make(map[string][]int, len(supported))
 				modelIdx[gid] = idx
 			}
 			allow := allowByGroup[gid]
@@ -156,15 +215,23 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 				} else if m.Platform != pg.Platform {
 					continue
 				}
-				key := plazaModelKey{platform: m.Platform, name: m.Name}
-				if at, seen := idx[key]; seen {
+				rows := idx[m.Name]
+				merged := false
+				for _, at := range rows {
+					if !plazaPricingEquivalent(pg.Models[at].Pricing, m.Pricing) {
+						continue
+					}
 					// 先见者胜；仅当已存条目无定价而新条目有定价时升级。
 					if pg.Models[at].Pricing == nil && m.Pricing != nil {
 						pg.Models[at].Pricing = m.Pricing
 					}
+					merged = true
+					break
+				}
+				if merged {
 					continue
 				}
-				idx[key] = len(pg.Models)
+				idx[m.Name] = append(rows, len(pg.Models))
 				pg.Models = append(pg.Models, PlazaModel{
 					Name:     m.Name,
 					Platform: m.Platform,

@@ -193,7 +193,6 @@ func TestListPlazaGroups_RepoErrorsPropagate(t *testing.T) {
 	require.ErrorIs(t, err2, sentinel)
 }
 
-
 func TestListPlazaGroups_CompositeExpandsConcretePlatforms(t *testing.T) {
 	// Composite 分组本身没有具体平台,应展开渠道已配置的所有具体平台;
 	// 非具体平台(如 composite 自身)的定价条目不进广场。
@@ -220,9 +219,9 @@ func TestListPlazaGroups_CompositeExpandsConcretePlatforms(t *testing.T) {
 	require.NotContains(t, names, "should-not-appear", "非具体平台的条目不应展开")
 }
 
-func TestListPlazaGroups_CompositeKeepsSameNameAcrossPlatforms(t *testing.T) {
-	// 同一模型名配在两个平台上(线上 deepseek-v4-flash 就同时挂 openai 与 anthropic),
-	// 去重键必须带平台,否则后者会被前者吞掉。
+func TestListPlazaGroups_CompositeMergesSameNameSamePrice(t *testing.T) {
+	// 同一个模型挂在两个协议上（线上 deepseek-v4-flash 就同时挂 openai 与 anthropic），
+	// 实质是同一个上游的两种调用协议，价格一样，广场不应该出两行。
 	ch := Channel{
 		ID: 1, Name: "dual", Status: StatusActive, GroupIDs: []int64{30},
 		ModelPricing: []ChannelModelPricing{
@@ -235,16 +234,60 @@ func TestListPlazaGroups_CompositeKeepsSameNameAcrossPlatforms(t *testing.T) {
 	out, err := svc.ListPlazaGroups(context.Background())
 	require.NoError(t, err)
 	require.Len(t, out, 1)
-	require.Len(t, out[0].Models, 2, "同名模型应按平台各保留一条")
-
-	platforms := make([]string, 0, 2)
-	for _, m := range out[0].Models {
-		require.Equal(t, "deepseek-v4-flash", m.Name)
-		platforms = append(platforms, m.Platform)
-	}
-	require.ElementsMatch(t, []string{"openai", "anthropic"}, platforms)
+	require.Len(t, out[0].Models, 1, "同名同价的两个协议应合并成一行")
+	require.Equal(t, "deepseek-v4-flash", out[0].Models[0].Name)
 }
 
+func TestListPlazaGroups_CompositeKeepsSameNameDifferentPrice(t *testing.T) {
+	// 同名不同价必须各留一行：不同上游共用一个裸名时，合并会让用户看到的
+	// 价格取决于渠道遍历顺序——这正是当初把平台加进去重键要防的事。
+	ch := Channel{
+		ID: 1, Name: "dual", Status: StatusActive, GroupIDs: []int64{30},
+		ModelPricing: []ChannelModelPricing{
+			{Platform: "openai", Models: []string{"shared-name"}, InputPrice: testPtrFloat64(3e-4)},
+			{Platform: "anthropic", Models: []string{"shared-name"}, InputPrice: testPtrFloat64(9e-3)},
+		},
+	}
+	groups := []Group{{ID: 30, Name: "g-composite", Platform: PlatformComposite, RateMultiplier: 1}}
+	svc := newPlazaChannelService([]Channel{ch}, groups, nil)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].Models, 2, "同名不同价应各保留一条")
+
+	prices := make([]float64, 0, 2)
+	for _, m := range out[0].Models {
+		require.Equal(t, "shared-name", m.Name)
+		require.NotNil(t, m.Pricing)
+		require.NotNil(t, m.Pricing.InputPrice)
+		prices = append(prices, *m.Pricing.InputPrice)
+	}
+	require.ElementsMatch(t, []float64{3e-4, 9e-3}, prices)
+}
+
+// 区间定价（图片分辨率分层）也必须进入等价判定，否则两个只在 tier 价上
+// 不同的条目会被当成同一行合并掉，用户看到的图片价就错了。
+func TestListPlazaGroups_IntervalPricingParticipatesInDedup(t *testing.T) {
+	mk := func(platform string, per float64) ChannelModelPricing {
+		return ChannelModelPricing{
+			Platform: platform, Models: []string{"img"}, BillingMode: BillingModePerRequest,
+			Intervals: []PricingInterval{{TierLabel: "1K", PerRequestPrice: testPtrFloat64(per)}},
+		}
+	}
+	groups := []Group{{ID: 30, Name: "g-composite", Platform: PlatformComposite, RateMultiplier: 1}}
+
+	same := Channel{ID: 1, Name: "c", Status: StatusActive, GroupIDs: []int64{30},
+		ModelPricing: []ChannelModelPricing{mk("openai", 0.395), mk("anthropic", 0.395)}}
+	out, err := newPlazaChannelService([]Channel{same}, groups, nil).ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out[0].Models, 1, "区间价相同应合并")
+
+	diff := Channel{ID: 1, Name: "c", Status: StatusActive, GroupIDs: []int64{30},
+		ModelPricing: []ChannelModelPricing{mk("openai", 0.395), mk("anthropic", 2.933)}}
+	out, err = newPlazaChannelService([]Channel{diff}, groups, nil).ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out[0].Models, 2, "区间价不同不得合并")
+}
 
 func TestListPlazaGroups_CustomModelsListFiltersDisplay(t *testing.T) {
 	// 分组启用自定义模型列表时,广场只展示白名单内的模型;旧别名仍在渠道定价里

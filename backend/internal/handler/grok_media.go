@@ -452,6 +452,14 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					zap.String("request_id", requestID),
 					zap.Float64("credits", credits),
 				)
+			} else {
+				// 同 openai.images.task_failed_no_charge_record：重复轮询已退款任务（良性）与
+				// 记录过 TTL / Redis 重启丢失（真问题）在这里无法区分，
+				// 盯「同一 request_id 首次出现」而不是原始条数。
+				reqLog.Warn("grok_media.task_failed_no_charge_record",
+					zap.Int64("account_id", account.ID),
+					zap.String("request_id", requestID),
+				)
 			}
 		}
 		if shouldRecordGrokMediaUsage(endpoint, requestModel) {
