@@ -292,6 +292,19 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		usageLog.ActualCost = cost.ActualCost
 		usageLog.LongContextBillingApplied = cost.LongContextBillingApplied
 	}
+	// 异步图片任务：上游返回任务 ID 时本次已全额扣费，但任务随后可能失败（上游对失败
+	// 任务不计费）。这里记下扣了多少，任务查询接口发现终态失败时按此原额退回。
+	// 只对图片计费口径记录：token/视频走同步或另有结算路径。
+	if cost != nil && result.ImageCount > 0 && cost.ActualCost > 0 &&
+		cost.BillingMode != string(BillingModeToken) && apiKey != nil && user != nil {
+		if taskID := strings.TrimSpace(result.ResponseID); taskID != "" {
+			if err := s.BindOpenAIImageTaskCharge(ctx, apiKey.GroupID, taskID, user.ID, apiKey.ID, cost.ActualCost); err != nil {
+				logger.LegacyPrintf("service.openai_gateway",
+					"[OpenAI] bind image task charge failed task=%s user=%d credits=%.6f err=%v",
+					taskID, user.ID, cost.ActualCost, err)
+			}
+		}
+	}
 	if isVideoUsage && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
 		usageLog.RateMultiplier = videoMultiplier
 	} else if result.ImageCount > 0 && (cost == nil || cost.BillingMode != string(BillingModeToken)) {

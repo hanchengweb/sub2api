@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -588,33 +589,129 @@ func (s *OpenAIGatewayService) ResolveOpenAIImageTaskAccount(ctx context.Context
 	return account, nil
 }
 
-func (s *OpenAIGatewayService) ForwardOpenAIImageTask(ctx context.Context, c *gin.Context, account *Account, taskID string) error {
+// openAIImageChargeScale 把积分金额编码成 int64 存进会话缓存（该缓存只存 int64）。
+// 1e6 的精度远超积分的实际最小单位，不会有可见的舍入。
+const openAIImageChargeScale = 1e6
+
+// OpenAIImageTaskChargeHash 是「任务扣费额」的缓存键，与任务→账号绑定分属不同键空间，
+// 互不覆盖。
+func OpenAIImageTaskChargeHash(taskID string, userID, apiKeyID int64) string {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" || userID <= 0 || apiKeyID <= 0 {
+		return ""
+	}
+	return "openai-image-charge:" + DeriveSessionHashFromSeed(fmt.Sprintf("%d:%d:%s", userID, apiKeyID, taskID))
+}
+
+// BindOpenAIImageTaskCharge 记录某个异步图片任务实际扣掉的积分，供任务失败时原额退回。
+//
+// 图片走异步：网关在上游返回 200（任务 pending）时就已全额扣费，而任务可能在之后失败，
+// 上游对失败任务不计费。没有这条记录就无从知道该退多少，用户会为失败的任务付钱。
+func (s *OpenAIGatewayService) BindOpenAIImageTaskCharge(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64, credits float64) error {
+	if s == nil || s.cache == nil {
+		return fmt.Errorf("openai image charge cache is unavailable")
+	}
+	cacheKey := s.openAISessionCacheKey(OpenAIImageTaskChargeHash(taskID, userID, apiKeyID))
+	if cacheKey == "" {
+		return fmt.Errorf("openai image charge binding is invalid")
+	}
+	scaled := int64(math.Round(credits * openAIImageChargeScale))
+	if scaled <= 0 {
+		// 未扣费（或小到无法表示）的任务没有可退金额，不占缓存。
+		return nil
+	}
+	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), cacheKey, scaled, openAIImageTaskBindingTTL)
+}
+
+// TakeOpenAIImageTaskCharge 取出并立即删除扣费记录，返回可退积分。
+//
+// 「取出即删」是退款的幂等保证：客户端会反复轮询同一个失败任务，只有第一次能拿到金额，
+// 后续轮询取不到，因此不会重复退款。
+func (s *OpenAIGatewayService) TakeOpenAIImageTaskCharge(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64) (float64, bool) {
+	if s == nil || s.cache == nil {
+		return 0, false
+	}
+	cacheKey := s.openAISessionCacheKey(OpenAIImageTaskChargeHash(taskID, userID, apiKeyID))
+	if cacheKey == "" {
+		return 0, false
+	}
+	gid := derefGroupID(groupID)
+	scaled, err := s.cache.GetSessionAccountID(ctx, gid, cacheKey)
+	if err != nil || scaled <= 0 {
+		return 0, false
+	}
+	if delErr := s.cache.DeleteSessionAccountID(ctx, gid, cacheKey); delErr != nil {
+		// 删不掉就不退：宁可漏退一笔，也不能因为并发轮询重复退款。
+		return 0, false
+	}
+	return float64(scaled) / openAIImageChargeScale, true
+}
+
+// RefundOpenAIImageTaskCharge 把失败任务的扣费原额退回用户余额，并使余额缓存失效。
+// 返回是否实际发生了退款。
+func (s *OpenAIGatewayService) RefundOpenAIImageTaskCharge(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64) (float64, bool) {
+	if s == nil || s.userRepo == nil {
+		return 0, false
+	}
+	credits, ok := s.TakeOpenAIImageTaskCharge(ctx, groupID, taskID, userID, apiKeyID)
+	if !ok || credits <= 0 {
+		return 0, false
+	}
+	if err := s.userRepo.UpdateBalance(ctx, userID, credits); err != nil {
+		logger.LegacyPrintf("service.openai_gateway",
+			"[OpenAI] image task refund failed task=%s user=%d credits=%.6f err=%v", taskID, userID, credits, err)
+		return 0, false
+	}
+	if s.billingCacheService != nil {
+		if err := s.billingCacheService.InvalidateUserBalance(ctx, userID); err != nil {
+			logger.LegacyPrintf("service.openai_gateway",
+				"[OpenAI] invalidate balance cache after image refund failed user=%d err=%v", userID, err)
+		}
+	}
+	return credits, true
+}
+
+// OpenAIImageTaskFailed 判断异步图片任务的响应体是否表示「已终态失败」。
+// 只认明确的失败终态；pending/running/completed 一律返回 false，避免误退。
+func OpenAIImageTaskFailed(body []byte) bool {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "status").String())) {
+	case "failed", "failure", "error", "cancelled", "canceled":
+		return true
+	}
+	return false
+}
+
+// ForwardOpenAIImageTask 代理异步图片任务的状态查询，并返回上游响应体供调用方判定终态。
+func (s *OpenAIGatewayService) ForwardOpenAIImageTask(ctx context.Context, c *gin.Context, account *Account, taskID string) ([]byte, error) {
 	if account == nil || account.Platform != PlatformOpenAI {
-		return fmt.Errorf("openai image task account is invalid")
+		return nil, fmt.Errorf("openai image task account is invalid")
 	}
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
-		return fmt.Errorf("openai image task id is required")
+		return nil, fmt.Errorf("openai image task id is required")
 	}
 
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	defer releaseUpstreamCtx()
 	token, _, err := s.GetAccessToken(upstreamCtx, account)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	baseURL, err := s.validateUpstreamBaseURL(account.GetOpenAIBaseURL())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	targetURL := buildOpenAIEndpointURL(baseURL, openAIImagesGenerationsEndpoint+"/"+url.PathEscape(taskID))
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodGet, targetURL, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	authHeaders, err := s.buildOpenAIAuthenticationHeaders(upstreamCtx, account, token)
 	if err != nil {
-		return fmt.Errorf("build openai authentication headers: %w", err)
+		return nil, fmt.Errorf("build openai authentication headers: %w", err)
 	}
 	for key, values := range authHeaders {
 		for _, value := range values {
@@ -632,12 +729,12 @@ func (s *OpenAIGatewayService) ForwardOpenAIImageTask(ctx context.Context, c *gi
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
-		return fmt.Errorf("upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
+		return nil, fmt.Errorf("upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
@@ -645,7 +742,7 @@ func (s *OpenAIGatewayService) ForwardOpenAIImageTask(ctx context.Context, c *gi
 		contentType = "application/json"
 	}
 	c.Data(resp.StatusCode, contentType, body)
-	return nil
+	return body, nil
 }
 
 func (s *OpenAIGatewayService) ForwardImages(

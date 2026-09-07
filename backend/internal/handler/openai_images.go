@@ -448,8 +448,32 @@ func (h *OpenAIGatewayHandler) ImageGenerationTask(c *gin.Context) {
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	setOpsEndpointContext(c, "/v1/images/generations/:task_id", int16(service.RequestTypeSync))
-	if err := h.gatewayService.ForwardOpenAIImageTask(c.Request.Context(), c, account, taskID); err != nil && !service.IsResponseCommitted(c) {
-		h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
+	body, err := h.gatewayService.ForwardOpenAIImageTask(c.Request.Context(), c, account, taskID)
+	if err != nil {
+		if !service.IsResponseCommitted(c) {
+			h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
+		}
+		return
+	}
+	// 任务终态失败时退回提交阶段已扣的积分。
+	//
+	// 图片走异步：上游返回任务 ID（pending）时网关就已全额扣费，而上游对失败任务不
+	// 计费——不退的话用户会为一张没生成出来的图付钱。退款金额来自提交时记录的实际
+	// 扣费额，取出即删，所以客户端反复轮询同一个失败任务也只会退一次。
+	if service.OpenAIImageTaskFailed(body) {
+		if credits, refunded := h.gatewayService.RefundOpenAIImageTaskCharge(
+			c.Request.Context(), apiKey.GroupID, taskID, subject.UserID, apiKey.ID,
+		); refunded {
+			logger.L().With(
+				zap.String("component", "handler.openai_gateway.images"),
+				zap.Int64("user_id", subject.UserID),
+				zap.Int64("api_key_id", apiKey.ID),
+				zap.Int64("account_id", account.ID),
+			).Info("openai.images.task_failed_refunded",
+				zap.String("task_id", taskID),
+				zap.Float64("credits", credits),
+			)
+		}
 	}
 }
 
