@@ -556,6 +556,8 @@ export default {
       paidPrice: 'Your Price (Discounted)',
       officialPrice: 'Official Price',
       rate: 'Rate',
+      // Paid price is in credits (CNY 1 = 100 credits); only the official reference price is USD.
+      unitPerMillionPaid: 'credits / 1M tokens',
       unitPerMillion: '$ / 1M tokens',
       perUnitRequest: '/ request',
       perUnitImage: '/ image',

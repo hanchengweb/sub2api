@@ -29,7 +29,8 @@
           <th colspan="3" class="pz-bg pt-2 text-center">
             <div class="pz-title border-b pb-2 font-semibold">
               {{ t('modelPlaza.table.paidPrice') }}
-              <span class="pz-unit ml-1 normal-case font-normal">{{ t('modelPlaza.table.unitPerMillion') }}</span>
+              <!-- 实付列是积分，官方价列才是美元，不能共用同一个单位键。 -->
+              <span class="pz-unit ml-1 normal-case font-normal">{{ t('modelPlaza.table.unitPerMillionPaid') }}</span>
             </div>
           </th>
           <th
