@@ -174,6 +174,19 @@ type UsageBillingRepository interface {
 	ReleaseBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	BindMediaTaskCharge(ctx context.Context, cmd *MediaTaskChargeCommand) error
 	TakeMediaTaskCharge(ctx context.Context, taskKey string) (float64, bool, error)
+	// TakeMediaTaskChargeByTaskID 按上游 task_id 取出可退金额。
+	//
+	// Webhook 只带 task_id，而 task_key 是 hash(user_id, api_key_id, task_id)，
+	// 从 task_id 无法反推，所以要另外一条按 task_id 的取款路径。
+	TakeMediaTaskChargeByTaskID(ctx context.Context, taskID string) (*MediaTaskChargeTaken, error)
+	// RecordWebhookEventOnce 写入事件幂等记录；返回 false 表示该事件已处理过。
+	RecordWebhookEventOnce(ctx context.Context, provider, eventID, eventType, taskID string) (bool, error)
+}
+
+// MediaTaskChargeTaken 一笔被取出的扣费记录。需要 UserID 才知道退给谁。
+type MediaTaskChargeTaken struct {
+	UserID  int64
+	Credits float64
 }
 
 // MediaTaskChargeCommand 记录异步媒体任务（图片 / 视频）已扣掉的积分，
@@ -183,6 +196,7 @@ type UsageBillingRepository interface {
 // 而上游对失败任务不计费。没有这条记录就无从知道该退多少。
 type MediaTaskChargeCommand struct {
 	TaskKey  string // hash(userID, apiKeyID, taskID)
+	TaskID   string // 上游原始 task_id；Webhook 只带它，不存就反查不到
 	UserID   int64
 	APIKeyID int64
 	GroupID  *int64
@@ -194,4 +208,5 @@ func (c *MediaTaskChargeCommand) Normalize() {
 		return
 	}
 	c.TaskKey = strings.TrimSpace(c.TaskKey)
+	c.TaskID = strings.TrimSpace(c.TaskID)
 }

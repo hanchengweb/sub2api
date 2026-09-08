@@ -579,17 +579,17 @@ func (r *usageBillingRepository) BindMediaTaskCharge(ctx context.Context, cmd *s
 	}
 
 	const bindSQL = `
-		INSERT INTO media_task_charges (task_key, user_id, api_key_id, group_id, credits)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO media_task_charges (task_key, task_id, user_id, api_key_id, group_id, credits)
+		VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6)
 		ON CONFLICT (task_key) DO UPDATE
-		SET credits = EXCLUDED.credits
+		SET credits = EXCLUDED.credits, task_id = EXCLUDED.task_id
 		WHERE media_task_charges.refunded_at IS NULL
 	`
 	var groupID any
 	if cmd.GroupID != nil && *cmd.GroupID > 0 {
 		groupID = *cmd.GroupID
 	}
-	_, err := r.db.ExecContext(ctx, bindSQL, cmd.TaskKey, cmd.UserID, cmd.APIKeyID, groupID, cmd.Credits)
+	_, err := r.db.ExecContext(ctx, bindSQL, cmd.TaskKey, cmd.TaskID, cmd.UserID, cmd.APIKeyID, groupID, cmd.Credits)
 	return err
 }
 
@@ -630,4 +630,76 @@ func (r *usageBillingRepository) TakeMediaTaskCharge(ctx context.Context, taskKe
 		return 0, false, err
 	}
 	return credits, credits > 0, nil
+}
+
+// TakeMediaTaskChargeByTaskID 按上游 task_id 原子「取出并标记已退」。
+//
+// 与 TakeMediaTaskCharge 同一幂等语义，只是查找维度不同：Webhook 只带 task_id，
+// 而 task_key 是 hash(user_id, api_key_id, task_id)，无法反推。
+// 返回 nil 表示没有可退记录（未知任务、已退过、或该任务本就没扣费）。
+func (r *usageBillingRepository) TakeMediaTaskChargeByTaskID(ctx context.Context, taskID string) (*service.MediaTaskChargeTaken, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("usage billing repository db is nil")
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, nil
+	}
+
+	const takeSQL = `
+		UPDATE media_task_charges
+		SET refunded_at = NOW()
+		WHERE task_id = $1 AND refunded_at IS NULL
+		RETURNING user_id, credits
+	`
+	rows, err := r.db.QueryContext(ctx, takeSQL, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	var taken service.MediaTaskChargeTaken
+	if err := rows.Scan(&taken.UserID, &taken.Credits); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if taken.Credits <= 0 || taken.UserID <= 0 {
+		return nil, nil
+	}
+	return &taken, nil
+}
+
+// RecordWebhookEventOnce 记录一次 Webhook 事件，返回该事件是否为首次处理。
+//
+// 上游是「至少一次」投递：同一事件重试时 event id 不变。必须先落这条记录再执行退款，
+// 否则一次重投就是一次重复退款。ON CONFLICT DO NOTHING 让并发重投里只有一条能拿到 true。
+func (r *usageBillingRepository) RecordWebhookEventOnce(ctx context.Context, provider, eventID, eventType, taskID string) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, errors.New("usage billing repository db is nil")
+	}
+	provider = strings.TrimSpace(provider)
+	eventID = strings.TrimSpace(eventID)
+	if provider == "" || eventID == "" {
+		return false, errors.New("webhook event provider/id is required")
+	}
+
+	const insertSQL = `
+		INSERT INTO webhook_events (provider, event_id, event_type, task_id)
+		VALUES ($1, $2, $3, NULLIF($4, ''))
+		ON CONFLICT (provider, event_id) DO NOTHING
+	`
+	result, err := r.db.ExecContext(ctx, insertSQL, provider, eventID, eventType, strings.TrimSpace(taskID))
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
 }

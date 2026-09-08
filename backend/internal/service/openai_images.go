@@ -626,6 +626,7 @@ func (s *OpenAIGatewayService) BindOpenAIImageTaskCharge(ctx context.Context, gr
 	if s.usageBillingRepo != nil {
 		return s.usageBillingRepo.BindMediaTaskCharge(ctx, &MediaTaskChargeCommand{
 			TaskKey:  taskKey,
+			TaskID:   strings.TrimSpace(taskID),
 			UserID:   userID,
 			APIKeyID: apiKeyID,
 			GroupID:  groupID,
@@ -1893,4 +1894,56 @@ func dedupeStrings(values []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+// RefundMediaTaskChargeByTaskID 按上游 task_id 退回失败任务的扣费，供 Webhook 使用。
+//
+// 与 RefundOpenAIImageTaskCharge 的区别只在查找维度：Webhook 只带 task_id，拿不到
+// userID/apiKeyID，因此没法拼出 task_key。退给谁由扣费记录里的 user_id 决定。
+//
+// 返回 (退款积分, 用户 ID, 是否真的退了)。取不到记录不是错误：未知任务、已退过、
+// 或该任务本就没扣费（如上游即时失败）都会走到这里。
+func (s *OpenAIGatewayService) RefundMediaTaskChargeByTaskID(ctx context.Context, taskID string) (float64, int64, bool) {
+	if s == nil || s.userRepo == nil || s.usageBillingRepo == nil {
+		return 0, 0, false
+	}
+	taken, err := s.usageBillingRepo.TakeMediaTaskChargeByTaskID(ctx, taskID)
+	if err != nil {
+		logger.LegacyPrintf("service.openai_gateway",
+			"[OpenAI] take media task charge by task_id failed task=%s err=%v", taskID, err)
+		// 查库出错就不退：宁可漏退一笔，也不能在状态未知时重复退款。
+		return 0, 0, false
+	}
+	if taken == nil {
+		return 0, 0, false
+	}
+	if err := s.userRepo.RefundBalance(ctx, taken.UserID, taken.Credits); err != nil {
+		logger.LegacyPrintf("service.openai_gateway",
+			"[OpenAI] media task refund failed task=%s user=%d credits=%.6f err=%v",
+			taskID, taken.UserID, taken.Credits, err)
+		return 0, 0, false
+	}
+	if s.billingCacheService != nil {
+		if err := s.billingCacheService.InvalidateUserBalance(ctx, taken.UserID); err != nil {
+			logger.LegacyPrintf("service.openai_gateway",
+				"[OpenAI] invalidate balance cache after media refund failed user=%d err=%v", taken.UserID, err)
+		}
+	}
+	return taken.Credits, taken.UserID, true
+}
+
+// RecordWebhookEventOnce 透出给 handler 做事件幂等判定。
+func (s *OpenAIGatewayService) RecordWebhookEventOnce(ctx context.Context, provider, eventID, eventType, taskID string) (bool, error) {
+	if s == nil || s.usageBillingRepo == nil {
+		return false, fmt.Errorf("usage billing repository is unavailable")
+	}
+	return s.usageBillingRepo.RecordWebhookEventOnce(ctx, provider, eventID, eventType, taskID)
+}
+
+// ToAPIsWebhookConfig 透传设置读取，避免 handler 为了拿密钥再多注入一个依赖。
+func (s *OpenAIGatewayService) ToAPIsWebhookConfig(ctx context.Context) (bool, []string) {
+	if s == nil || s.settingService == nil {
+		return false, nil
+	}
+	return s.settingService.ToAPIsWebhookConfig(ctx)
 }

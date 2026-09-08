@@ -520,3 +520,11 @@ func (r *fakeBatchImageBillingRepo) BindMediaTaskCharge(_ context.Context, _ *Me
 func (r *fakeBatchImageBillingRepo) TakeMediaTaskCharge(_ context.Context, _ string) (float64, bool, error) {
 	return 0, false, nil
 }
+
+func (r *fakeBatchImageBillingRepo) TakeMediaTaskChargeByTaskID(_ context.Context, _ string) (*MediaTaskChargeTaken, error) {
+	return nil, nil
+}
+
+func (r *fakeBatchImageBillingRepo) RecordWebhookEventOnce(_ context.Context, _, _, _, _ string) (bool, error) {
+	return true, nil
+}
