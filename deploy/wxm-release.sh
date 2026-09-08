@@ -99,9 +99,13 @@ run_tests() {
   # 这是 2026-09-08 推退款持久化时撞上的：编译都没过，关卡却说通过。
   # 不用 set -o pipefail：镜像里是 busybox ash，该选项并非处处可用。
   #
-  # 失败时滤掉 ok/无测试的包只留错误，而不是 tail：包多的时候真正的失败行
-  # 会被几十行 ok 挤出去，只剩一个孤零零的 FAIL，得重跑才能定位。
-  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go test -tags unit ./internal/... -count=1 > /tmp/gotest.log 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then tail -5 /tmp/gotest.log; else grep -vE \"^(ok|\?|go: downloading)\" /tmp/gotest.log | head -40; fi; exit \$rc'"; then
+  # 失败时先只拿 FAIL/编译错误行，而不是「滤掉 ok 剩下的全要」。
+  #
+  # 滤 ok 还不够：部分用例会向 stdout 打大量日志（如 [test] pre_check: …），
+  # 同样会把 FAIL 行挤出窗口。先精确抛 FAIL/--- FAIL/“# 包名”（编译错误头），
+  # 再跟一段原始尾巴供看断言详情。这个坑踩了两次：第一次是 tail 被 ok 挤掉，
+  # 改成滤 ok 后又被用例自身的日志挤掉。
+  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go test -tags unit ./internal/... -count=1 > /tmp/gotest.log 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then tail -5 /tmp/gotest.log; else echo '--- 失败摘要 ---'; grep -E \"^(FAIL|--- FAIL|# )\" /tmp/gotest.log | head -25; echo '--- 尾巴详情 ---'; grep -vE \"^(ok |\?|go: downloading)\" /tmp/gotest.log | tail -25; fi; exit \$rc'"; then
     echo "  校验失败，不发布" >&2
     ssh_do "rm -rf $work"; return 1
   fi
