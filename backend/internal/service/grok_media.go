@@ -307,11 +307,17 @@ func (s *OpenAIGatewayService) BindGrokMediaVideoRequestAccount(
 	if cacheKey == "" || accountID <= 0 {
 		return fmt.Errorf("grok video request binding is invalid")
 	}
-	ttl := openaiStickySessionTTL
-	if s.cfg != nil && s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds > 0 {
-		ttl = time.Duration(s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds) * time.Second
-	}
-	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), cacheKey, accountID, ttl)
+	// 绑定寿命必须与扣费记录对齐，不能用粘性会话的 1 小时。
+	//
+	// 这不是一个调度粘性绑定，而是「这个异步任务属于谁」的归属记录：状态查询靠它
+	// 找回原账号，失败退款也靠它才能走到。原先用 openaiStickySessionTTL（1 小时），
+	// 而扣费记录是 24 小时（现已落库，永久）——两者差一个量级，后果是：
+	// 任务提交满 1 小时后再去查状态，归属已过期 → 接口返回 404 → 失败任务
+	// 的钱永远退不了，而扣费记录还好端端地躺在库里。
+	//
+	// 2026-09-08 实例：13:08 提交的视频上游失败（toAPI 收费 0），我们扣了 185 积分；
+	// 15:23 去查状态时绑定已于 14:08 过期，拿到 redis: nil，退款无从触发。
+	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), cacheKey, accountID, openAIImageTaskBindingTTL)
 }
 
 func (s *OpenAIGatewayService) ResolveGrokMediaVideoRequestAccount(
