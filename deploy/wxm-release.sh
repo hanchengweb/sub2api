@@ -105,7 +105,7 @@ run_tests() {
   # 同样会把 FAIL 行挤出窗口。先精确抛 FAIL/--- FAIL/“# 包名”（编译错误头），
   # 再跟一段原始尾巴供看断言详情。这个坑踩了两次：第一次是 tail 被 ok 挤掉，
   # 改成滤 ok 后又被用例自身的日志挤掉。
-  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go test -tags unit ./internal/... -count=1 > /tmp/gotest.log 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then tail -5 /tmp/gotest.log; else echo '--- 失败摘要 ---'; grep -E \"^(FAIL|--- FAIL|# )\" /tmp/gotest.log | head -25; echo '--- 尾巴详情 ---'; grep -vE \"^(ok |\?|go: downloading)\" /tmp/gotest.log | tail -25; fi; exit \$rc'"; then
+  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go test -tags unit ./internal/... -count=1 > /tmp/gotest.log 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then tail -5 /tmp/gotest.log; else echo \"--- FAIL summary ---\"; grep -E \"^(FAIL|--- FAIL|# )\" /tmp/gotest.log | head -25; echo \"--- tail ---\"; grep -vE \"^(ok |\?|go: downloading)\" /tmp/gotest.log | tail -25; fi; exit \$rc'"; then
     echo "  校验失败，不发布" >&2
     ssh_do "rm -rf $work"; return 1
   fi
