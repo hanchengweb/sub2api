@@ -580,7 +580,7 @@ export default {
         dailyLimit: 'Daily Limit',
         balanceRechargeMultiplier: 'Balance Recharge Multiplier',
         balanceRechargeMultiplierHint: 'How much balance the user receives for each ￥1 paid',
-        balanceRechargePreview: 'Preview: pay ￥1, receive {usd} balance',
+        balanceRechargePreview: 'Preview: pay ￥1, receive {credits} credits',
         subscriptionUsdToCnyRate: 'Subscription USD to CNY Rate',
         subscriptionUsdToCnyRateHint:
           'CNY charged per 1 USD of plan price on CNY channels (e.g. 7.15). 0 or empty = disabled, plan price is charged as-is. When enabled, all plan prices must be set in USD',

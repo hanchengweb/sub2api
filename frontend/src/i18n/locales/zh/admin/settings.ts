@@ -575,7 +575,7 @@ export default {
         dailyLimit: '每日限额',
         balanceRechargeMultiplier: '余额充值倍率',
         balanceRechargeMultiplierHint: '用户每支付 ￥1 可获得多少余额',
-        balanceRechargePreview: '预览：支付 ￥1，到账 {usd} 余额',
+        balanceRechargePreview: '预览：支付 ￥1，到账 {credits} 积分',
         subscriptionUsdToCnyRate: '订阅 CNY 换算汇率',
         subscriptionUsdToCnyRateHint:
           'CNY 支付通道下，套餐每 1 USD 价格收取多少 CNY（如 7.15）。0 或留空 = 不换算，订阅按 price 数值直接收款。启用后所有套餐 price 必须按 USD 定价',
