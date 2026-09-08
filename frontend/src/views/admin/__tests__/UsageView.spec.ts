@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 
 import UsageView from '../UsageView.vue'
 
@@ -122,6 +123,8 @@ const GroupDistributionChartStub = {
 
 describe('admin UsageView distribution metric toggles', () => {
   beforeEach(() => {
+    // UsageView 读 adminSettings store 拿积分↔¥ 换算率（成本列按 ¥ 展示）。
+    setActivePinia(createPinia())
     vi.useFakeTimers()
     list.mockReset()
     getStats.mockReset()
@@ -246,6 +249,8 @@ describe('admin UsageView distribution metric toggles', () => {
 
 describe('admin UsageView handleUserClick', () => {
   beforeEach(() => {
+    // UsageView 读 adminSettings store 拿积分↔¥ 换算率（成本列按 ¥ 展示）。
+    setActivePinia(createPinia())
     vi.useFakeTimers()
     list.mockReset()
     getStats.mockReset()
@@ -303,6 +308,8 @@ describe('admin UsageView handleUserClick', () => {
 
 describe('admin UsageView errors tab filter forwarding', () => {
   beforeEach(() => {
+    // UsageView 读 adminSettings store 拿积分↔¥ 换算率（成本列按 ¥ 展示）。
+    setActivePinia(createPinia())
     vi.useFakeTimers()
     list.mockReset()
     getStats.mockReset()
@@ -361,6 +368,8 @@ describe('admin UsageView errors tab filter forwarding', () => {
 
 describe('admin UsageView ranking tab', () => {
   beforeEach(() => {
+    // UsageView 读 adminSettings store 拿积分↔¥ 换算率（成本列按 ¥ 展示）。
+    setActivePinia(createPinia())
     vi.useFakeTimers()
     list.mockReset()
     getStats.mockReset()

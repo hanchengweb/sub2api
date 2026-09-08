@@ -270,6 +270,40 @@ export function formatNumberLocaleString(num: number): string {
 }
 
 /**
+ * 把积分换算成人民币展示（管理端的成本口径）。
+ *
+ * 成本是我们付给上游的真金白银，不是积分——toAPI 不收我们的积分。
+ * 把供应商成本挂在积分上，等于把一个既成事实（付了多少钱）绑到一个可变参数
+ * （积分汇率）上：改汇率那天，所有历史成本记录会静默变错。
+ *
+ * @param credits 积分数
+ * @param creditsPerUnit 每元对应多少积分（后端 BALANCE_RECHARGE_MULTIPLIER）
+ */
+export function formatCreditsAsMoney(
+  credits: number | null | undefined,
+  creditsPerUnit: number,
+  fractionDigits: number = 2
+): string {
+  const safe = credits === null || credits === undefined || !Number.isFinite(credits) ? 0 : credits
+  const rate = Number.isFinite(creditsPerUnit) && creditsPerUnit > 0 ? creditsPerUnit : 100
+  return `￥${(safe / rate).toFixed(fractionDigits)}`
+}
+
+/**
+ * 毛利率（百分比，无单位）。收入与成本同为积分时直接相除，不涉及汇率。
+ * 收入为 0 时返回 null（而不是 0%）：没有收入就谈不上毛利。
+ */
+export function grossMarginPercent(
+  revenueCredits: number | null | undefined,
+  costCredits: number | null | undefined
+): number | null {
+  const rev = Number(revenueCredits)
+  const cost = Number(costCredits)
+  if (!Number.isFinite(rev) || rev <= 0 || !Number.isFinite(cost)) return null
+  return ((rev - cost) / rev) * 100
+}
+
+/**
  * 格式化积分（带单位后缀）。
  *
  * 积分是平台内部的计费单位：充值 ¥1 得 100 积分

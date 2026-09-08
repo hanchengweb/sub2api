@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" />
+      <UsageStatsCards :stats="usageStats" :credits-per-currency-unit="adminSettingsStore.creditsPerCurrencyUnit" />
       <!-- Charts Section -->
       <div class="space-y-4">
         <div class="card p-4">
@@ -24,6 +24,7 @@
         </div>
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ModelDistributionChart
+            :credits-per-currency-unit="adminSettingsStore.creditsPerCurrencyUnit"
             v-model:source="modelDistributionSource"
             v-model:metric="modelDistributionMetric"
             :model-stats="requestedModelStats"
@@ -37,6 +38,7 @@
             :filters="breakdownFilters"
           />
           <GroupDistributionChart
+            :credits-per-currency-unit="adminSettingsStore.creditsPerCurrencyUnit"
             v-model:metric="groupDistributionMetric"
             :group-stats="groupStats"
             :loading="chartsLoading"
@@ -182,6 +184,7 @@
 </template>
 
 <script setup lang="ts">
+import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
@@ -205,6 +208,7 @@ import EndpointDistributionChart from '@/components/charts/EndpointDistributionC
 import Icon from '@/components/icons/Icon.vue'
 import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
 
+const adminSettingsStore = useAdminSettingsStore()
 const { t } = useI18n()
 const appStore = useAppStore()
 type DistributionMetric = 'tokens' | 'actual_cost'

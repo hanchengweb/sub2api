@@ -66,10 +66,13 @@
         <p class="text-xs font-medium text-gray-500">{{ t('usage.totalCost') }}</p>
         <p class="text-xl font-bold text-green-600">
           {{ (stats?.total_actual_cost || 0).toFixed(4) }} {{ t('common.creditUnit') }}
+          <span class="text-sm font-normal text-gray-400">({{ formatCreditsAsMoney(stats?.total_actual_cost, creditsPerCurrencyUnit) }})</span>
         </p>
         <p class="text-xs text-gray-400">
           <template v-if="showAccountCost && totalAccountCost != null">
-            <span class="text-orange-500">{{ t('usage.accountCost') }} {{ totalAccountCost.toFixed(4) }} {{ t('common.creditUnit') }}</span>
+            <!-- 成本是付给上游的人民币，不是积分；毛利率无单位，最不容易看错。 -->
+            <span class="text-orange-500">{{ t('usage.accountCost') }} {{ formatCreditsAsMoney(totalAccountCost, creditsPerCurrencyUnit) }}</span>
+            <span v-if="marginPercent != null" class="text-emerald-500"> · {{ marginPercent.toFixed(1) }}%</span>
             <span> · </span>
           </template>
           <span>
@@ -89,6 +92,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatCreditsAsMoney, grossMarginPercent } from '@/utils/format'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AdminUsageStatsResponse } from '@/api/admin/usage'
@@ -96,15 +100,25 @@ import type { UsageStatsResponse } from '@/types'
 import Icon from '@/components/icons/Icon.vue'
 
 const props = withDefaults(defineProps<{
+  /** 每元对应多少积分（后端 BALANCE_RECHARGE_MULTIPLIER），用于把上游成本换回 ¥ 展示。 */
+  creditsPerCurrencyUnit?: number
   stats: (AdminUsageStatsResponse | UsageStatsResponse) | null
   showAccountCost?: boolean
   strikeStandardCost?: boolean
 }>(), {
+  // 默认 100 仅作兵底（¥1 = 100 积分）。展示成本的管理端页面必须传入真实配置值；
+  // 用户侧页面不展示成本（showAccountCost=false），用不上这个值。
+  creditsPerCurrencyUnit: 100,
   showAccountCost: true,
   strikeStandardCost: false,
 })
 
 const { t } = useI18n()
+
+// 毛利率：收入与成本同为积分，直接相除，不涉及汇率。
+const marginPercent = computed(() =>
+  grossMarginPercent((props.stats as { total_actual_cost?: number } | null)?.total_actual_cost, totalAccountCost.value)
+)
 
 const totalAccountCost = computed(() => {
   const stats = props.stats as (AdminUsageStatsResponse & { total_account_cost?: number }) | null

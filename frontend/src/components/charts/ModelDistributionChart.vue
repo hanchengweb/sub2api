@@ -146,7 +146,7 @@
                   {{ formatCost(model.actual_cost) }} {{ t('common.creditUnit') }}
                 </td>
                 <td v-if="showAccountCost" class="py-1.5 text-right text-orange-500 dark:text-orange-400">
-                  {{ formatCost(model.account_cost) }} {{ t('common.creditUnit') }}
+                  {{ formatCreditsAsMoney(model.account_cost, creditsPerCurrencyUnit) }}
                 </td>
                 <td class="py-1.5 text-right text-gray-400 dark:text-gray-500">
                   {{ formatCost(model.cost) }} {{ t('common.creditUnit') }}
@@ -243,6 +243,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatCreditsAsMoney } from '@/utils/format'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
@@ -260,6 +261,8 @@ type DistributionMetric = 'tokens' | 'actual_cost'
 type ModelSource = 'requested' | 'upstream' | 'mapping'
 type RankingDisplayItem = UserSpendingRankingItem & { isOther?: boolean }
 const props = withDefaults(defineProps<{
+  /** 每元对应多少积分（后端 BALANCE_RECHARGE_MULTIPLIER），用于把上游成本换回 ¥ 展示。 */
+  creditsPerCurrencyUnit?: number
   modelStats: ModelStat[]
   upstreamModelStats?: ModelStat[]
   mappingModelStats?: ModelStat[]
@@ -281,6 +284,9 @@ const props = withDefaults(defineProps<{
   endDate?: string
   filters?: Record<string, any>
 }>(), {
+  // 默认 100 仅作兵底（¥1 = 100 积分）。展示成本的管理端页面必须传入真实配置值；
+  // 用户侧页面不展示成本（showAccountCost=false），用不上这个值。
+  creditsPerCurrencyUnit: 100,
   upstreamModelStats: () => [],
   mappingModelStats: () => [],
   source: 'requested',

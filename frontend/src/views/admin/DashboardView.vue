@@ -120,7 +120,7 @@
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >{{ formatCost(stats.today_account_cost) }}</span
+                    >{{ formatCreditsAsMoney(stats.today_account_cost, adminSettingsStore.creditsPerCurrencyUnit) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
@@ -156,7 +156,7 @@
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >{{ formatCost(stats.total_account_cost) }}</span
+                    >{{ formatCreditsAsMoney(stats.total_account_cost, adminSettingsStore.creditsPerCurrencyUnit) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
@@ -300,6 +300,7 @@
           <!-- Charts Grid -->
           <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <ModelDistributionChart
+              :credits-per-currency-unit="adminSettingsStore.creditsPerCurrencyUnit"
               :model-stats="modelStats"
               :enable-ranking-view="true"
               :ranking-items="rankingItems"
@@ -341,11 +342,15 @@
 </template>
 
 <script setup lang="ts">
+import { useAdminSettingsStore } from '@/stores/adminSettings'
+import { formatCreditsAsMoney } from '@/utils/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 
+// 成本是付给上游的人民币，不是积分；换算率从后端配置读，不写死。
+const adminSettingsStore = useAdminSettingsStore()
 const { t } = useI18n()
 import { adminAPI } from '@/api/admin'
 import type {

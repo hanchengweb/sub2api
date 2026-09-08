@@ -49,6 +49,10 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
   const opsRealtimeMonitoringEnabled = ref(readCachedBool('ops_realtime_monitoring_enabled_cached', true))
   const opsQueryModeDefault = ref(readCachedString('ops_query_mode_default_cached', 'auto'))
   const paymentEnabled = ref(readCachedBool('payment_enabled_cached', false))
+  // 积分↔人民币的换算率（后端 BALANCE_RECHARGE_MULTIPLIER，充 ¥1 得多少积分）。
+  // 管理端把上游成本换回 ¥ 展示时需要它。不能写死 100：这个率是可改的，
+  // 写死了改率那天所有金额都会静默错。
+  const creditsPerCurrencyUnit = ref(Number(readCachedString('credits_per_currency_unit_cached', '100')) || 100)
   const customMenuItems = ref<CustomMenuItem[]>([])
 
   async function fetch(force = false): Promise<void> {
@@ -74,6 +78,12 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
 
       paymentEnabled.value = paymentConfigResp.data?.enabled ?? false
       writeCachedBool('payment_enabled_cached', paymentEnabled.value)
+
+      const multiplier = Number(paymentConfigResp.data?.balance_recharge_multiplier)
+      if (Number.isFinite(multiplier) && multiplier > 0) {
+        creditsPerCurrencyUnit.value = multiplier
+        writeCachedString('credits_per_currency_unit_cached', String(multiplier))
+      }
 
       loaded.value = true
     } catch (err) {
@@ -140,6 +150,7 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
     opsRealtimeMonitoringEnabled,
     opsQueryModeDefault,
     paymentEnabled,
+    creditsPerCurrencyUnit,
     customMenuItems,
     fetch,
     setOpsMonitoringEnabledLocal,
