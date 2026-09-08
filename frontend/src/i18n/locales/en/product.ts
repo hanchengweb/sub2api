@@ -10,7 +10,7 @@ export default {
       section: 'Products',
       accountSection: 'Account',
       experience: 'Online Experience',
-      modelPlaza: 'Model Plaza',
+      modelPlaza: 'Model Pricing',
       pricing: 'Pricing',
       console: 'Console',
       apiKeys: 'API Keys'
@@ -61,7 +61,7 @@ export default {
       groups: 'Billing groups',
       platforms: 'Platforms',
       catalogTitle: 'Model price catalog',
-      catalogHint: 'Prices come from the live Model Plaza configuration. Gateway billing records determine actual charges.',
+      catalogHint: 'Prices come from the live Model Pricing configuration. Gateway billing records determine actual charges.',
       loadFailed: 'Failed to load the price catalog. Try again later.'
     }
   }

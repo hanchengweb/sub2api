@@ -520,9 +520,9 @@ export default {
     }
   },
 
-  // Model Plaza (public group/model pricing showcase)
+  // Model Pricing (public group/model pricing showcase)
   modelPlaza: {
-    title: 'Model Plaza',
+    title: 'Model Pricing',
     description: 'Browse available models and pricing by group',
     loading: 'Loading...',
     empty: 'No groups to display',

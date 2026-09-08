@@ -10,7 +10,7 @@ export default {
       section: '产品',
       accountSection: '账户',
       experience: '在线体验',
-      modelPlaza: '模型广场',
+      modelPlaza: '模型定价',
       pricing: '定价',
       console: '控制台',
       apiKeys: 'API 密钥'
@@ -61,7 +61,7 @@ export default {
       groups: '计费分组',
       platforms: '模型平台',
       catalogTitle: '模型价格目录',
-      catalogHint: '价格由后台模型广场配置实时提供，实际扣费以网关计费记录为准。',
+      catalogHint: '价格由后台模型定价配置实时提供，实际扣费以网关计费记录为准。',
       loadFailed: '加载价格目录失败，请稍后重试。'
     }
   }
