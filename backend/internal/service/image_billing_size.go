@@ -68,6 +68,25 @@ func NormalizeImageBillingTierOrDefault(size string) string {
 	return ImageBillingSize2K
 }
 
+// ResolveImageBillingTier 按「上游实际按哪个字段计费」判定图片档位。
+//
+// 两套口径共存：
+//
+//	OpenAI：size 就是像素尺寸（"1024x1024"），没有 resolution。
+//	toAPI：size 是宽高比（"1:1"），档位在 resolution（"1k"）。
+//
+// resolution 能解析时优先，因为那正是上游拿来计费的字段；两者矛盾时跟着上游走才不会错账。
+// 都解析不出则回落 2K 默认。
+//
+// 不加这个回落时，客户端传 resolution="1k" 会因为 size="1:1" 解析不出像素而
+// 默认成 2K：上游按 1K 收我们的钱，我们却按 2K 收用户的钱。
+func ResolveImageBillingTier(size, resolution string) string {
+	if tier, ok := ClassifyImageBillingTier(resolution); ok {
+		return tier
+	}
+	return NormalizeImageBillingTierOrDefault(size)
+}
+
 func ResolveImageBillingSize(inputSize string, outputSizes []string) ImageBillingSizeResolution {
 	inputSize = strings.TrimSpace(inputSize)
 	outputSizes = compactTrimmedStrings(outputSizes)
