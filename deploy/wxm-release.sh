@@ -42,7 +42,34 @@ GO_IMAGE="${WXM_GO_IMAGE:-$MIRROR/golang:1.26.5-alpine}"
 # 868M，构建缓存 2.1G / 约 1 万条目），所以剩下的时间就是真活，不是缓存未命中。
 GO_CACHE_MOUNTS="-v s2a-gomodcache:/go/pkg/mod -v s2a-gobuildcache:/root/.cache/go-build"
 
+# 构建缓存清理的磁盘占用阈值（%）。超过就全清，否则只清 24 小时前的。
+DISK_PRUNE_THRESHOLD="${WXM_DISK_PRUNE_THRESHOLD:-80}"
+
 ssh_do() { ssh -o ConnectTimeout=20 -o BatchMode=yes "$HOST" "$@"; }
+
+disk_used_percent() { ssh_do "df -h / | tail -1 | awk '{print \$5}' | tr -d '%'"; }
+
+# prune_build_cache 发布成功后维护构建缓存。
+#
+# 为什么需要：一天二十来次完整构建（前端 npm + Go 全量编译）能堆出 77GB
+# 缓存，2026-09-08 就把磁盘从 84% 顶到 92%。这台机器还跑着 23 个其它容器。
+#
+# 为什么不每次全清：全清后下次构建全冷，白白多花几分钟。常规只清 24 小时
+# 未用的，当天的缓存留着；只有磁盘真的吃紧了才全清。
+#
+# 只动构建缓存，绝不碰镜像：docker image prune -a 会把旧的 sub2api 镜像一并
+# 删掉，回滚就没了退路；这台机上还有其它服务的镜像。
+prune_build_cache() {
+  local used
+  used=$(disk_used_percent)
+  echo "  磁盘占用: ${used}%"
+  ssh_do "docker builder prune -f --filter until=24h 2>&1 | tail -1" | sed 's/^/  /'
+  if [ "${used:-0}" -ge "$DISK_PRUNE_THRESHOLD" ]; then
+    echo "  超过 ${DISK_PRUNE_THRESHOLD}% 阈值，清空全部构建缓存"
+    ssh_do "docker builder prune -a -f 2>&1 | tail -1" | sed 's/^/  /'
+  fi
+  ssh_do "df -h / | tail -1 | awk '{printf \"  清理后: %s / %s (%s)\n\", \$3, \$2, \$5}'"
+}
 
 current_image() { ssh_do "grep -m1 -oE 'sub2api:[^[:space:]]+' $STACK/docker-compose.yml"; }
 
@@ -205,5 +232,10 @@ fi
 ssh_do "docker ps --filter name=^sub2api\$ --format '  {{.Image}}  {{.Status}}'"
 ssh_do "curl -s -o /dev/null -w '  /health: %{http_code}\n' http://127.0.0.1:18082/health"
 ssh_do "rm -rf $WORK $LOG"
+
+# 只在发布成功后清理：失败/回滚时留着缓存，重试才快。
+echo "== 构建缓存维护 =="
+prune_build_cache
+
 echo "== 完成 =="
 echo "  回滚: $0 rollback"
