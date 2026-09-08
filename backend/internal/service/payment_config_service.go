@@ -343,38 +343,72 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 			return infraerrors.BadRequest("INVALID_RECHARGE_FEE_RATE", "recharge fee rate allows at most 2 decimal places")
 		}
 	}
-	m := map[string]string{
-		SettingPaymentEnabled:                    formatBoolOrEmpty(req.Enabled),
-		SettingMinRechargeAmount:                 formatPositiveFloat(req.MinAmount),
-		SettingMaxRechargeAmount:                 formatPositiveFloat(req.MaxAmount),
-		SettingDailyRechargeLimit:                formatPositiveFloat(req.DailyLimit),
-		SettingOrderTimeoutMinutes:               formatPositiveInt(req.OrderTimeoutMin),
-		SettingMaxPendingOrders:                  formatPositiveInt(req.MaxPendingOrders),
-		SettingBalancePayDisabled:                formatBoolOrEmpty(req.BalanceDisabled),
-		SettingBalanceRechargeMult:               formatPositiveFloat(req.BalanceRechargeMultiplier),
-		SettingSubscriptionUSDToCNYRate:          formatPositiveFloatExact(req.SubscriptionUSDToCNYRate),
-		SettingRechargeFeeRate:                   formatNonNegativeFloat(req.RechargeFeeRate),
-		SettingLoadBalanceStrategy:               derefStr(req.LoadBalanceStrategy),
-		SettingProductNamePrefix:                 derefStr(req.ProductNamePrefix),
-		SettingProductNameSuffix:                 derefStr(req.ProductNameSuffix),
-		SettingHelpImageURL:                      derefStr(req.HelpImageURL),
-		SettingHelpText:                          derefStr(req.HelpText),
-		SettingCancelRateLimitOn:                 formatBoolOrEmpty(req.CancelRateLimitEnabled),
-		SettingCancelRateLimitMax:                formatPositiveInt(req.CancelRateLimitMax),
-		SettingCancelWindowSize:                  formatPositiveInt(req.CancelRateLimitWindow),
-		SettingCancelWindowUnit:                  derefStr(req.CancelRateLimitUnit),
-		SettingCancelWindowMode:                  derefStr(req.CancelRateLimitMode),
-		SettingAlipayForceQRCode:                 formatBoolOrEmpty(req.AlipayForceQRCode),
-		SettingAlipayMobilePrecreateDeepLink:     formatBoolOrEmpty(req.AlipayMobilePrecreateDeepLink),
-		SettingPaymentVisibleMethodAlipaySource:  derefStr(req.VisibleMethodAlipaySource),
-		SettingPaymentVisibleMethodWxpaySource:   derefStr(req.VisibleMethodWxpaySource),
-		SettingPaymentVisibleMethodAlipayEnabled: formatBoolOrEmpty(req.VisibleMethodAlipayEnabled),
-		SettingPaymentVisibleMethodWxpayEnabled:  formatBoolOrEmpty(req.VisibleMethodWxpayEnabled),
+	// 只写入本次请求实际提供的字段。
+	//
+	// 原先这里无条件构造全量 map（约 26 项）写库，未提供的字段经
+	// formatBoolOrEmpty / formatPositiveFloat / derefStr 变成空串——于是一个只带
+	// 单字段的 PUT 会静默清掉其余所有支付设置。2026-09-07 就是这么把生产的
+	// payment_enabled、支付方式、最小充值额全写空的（充值入口因此消失），
+	// 请求体里只有 {"balance_recharge_multiplier":100}。
+	//
+	// 区分「未提供」与「显式清空」：指针为 nil = 本次不碰该项；指针非 nil 但值
+	// 为 0/空 = 管理员确实想清掉它，照写。
+	m := map[string]string{}
+	putBool := func(key string, v *bool) {
+		if v != nil {
+			m[key] = formatBoolOrEmpty(v)
+		}
 	}
+	putStr := func(key string, v *string) {
+		if v != nil {
+			m[key] = derefStr(v)
+		}
+	}
+	putFloat := func(key string, v *float64, f func(*float64) string) {
+		if v != nil {
+			m[key] = f(v)
+		}
+	}
+	putInt := func(key string, v *int) {
+		if v != nil {
+			m[key] = formatPositiveInt(v)
+		}
+	}
+
+	putBool(SettingPaymentEnabled, req.Enabled)
+	putFloat(SettingMinRechargeAmount, req.MinAmount, formatPositiveFloat)
+	putFloat(SettingMaxRechargeAmount, req.MaxAmount, formatPositiveFloat)
+	putFloat(SettingDailyRechargeLimit, req.DailyLimit, formatPositiveFloat)
+	putInt(SettingOrderTimeoutMinutes, req.OrderTimeoutMin)
+	putInt(SettingMaxPendingOrders, req.MaxPendingOrders)
+	putBool(SettingBalancePayDisabled, req.BalanceDisabled)
+	putFloat(SettingBalanceRechargeMult, req.BalanceRechargeMultiplier, formatPositiveFloat)
+	putFloat(SettingSubscriptionUSDToCNYRate, req.SubscriptionUSDToCNYRate, formatPositiveFloatExact)
+	putFloat(SettingRechargeFeeRate, req.RechargeFeeRate, formatNonNegativeFloat)
+	putStr(SettingLoadBalanceStrategy, req.LoadBalanceStrategy)
+	putStr(SettingProductNamePrefix, req.ProductNamePrefix)
+	putStr(SettingProductNameSuffix, req.ProductNameSuffix)
+	putStr(SettingHelpImageURL, req.HelpImageURL)
+	putStr(SettingHelpText, req.HelpText)
+	putBool(SettingCancelRateLimitOn, req.CancelRateLimitEnabled)
+	putInt(SettingCancelRateLimitMax, req.CancelRateLimitMax)
+	putInt(SettingCancelWindowSize, req.CancelRateLimitWindow)
+	putStr(SettingCancelWindowUnit, req.CancelRateLimitUnit)
+	putStr(SettingCancelWindowMode, req.CancelRateLimitMode)
+	putBool(SettingAlipayForceQRCode, req.AlipayForceQRCode)
+	putBool(SettingAlipayMobilePrecreateDeepLink, req.AlipayMobilePrecreateDeepLink)
+	putStr(SettingPaymentVisibleMethodAlipaySource, req.VisibleMethodAlipaySource)
+	putStr(SettingPaymentVisibleMethodWxpaySource, req.VisibleMethodWxpaySource)
+	putBool(SettingPaymentVisibleMethodAlipayEnabled, req.VisibleMethodAlipayEnabled)
+	putBool(SettingPaymentVisibleMethodWxpayEnabled, req.VisibleMethodWxpayEnabled)
+
+	// EnabledTypes 是 slice 不是指针：nil = 未提供（不碰），[]string{} = 显式清空。
 	if req.EnabledTypes != nil {
 		m[SettingEnabledPaymentTypes] = strings.Join(req.EnabledTypes, ",")
-	} else {
-		m[SettingEnabledPaymentTypes] = ""
+	}
+
+	if len(m) == 0 {
+		return nil
 	}
 	return s.settingRepo.SetMultiple(ctx, m)
 }
