@@ -109,6 +109,12 @@ type UserRepository interface {
 
 	UpdateBalance(ctx context.Context, id int64, amount float64) error
 	DeductBalance(ctx context.Context, id int64, amount float64) error
+	// RefundBalance 把错扣的钱退回余额，不计入累计充值。
+	//
+	// 不能用 UpdateBalance：它在 amount > 0 时会顺带 AddTotalRecharged，把退款当成一笔
+	// 新充值。total_recharged 驱动百分比制的低余额提醒阈值（resolveBalanceThreshold），
+	// 被退款抬高后会提前告警。
+	RefundBalance(ctx context.Context, id int64, amount float64) error
 	UpdateConcurrency(ctx context.Context, id int64, amount int) error
 	BatchSetConcurrency(ctx context.Context, userIDs []int64, value int) (int, error)
 	BatchAddConcurrency(ctx context.Context, userIDs []int64, delta int) (int, error)

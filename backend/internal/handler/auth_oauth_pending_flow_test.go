@@ -3164,6 +3164,14 @@ func (r *oauthPendingFlowUserRepo) UpdateBalance(ctx context.Context, userID int
 	return client.User.UpdateOneID(userID).AddBalance(amount).Exec(ctx)
 }
 
+func (r *oauthPendingFlowUserRepo) RefundBalance(ctx context.Context, userID int64, amount float64) error {
+	client := r.client
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		client = tx.Client()
+	}
+	return client.User.UpdateOneID(userID).AddBalance(amount).Exec(ctx)
+}
+
 func (r *oauthPendingFlowUserRepo) DeductBalance(context.Context, int64, float64) error {
 	panic("unexpected DeductBalance call")
 }

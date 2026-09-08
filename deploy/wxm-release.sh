@@ -98,7 +98,10 @@ run_tests() {
   # 成功），go test 的失败被吞掉——关卡在测试 FAIL 时依然打印「校验通过」并放行。
   # 这是 2026-09-08 推退款持久化时撞上的：编译都没过，关卡却说通过。
   # 不用 set -o pipefail：镜像里是 busybox ash，该选项并非处处可用。
-  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go test -tags unit ./internal/... -count=1 > /tmp/gotest.log 2>&1; rc=\$?; grep -vE \"^go: downloading\" /tmp/gotest.log | tail -40; exit \$rc'"; then
+  #
+  # 失败时滤掉 ok/无测试的包只留错误，而不是 tail：包多的时候真正的失败行
+  # 会被几十行 ok 挤出去，只剩一个孤零零的 FAIL，得重跑才能定位。
+  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go test -tags unit ./internal/... -count=1 > /tmp/gotest.log 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then tail -5 /tmp/gotest.log; else grep -vE \"^(ok|\?|go: downloading)\" /tmp/gotest.log | head -40; fi; exit \$rc'"; then
     echo "  校验失败，不发布" >&2
     ssh_do "rm -rf $work"; return 1
   fi

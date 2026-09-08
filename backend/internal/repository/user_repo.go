@@ -799,6 +799,32 @@ func (r *userRepository) ApplyRedeemBalanceAdjustment(ctx context.Context, id in
 	return nil
 }
 
+// RefundBalance 把错扣的钱退回余额，不计入 total_recharged。
+//
+// 与 UpdateBalance 的区别就在这里：后者 amount > 0 时会 AddTotalRecharged，把退款
+// 算成充值，进而抬高百分比制的低余额提醒阈值、导致提前告警。
+// GREATEST(..., 0) 对退款（正数）是空操作，保留只为与其他余额调整一致。
+func (r *userRepository) RefundBalance(ctx context.Context, id int64, amount float64) error {
+	const updateSQL = `
+		UPDATE users
+		SET balance = GREATEST(balance + $1, 0), updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(ctx, updateSQL, amount, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrUserNotFound
+	}
+	return nil
+}
+
 // DeductBalance 扣除用户余额
 // 透支策略：允许余额变为负数，确保当前请求能够完成
 // 中间件会阻止余额 <= 0 的用户发起后续请求

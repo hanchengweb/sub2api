@@ -700,12 +700,7 @@ func (s *OpenAIGatewayService) RefundOpenAIImageTaskCharge(ctx context.Context, 
 	if !ok || credits <= 0 {
 		return 0, false
 	}
-	// TODO(待定): UpdateBalance 在 amount > 0 时会顺带 AddTotalRecharged，把退款算成充值。
-	// total_recharged 驱动百分比制的低余额提醒阈值（resolveBalanceThreshold），被退款
-	// 抬高后会提前告警。正确做法是给 UserRepository 加一个只调余额、不计充值的
-	// 方法（userRepository 已有现成的裸 SQL），但那要改接口与 5 个测试 fake，
-	// 不适合捆进本次改动。目前尚无退款发生，数据未受影响。
-	if err := s.userRepo.UpdateBalance(ctx, userID, credits); err != nil {
+	if err := s.userRepo.RefundBalance(ctx, userID, credits); err != nil {
 		logger.LegacyPrintf("service.openai_gateway",
 			"[OpenAI] image task refund failed task=%s user=%d credits=%.6f err=%v", taskID, userID, credits, err)
 		return 0, false
