@@ -4,6 +4,7 @@ import { mount } from '@vue/test-utils'
 import ModelDistributionChart from '../ModelDistributionChart.vue'
 
 const messages: Record<string, string> = {
+  'common.creditUnit': 'credits',
   'admin.dashboard.modelDistribution': 'Model Distribution',
   'admin.dashboard.spendingRankingTitle': 'User Spending Ranking',
   'admin.dashboard.viewModelDistribution': 'Model Distribution',
@@ -124,7 +125,7 @@ describe('ModelDistributionChart', () => {
       raw: 1.4,
       dataset: { data: [1.4, 0.2] },
     })
-    expect(label).toBe('model-b: ￥1.40 (87.5%)')
+    expect(label).toBe('model-b: 1.40 credits (87.5%)')
   })
 
   it('can hide account cost for user usage stats without account_cost', () => {
@@ -185,6 +186,6 @@ describe('ModelDistributionChart', () => {
     expect(rows[2].text()).toContain('Others')
     expect(rows[2].text()).toContain('4')
     expect(rows[2].text()).toContain('400')
-    expect(rows[2].text()).toContain('￥10.00')
+    expect(rows[2].text()).toContain('10.00 credits')
   })
 })

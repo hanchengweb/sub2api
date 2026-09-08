@@ -13,6 +13,7 @@ import { nextTick } from 'vue'
 import UsageTable from '../UsageTable.vue'
 
 const messages: Record<string, string> = {
+  'common.creditUnit': 'credits',
   'admin.usage.userDeletedBadge': 'Deleted',
   'usage.costDetails': 'Cost Breakdown',
   'admin.usage.inputCost': 'Input Cost',
@@ -196,10 +197,10 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('Account rate')
     expect(text).toContain('User billed')
     expect(text).toContain('Account billed')
-    expect(text).toContain('￥0.092883')
-    expect(text).toContain('￥5.0000 / 1M tokens')
-    expect(text).toContain('￥30.0000 / 1M tokens')
-    expect(text).toContain('￥0.069568')
+    expect(text).toContain('0.092883 credits')
+    expect(text).toContain('5.0000 credits / 1M tokens')
+    expect(text).toContain('30.0000 credits / 1M tokens')
+    expect(text).toContain('0.069568 credits')
   })
 
   it('shows requested and upstream models separately for admin rows', () => {

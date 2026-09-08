@@ -4,6 +4,7 @@ import { mount } from '@vue/test-utils'
 import GroupDistributionChart from '../GroupDistributionChart.vue'
 
 const messages: Record<string, string> = {
+  'common.creditUnit': 'credits',
   'admin.dashboard.groupDistribution': 'Group Distribution',
   'admin.dashboard.group': 'Group',
   'admin.dashboard.noGroup': 'No Group',
@@ -110,7 +111,7 @@ describe('GroupDistributionChart', () => {
       raw: 0.9,
       dataset: { data: [0.9, 0.1] },
     })
-    expect(label).toBe('group-b: ￥0.900 (90.0%)')
+    expect(label).toBe('group-b: 0.900 credits (90.0%)')
   })
 
   it('can hide account cost for user usage stats without account_cost', () => {

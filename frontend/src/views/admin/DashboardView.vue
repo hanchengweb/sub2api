@@ -114,19 +114,19 @@
                   <span
                     class="text-green-600 dark:text-green-400"
                     :title="t('admin.dashboard.actual')"
-                    >￥{{ formatCost(stats.today_actual_cost) }}</span
+                    >{{ formatCost(stats.today_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >￥{{ formatCost(stats.today_account_cost) }}</span
+                    >{{ formatCost(stats.today_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
                     :title="t('admin.dashboard.standard')"
-                    >￥{{ formatCost(stats.today_cost) }}</span
+                    >{{ formatCost(stats.today_cost) }}</span
                   >
                 </p>
               </div>
@@ -150,19 +150,19 @@
                   <span
                     class="text-green-600 dark:text-green-400"
                     :title="t('admin.dashboard.actual')"
-                    >￥{{ formatCost(stats.total_actual_cost) }}</span
+                    >{{ formatCost(stats.total_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >￥{{ formatCost(stats.total_account_cost) }}</span
+                    >{{ formatCost(stats.total_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
                     :title="t('admin.dashboard.standard')"
-                    >￥{{ formatCost(stats.total_cost) }}</span
+                    >{{ formatCost(stats.total_cost) }}</span
                   >
                 </p>
               </div>
@@ -592,16 +592,21 @@ const formatNumber = (value: number | null | undefined): string => {
   return toFiniteNumber(value).toLocaleString()
 }
 
+// 这里的 cost 存的全是积分（充 ¥1 得 100 积分），不是人民币。
+// 模板里原先加 ￥ 前缀，把积分当钱显示，差 100 倍。
 const formatCost = (value: number | null | undefined): string => {
   const safeValue = toFiniteNumber(value)
+  let num: string
   if (safeValue >= 1000) {
-    return (safeValue / 1000).toFixed(2) + 'K'
+    num = (safeValue / 1000).toFixed(2) + 'K'
   } else if (safeValue >= 1) {
-    return safeValue.toFixed(2)
+    num = safeValue.toFixed(2)
   } else if (safeValue >= 0.01) {
-    return safeValue.toFixed(3)
+    num = safeValue.toFixed(3)
+  } else {
+    num = safeValue.toFixed(4)
   }
-  return safeValue.toFixed(4)
+  return `${num} ${t('common.creditUnit')}`
 }
 
 const formatDuration = (ms: number): string => {

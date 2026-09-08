@@ -2,7 +2,6 @@ export const TOKENS_PER_MILLION = 1_000_000
 
 interface TokenPriceFormatOptions {
   fractionDigits?: number
-  withCurrencySymbol?: boolean
   emptyValue?: string
 }
 
@@ -44,6 +43,10 @@ export function formatTokenPricePerMillion(
   }
 
   const fractionDigits = options.fractionDigits ?? 4
-  const formatted = pricePerMillion.toFixed(fractionDigits)
-  return options.withCurrencySymbol == false ? formatted : `￥${formatted}`
+  // 只返回数字，不带单位。
+  //
+  // 原先这里加 ￥ 前缀，但单价来自用量成本，单位是积分不是人民币（差 100 倍）。
+  // 单位交给模板拼：调用方本来就要在后面接「/ 1M tokens」，让工具函数去读 i18n
+  // 反而把一个纯函数变成了有全局依赖的函数（单测里会拿到未翻译的原始 key）。
+  return pricePerMillion.toFixed(fractionDigits)
 }

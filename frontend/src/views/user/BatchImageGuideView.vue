@@ -2386,7 +2386,7 @@ function friendlyItemError(error: BatchImageItem['error']) {
 
 function formatMoney(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '￥0.00'
-  return `￥${Number(value).toFixed(2)}`
+  return `${Number(value).toFixed(2)} ${t('common.creditUnit')}`
 }
 
 function terminalZeroCost(job: Pick<BatchImageJob, 'status' | 'actual_cost'>) {

@@ -1,5 +1,7 @@
 export default {
   common: {
+    // Credits are the internal billing unit (CNY 1 = 100 credits); never prefix them with a currency symbol.
+    creditUnit: 'credits',
     loading: 'Loading...',
     submitting: 'Submitting...',
     justNow: 'just now',

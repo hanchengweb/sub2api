@@ -143,3 +143,6 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+
+# AI 会话的临时产物（曾被 git add -A 误提交过一个 53MB 的 tar）
+.ai-tmp/

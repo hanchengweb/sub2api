@@ -250,6 +250,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatCredits } from '@/utils/format'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -361,9 +362,10 @@ function handleReplayGuide() {
   onboardingStore.replay()
 }
 
+// 余额存的是积分（充 ¥1 得 100 积分）。原先这里写死 ￥ 前缀，把 10073 积分
+// （= ¥100.73）显示成 ￥10073.16，整整差 100 倍。
 function formatHeaderMoney(value: number) {
-  if (!Number.isFinite(value)) return '￥0.00'
-  return `￥${value.toFixed(2)}`
+  return formatCredits(value)
 }
 
 function handleClickOutside(event: MouseEvent) {

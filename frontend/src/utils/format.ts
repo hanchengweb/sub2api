@@ -270,6 +270,37 @@ export function formatNumberLocaleString(num: number): string {
 }
 
 /**
+ * 格式化积分（带单位后缀）。
+ *
+ * 积分是平台内部的计费单位：充值 ¥1 得 100 积分
+ * （后端 BALANCE_RECHARGE_MULTIPLIER）。用户余额、用量消费、模型定价存的都是积分。
+ *
+ * 不要给这些值加 ￥ 前缀：那会把 10073 积分（= ¥100.73）显示成 ￥10073，差 100 倍。
+ * 真正的金额（充值订单、套餐价、支付页）用 formatCurrency。
+ *
+ * @param amount 积分数
+ * @param fractionDigits 小数位，默认 2
+ * @returns 如 "480.53 积分"
+ */
+export function formatCredits(amount: number | null | undefined, fractionDigits: number = 2): string {
+  const safe = amount === null || amount === undefined || !Number.isFinite(amount) ? 0 : amount
+  return `${safe.toFixed(fractionDigits)} ${i18n.global.t('common.creditUnit')}`
+}
+
+/**
+ * 格式化积分（大数字缩写 K/M，带单位后缀）。
+ * 用于统计卡片等空间紧张、量级可能很大的位置。
+ */
+export function formatCreditsCompact(amount: number | null | undefined): string {
+  const safe = amount === null || amount === undefined || !Number.isFinite(amount) ? 0 : amount
+  const unit = i18n.global.t('common.creditUnit')
+  const abs = Math.abs(safe)
+  if (abs >= 1_000_000) return `${(safe / 1_000_000).toFixed(2)}M ${unit}`
+  if (abs >= 1000) return `${(safe / 1000).toFixed(2)}K ${unit}`
+  return `${safe.toFixed(2)} ${unit}`
+}
+
+/**
  * 格式化金额（固定小数位，不带货币符号）
  * @param amount 金额
  * @param fractionDigits 小数位数，默认 4

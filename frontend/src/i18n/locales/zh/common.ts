@@ -1,5 +1,8 @@
 export default {
   common: {
+    // 积分是平台内部计费单位（¥1 = 100 积分）。余额与用量都存积分，
+    // 不要再用 ￥ 前缀展示——那会差 100 倍。只有充值/套餐/订单金额才是真钱。
+    creditUnit: '积分',
     loading: '加载中...',
     submitting: '提交中...',
     justNow: '刚刚',
