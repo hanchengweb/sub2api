@@ -92,7 +92,13 @@ run_tests() {
   # 要把所有包再编一遍；编译错误随后的 Docker 构建一定会抳到。
   # 实测：带 vet 9m06s → 不带 8m05s。
   echo "  单测中（约 8 分钟）…"
-  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go test -tags unit ./internal/... -count=1' 2>&1       | grep -vE '^go: downloading' | tail -40"; then
+  # 测试输出先落文件、单独取退出码，再过滤打印。
+  #
+  # 原先写成 `go test ... | grep | tail`，而管道的退出码取自最后一个命令（tail，永远
+  # 成功），go test 的失败被吞掉——关卡在测试 FAIL 时依然打印「校验通过」并放行。
+  # 这是 2026-09-08 推退款持久化时撞上的：编译都没过，关卡却说通过。
+  # 不用 set -o pipefail：镜像里是 busybox ash，该选项并非处处可用。
+  if ! ssh_do "docker run --rm -v $work/backend:/w -w /w $GO_CACHE_MOUNTS       -e GOFLAGS=-mod=mod -e GOPROXY=https://goproxy.cn,direct       -e GOSUMDB=sum.golang.google.cn -e CGO_ENABLED=0 $GO_IMAGE       sh -c 'go test -tags unit ./internal/... -count=1 > /tmp/gotest.log 2>&1; rc=\$?; grep -vE \"^go: downloading\" /tmp/gotest.log | tail -40; exit \$rc'"; then
     echo "  校验失败，不发布" >&2
     ssh_do "rm -rf $work"; return 1
   fi
