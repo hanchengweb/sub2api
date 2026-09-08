@@ -139,7 +139,7 @@ func ParseGrokMediaRequest(contentType string, body []byte) GrokMediaRequestInfo
 	info.Size = strings.TrimSpace(info.Size)
 	info.SizeTier = NormalizeImageBillingTierOrDefault(info.Size)
 	info.Resolution = NormalizeVideoBillingResolutionOrDefault(info.Resolution)
-	info.DurationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(info.DurationSeconds)
+	info.DurationSeconds = NormalizeVideoBillingDurationForModel(info.Model, info.DurationSeconds)
 	if info.N <= 0 {
 		info.N = 1
 	}

@@ -5,6 +5,15 @@ import (
 	"strings"
 )
 
+// mediaStatsContext 媒体请求的成本计算上下文。
+//
+// 按次/图片模式下，成本不是一个数：图片分 1K/2K/4K 档，视频按秒。
+// 不传这些就只能给每个模型配一个扁平值，4K 图会少算、短视频会多算。
+type mediaStatsContext struct {
+	SizeTier        string // 图片档位标签（1K/2K/4K），空则不按档查
+	DurationSeconds int    // 视频时长（秒）；>0 时按秒计费，与客户侧 CalculateVideoCost 口径一致
+}
+
 // resolveAccountStatsCost 计算账号统计定价费用。
 // 返回 nil 表示不覆盖，使用默认公式（total_cost × account_rate_multiplier）。
 //
@@ -26,6 +35,7 @@ func resolveAccountStatsCost(
 	tokens UsageTokens,
 	requestCount int,
 	totalCost float64,
+	media mediaStatsContext,
 ) *float64 {
 	if channelService == nil || upstreamModel == "" {
 		return nil
@@ -38,7 +48,7 @@ func resolveAccountStatsCost(
 	platform := channelService.GetGroupPlatform(ctx, groupID)
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount); cost != nil {
+	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount, media); cost != nil {
 		return cost
 	}
 
@@ -87,6 +97,7 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 func tryCustomRules(
 	channel *Channel, accountID, groupID int64,
 	platform, model string, tokens UsageTokens, requestCount int,
+	media mediaStatsContext,
 ) *float64 {
 	modelLower := strings.ToLower(model)
 	for _, rule := range channel.AccountStatsPricingRules {
@@ -97,7 +108,7 @@ func tryCustomRules(
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
 		}
-		return calculateStatsCost(pricing, tokens, requestCount)
+		return calculateStatsCost(pricing, tokens, requestCount, media)
 	}
 	return nil
 }
@@ -166,24 +177,37 @@ func isPlatformMatch(queryPlatform, pricingPlatform string) bool {
 }
 
 // calculateStatsCost 使用给定的定价计算费用（不含任何倍率，原始费用）。
-func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, requestCount int) *float64 {
+func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, requestCount int, media mediaStatsContext) *float64 {
 	if pricing == nil {
 		return nil
 	}
 	switch pricing.BillingMode {
 	case BillingModePerRequest, BillingModeImage:
-		return calculatePerRequestStatsCost(pricing, requestCount)
+		return calculatePerRequestStatsCost(pricing, requestCount, media)
 	default:
 		return calculateTokenStatsCost(pricing, tokens)
 	}
 }
 
-// calculatePerRequestStatsCost 按次/图片计费。
-func calculatePerRequestStatsCost(pricing *ChannelModelPricing, requestCount int) *float64 {
-	if pricing.PerRequestPrice == nil || *pricing.PerRequestPrice <= 0 {
+// calculatePerRequestStatsCost 按次/图片/视频计费。
+//
+// 先按档位标签取价（图片的 1K/2K/4K 成本不同），没配档位才回落到扁平价。
+// 视频（DurationSeconds > 0）再乘时长，与客户侧 CalculateVideoCost
+// （perSecondPrice × duration × count）口径一致。
+func calculatePerRequestStatsCost(pricing *ChannelModelPricing, requestCount int, media mediaStatsContext) *float64 {
+	unit := pricing.PerRequestPrice
+	if media.SizeTier != "" {
+		if tier := pricing.GetTierByLabel(media.SizeTier); tier != nil && tier.PerRequestPrice != nil {
+			unit = tier.PerRequestPrice
+		}
+	}
+	if unit == nil || *unit <= 0 {
 		return nil
 	}
-	cost := *pricing.PerRequestPrice * float64(requestCount)
+	cost := *unit * float64(requestCount)
+	if media.DurationSeconds > 0 {
+		cost *= float64(media.DurationSeconds)
+	}
 	return &cost
 }
 
@@ -241,7 +265,17 @@ func applyAccountStatsCost(
 	if usageLog != nil && usageLog.ImageCount > 0 {
 		requestCount = usageLog.ImageCount
 	}
+	media := mediaStatsContext{}
+	if usageLog != nil {
+		if usageLog.ImageSize != nil {
+			media.SizeTier = strings.TrimSpace(*usageLog.ImageSize)
+		}
+		// 视频才有时长；有时长就按秒算。图片路径这个字段为空，不受影响。
+		if usageLog.VideoDurationSeconds != nil && *usageLog.VideoDurationSeconds > 0 {
+			media.DurationSeconds = *usageLog.VideoDurationSeconds
+		}
+	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, media,
 	)
 }

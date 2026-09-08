@@ -186,7 +186,7 @@ func TestFindPricingForModel(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCalculateStatsCost_NilPricing(t *testing.T) {
-	result := calculateStatsCost(nil, UsageTokens{}, 1)
+	result := calculateStatsCost(nil, UsageTokens{}, 1, mediaStatsContext{})
 	require.Nil(t, result)
 }
 
@@ -200,7 +200,7 @@ func TestCalculateStatsCost_TokenBilling(t *testing.T) {
 		InputTokens:  100,
 		OutputTokens: 50,
 	}
-	result := calculateStatsCost(pricing, tokens, 1)
+	result := calculateStatsCost(pricing, tokens, 1, mediaStatsContext{})
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 = 0.1 + 0.1 = 0.2
 	require.InDelta(t, 0.2, *result, 1e-12)
@@ -220,7 +220,7 @@ func TestCalculateStatsCost_TokenBilling_WithCache(t *testing.T) {
 		CacheCreationTokens: 200,
 		CacheReadTokens:     300,
 	}
-	result := calculateStatsCost(pricing, tokens, 1)
+	result := calculateStatsCost(pricing, tokens, 1, mediaStatsContext{})
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 + 200*0.003 + 300*0.0005
 	// = 0.1 + 0.1 + 0.6 + 0.15 = 0.95
@@ -239,7 +239,7 @@ func TestCalculateStatsCost_TokenBilling_WithImageOutput(t *testing.T) {
 		OutputTokens:      50,
 		ImageOutputTokens: 10,
 	}
-	result := calculateStatsCost(pricing, tokens, 1)
+	result := calculateStatsCost(pricing, tokens, 1, mediaStatsContext{})
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 + 10*0.01 = 0.1 + 0.1 + 0.1 = 0.3
 	require.InDelta(t, 0.3, *result, 1e-12)
@@ -256,7 +256,7 @@ func TestCalculateStatsCost_TokenBilling_PartialPricesNil(t *testing.T) {
 		OutputTokens:        50,
 		CacheCreationTokens: 200,
 	}
-	result := calculateStatsCost(pricing, tokens, 1)
+	result := calculateStatsCost(pricing, tokens, 1, mediaStatsContext{})
 	require.NotNil(t, result)
 	// Only input contributes: 100*0.001 = 0.1
 	require.InDelta(t, 0.1, *result, 1e-12)
@@ -269,7 +269,7 @@ func TestCalculateStatsCost_TokenBilling_AllTokensZero(t *testing.T) {
 		OutputPrice: testPtrFloat64(0.002),
 	}
 	tokens := UsageTokens{} // all zeros
-	result := calculateStatsCost(pricing, tokens, 1)
+	result := calculateStatsCost(pricing, tokens, 1, mediaStatsContext{})
 	// totalCost == 0 → returns nil (does not override, falls back to default formula)
 	require.Nil(t, result)
 }
@@ -280,7 +280,7 @@ func TestCalculateStatsCost_PerRequestBilling(t *testing.T) {
 		PerRequestPrice: testPtrFloat64(0.05),
 	}
 	tokens := UsageTokens{InputTokens: 999, OutputTokens: 999}
-	result := calculateStatsCost(pricing, tokens, 3)
+	result := calculateStatsCost(pricing, tokens, 3, mediaStatsContext{})
 	require.NotNil(t, result)
 	// 0.05 * 3 = 0.15
 	require.InDelta(t, 0.15, *result, 1e-12)
@@ -291,7 +291,7 @@ func TestCalculateStatsCost_PerRequestBilling_PriceNil(t *testing.T) {
 		BillingMode: BillingModePerRequest,
 		// PerRequestPrice is nil
 	}
-	result := calculateStatsCost(pricing, UsageTokens{}, 1)
+	result := calculateStatsCost(pricing, UsageTokens{}, 1, mediaStatsContext{})
 	require.Nil(t, result)
 }
 
@@ -300,7 +300,7 @@ func TestCalculateStatsCost_PerRequestBilling_PriceZero(t *testing.T) {
 		BillingMode:     BillingModePerRequest,
 		PerRequestPrice: testPtrFloat64(0),
 	}
-	result := calculateStatsCost(pricing, UsageTokens{}, 1)
+	result := calculateStatsCost(pricing, UsageTokens{}, 1, mediaStatsContext{})
 	// price == 0 → condition *pricing.PerRequestPrice > 0 is false → returns nil
 	require.Nil(t, result)
 }
@@ -310,7 +310,7 @@ func TestCalculateStatsCost_ImageBilling(t *testing.T) {
 		BillingMode:     BillingModeImage,
 		PerRequestPrice: testPtrFloat64(0.10),
 	}
-	result := calculateStatsCost(pricing, UsageTokens{}, 2)
+	result := calculateStatsCost(pricing, UsageTokens{}, 2, mediaStatsContext{})
 	require.NotNil(t, result)
 	// 0.10 * 2 = 0.20
 	require.InDelta(t, 0.20, *result, 1e-12)
@@ -321,7 +321,7 @@ func TestCalculateStatsCost_ImageBilling_PriceNil(t *testing.T) {
 		BillingMode: BillingModeImage,
 		// PerRequestPrice is nil
 	}
-	result := calculateStatsCost(pricing, UsageTokens{}, 1)
+	result := calculateStatsCost(pricing, UsageTokens{}, 1, mediaStatsContext{})
 	require.Nil(t, result)
 }
 
@@ -335,7 +335,7 @@ func TestCalculateStatsCost_DefaultBillingMode_FallsToToken(t *testing.T) {
 		InputTokens:  100,
 		OutputTokens: 50,
 	}
-	result := calculateStatsCost(pricing, tokens, 1)
+	result := calculateStatsCost(pricing, tokens, 1, mediaStatsContext{})
 	require.NotNil(t, result)
 	require.InDelta(t, 0.2, *result, 1e-12)
 }
@@ -362,7 +362,7 @@ func TestTryCustomRules_FirstMatchWins(t *testing.T) {
 		},
 	}
 	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
-	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1)
+	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1, mediaStatsContext{})
 	require.NotNil(t, result)
 	// 应使用第一条规则的价格：100*0.01 + 50*0.02 = 2.0
 	require.InDelta(t, 2.0, *result, 1e-12)
@@ -386,7 +386,7 @@ func TestTryCustomRules_SkipsNonMatchingRules(t *testing.T) {
 		},
 	}
 	tokens := UsageTokens{InputTokens: 100}
-	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1)
+	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1, mediaStatsContext{})
 	require.NotNil(t, result)
 	// 跳过规则1（账号不匹配），使用规则2：100*0.05 = 5.0
 	require.InDelta(t, 5.0, *result, 1e-12)
@@ -404,7 +404,7 @@ func TestTryCustomRules_NoMatch_ReturnsNil(t *testing.T) {
 		},
 	}
 	tokens := UsageTokens{InputTokens: 100}
-	result := tryCustomRules(channel, 999, 2, "", "claude-opus-4", tokens, 1)
+	result := tryCustomRules(channel, 999, 2, "", "claude-opus-4", tokens, 1, mediaStatsContext{})
 	require.Nil(t, result) // 账号和分组都不匹配
 }
 
@@ -426,7 +426,7 @@ func TestTryCustomRules_RuleMatchesButModelNot_ContinuesToNext(t *testing.T) {
 		},
 	}
 	tokens := UsageTokens{InputTokens: 100}
-	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1)
+	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1, mediaStatsContext{})
 	require.NotNil(t, result)
 	require.InDelta(t, 5.0, *result, 1e-12) // 使用规则2
 }
@@ -561,6 +561,7 @@ func TestResolveAccountStatsCost_NilChannelService(t *testing.T) {
 		newTestBillingServiceWithPrices(map[string]*ModelPricing{}),
 		1, 1, "claude-sonnet-4",
 		UsageTokens{InputTokens: 100}, 1, 0.5,
+		mediaStatsContext{},
 	)
 	require.Nil(t, result)
 }
@@ -577,6 +578,7 @@ func TestResolveAccountStatsCost_EmptyUpstreamModel(t *testing.T) {
 		newTestBillingServiceWithPrices(map[string]*ModelPricing{}),
 		1, 1, "", // empty upstream model
 		UsageTokens{InputTokens: 100}, 1, 0.5,
+		mediaStatsContext{},
 	)
 	require.Nil(t, result)
 }
@@ -594,6 +596,7 @@ func TestResolveAccountStatsCost_GetChannelForGroupReturnsNil(t *testing.T) {
 		newTestBillingServiceWithPrices(map[string]*ModelPricing{}),
 		1, 99, "claude-sonnet-4", // groupID 99 has no channel
 		UsageTokens{InputTokens: 100}, 1, 0.5,
+		mediaStatsContext{},
 	)
 	require.Nil(t, result)
 }
@@ -625,6 +628,7 @@ func TestResolveAccountStatsCost_HitsCustomRule(t *testing.T) {
 		cs, nil, // billingService not needed when custom rule hits
 		1, 10, "claude-sonnet-4",
 		tokens, 1, 999.0, // totalCost ignored because custom rule hits
+		mediaStatsContext{},
 	)
 	require.NotNil(t, result)
 	// 100*0.01 + 50*0.02 = 1.0 + 1.0 = 2.0
@@ -647,6 +651,7 @@ func TestResolveAccountStatsCost_ApplyPricingToAccountStats_UsesTotalCost(t *tes
 		cs, nil,
 		1, 10, "claude-sonnet-4",
 		tokens, 1, 0.75, // totalCost = 0.75
+		mediaStatsContext{},
 	)
 	require.NotNil(t, result)
 	require.InDelta(t, 0.75, *result, 1e-12)
@@ -665,6 +670,7 @@ func TestResolveAccountStatsCost_ApplyPricingToAccountStats_ZeroTotalCost_Return
 		cs, nil,
 		1, 10, "claude-sonnet-4",
 		UsageTokens{}, 1, 0.0, // totalCost = 0
+		mediaStatsContext{},
 	)
 	require.Nil(t, result)
 }
@@ -692,6 +698,7 @@ func TestResolveAccountStatsCost_FallsBackToLiteLLM(t *testing.T) {
 		cs, bs,
 		1, 10, "claude-sonnet-4",
 		tokens, 1, 999.0, // totalCost ignored
+		mediaStatsContext{},
 	)
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 = 0.1 + 0.1 = 0.2
@@ -717,6 +724,7 @@ func TestResolveAccountStatsCost_AllMiss_ReturnsNil(t *testing.T) {
 		cs, bs,
 		1, 10, "totally-unknown-model",
 		tokens, 1, 0.0,
+		mediaStatsContext{},
 	)
 	require.Nil(t, result)
 }
@@ -734,6 +742,7 @@ func TestResolveAccountStatsCost_NilBillingService_SkipsLiteLLM(t *testing.T) {
 		cs, nil, // billingService is nil
 		1, 10, "claude-sonnet-4",
 		UsageTokens{InputTokens: 100}, 1, 0.0,
+		mediaStatsContext{},
 	)
 	require.Nil(t, result)
 }
@@ -767,6 +776,7 @@ func TestResolveAccountStatsCost_CustomRulePriorityOverApplyPricing(t *testing.T
 		cs, nil,
 		1, 10, "claude-sonnet-4",
 		tokens, 1, 99.0, // totalCost = 99.0 (would be used if ApplyPricing wins)
+		mediaStatsContext{},
 	)
 	require.NotNil(t, result)
 	// Custom rule: 100*0.05 = 5.0 (NOT 99.0 from totalCost)
