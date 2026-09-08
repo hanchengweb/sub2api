@@ -511,3 +511,12 @@ func (r *fakeBatchImageBillingRepo) applyHold(cmd *BatchImageBalanceHoldCommand,
 var _ UsageBillingRepository = (*fakeBatchImageBillingRepo)(nil)
 var _ BatchImagePricingResolver = (*fakeBatchImagePricingResolver)(nil)
 var _ = strings.TrimSpace
+
+// 媒体任务扣费记录与批量图片占款无关，这里只补足接口，不参与批量图片的断言。
+func (r *fakeBatchImageBillingRepo) BindMediaTaskCharge(_ context.Context, _ *MediaTaskChargeCommand) error {
+	return nil
+}
+
+func (r *fakeBatchImageBillingRepo) TakeMediaTaskCharge(_ context.Context, _ string) (float64, bool, error) {
+	return 0, false, nil
+}

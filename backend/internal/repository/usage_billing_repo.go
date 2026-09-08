@@ -557,3 +557,77 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 	}
 	return &state, nil
 }
+
+// BindMediaTaskCharge 落库记录一次异步媒体任务的扣费额。
+//
+// 用 upsert：客户端重试提交同一任务时不产生第二条可退记录。已退过的（refunded_at
+// 非空）不复活——那笔钱已经回到用户余额，重新置为可退会导致重复退款。
+func (r *usageBillingRepository) BindMediaTaskCharge(ctx context.Context, cmd *service.MediaTaskChargeCommand) error {
+	if cmd == nil {
+		return nil
+	}
+	if r == nil || r.db == nil {
+		return errors.New("usage billing repository db is nil")
+	}
+	cmd.Normalize()
+	if cmd.TaskKey == "" || cmd.UserID <= 0 || cmd.APIKeyID <= 0 {
+		return errors.New("media task charge command is invalid")
+	}
+	if cmd.Credits <= 0 {
+		// 未扣费的任务没有可退金额，不落库。
+		return nil
+	}
+
+	const bindSQL = `
+		INSERT INTO media_task_charges (task_key, user_id, api_key_id, group_id, credits)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (task_key) DO UPDATE
+		SET credits = EXCLUDED.credits
+		WHERE media_task_charges.refunded_at IS NULL
+	`
+	var groupID any
+	if cmd.GroupID != nil && *cmd.GroupID > 0 {
+		groupID = *cmd.GroupID
+	}
+	_, err := r.db.ExecContext(ctx, bindSQL, cmd.TaskKey, cmd.UserID, cmd.APIKeyID, groupID, cmd.Credits)
+	return err
+}
+
+// TakeMediaTaskCharge 取出可退金额并原子标记为已退，返回 (积分, 是否取到)。
+//
+// 幂等靠单条 UPDATE ... WHERE refunded_at IS NULL RETURNING 完成：客户端会反复轮询
+// 同一个失败任务，并发下也只有一条语句能命中未退的行，因此不会重复退款。
+// 取不到（未知任务或已退过）返回 false，调用方据此跳过。
+func (r *usageBillingRepository) TakeMediaTaskCharge(ctx context.Context, taskKey string) (float64, bool, error) {
+	if r == nil || r.db == nil {
+		return 0, false, errors.New("usage billing repository db is nil")
+	}
+	taskKey = strings.TrimSpace(taskKey)
+	if taskKey == "" {
+		return 0, false, nil
+	}
+
+	const takeSQL = `
+		UPDATE media_task_charges
+		SET refunded_at = NOW()
+		WHERE task_key = $1 AND refunded_at IS NULL
+		RETURNING credits
+	`
+	rows, err := r.db.QueryContext(ctx, takeSQL, taskKey)
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		return 0, false, rows.Err()
+	}
+	var credits float64
+	if err := rows.Scan(&credits); err != nil {
+		return 0, false, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, false, err
+	}
+	return credits, credits > 0, nil
+}

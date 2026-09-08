@@ -603,38 +603,81 @@ func OpenAIImageTaskChargeHash(taskID string, userID, apiKeyID int64) string {
 	return "openai-image-charge:" + DeriveSessionHashFromSeed(fmt.Sprintf("%d:%d:%s", userID, apiKeyID, taskID))
 }
 
-// BindOpenAIImageTaskCharge 记录某个异步图片任务实际扣掉的积分，供任务失败时原额退回。
+// BindOpenAIImageTaskCharge 记录某个异步媒体任务（图片 / 视频）实际扣掉的积分，
+// 供任务失败时原额退回。函数名里的 Image 是历史遗留。
 //
-// 图片走异步：网关在上游返回 200（任务 pending）时就已全额扣费，而任务可能在之后失败，
+// 媒体走异步：网关在上游返回 200（任务 pending）时就已全额扣费，而任务可能在之后失败，
 // 上游对失败任务不计费。没有这条记录就无从知道该退多少，用户会为失败的任务付钱。
 func (s *OpenAIGatewayService) BindOpenAIImageTaskCharge(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64, credits float64) error {
-	if s == nil || s.cache == nil {
-		return fmt.Errorf("openai image charge cache is unavailable")
+	if s == nil {
+		return fmt.Errorf("openai image charge store is unavailable")
 	}
-	cacheKey := s.openAISessionCacheKey(OpenAIImageTaskChargeHash(taskID, userID, apiKeyID))
-	if cacheKey == "" {
+	taskKey := OpenAIImageTaskChargeHash(taskID, userID, apiKeyID)
+	if taskKey == "" {
 		return fmt.Errorf("openai image charge binding is invalid")
 	}
+	if credits <= 0 {
+		// 未扣费的任务没有可退金额，不落库。
+		return nil
+	}
+
+	// 优先落库。原先这份记录放在带 24h TTL 的 Redis 里，有三条泄漏路径：
+	// 客户端始终不来轮询、TTL 先到期、Redis 重启——任一发生都退不了钱。
+	if s.usageBillingRepo != nil {
+		return s.usageBillingRepo.BindMediaTaskCharge(ctx, &MediaTaskChargeCommand{
+			TaskKey:  taskKey,
+			UserID:   userID,
+			APIKeyID: apiKeyID,
+			GroupID:  groupID,
+			Credits:  credits,
+		})
+	}
+
+	// 没接仓储时（部分单测）退回缓存，行为与落库前一致。
+	if s.cache == nil {
+		return fmt.Errorf("openai image charge store is unavailable")
+	}
+	cacheKey := s.openAISessionCacheKey(taskKey)
 	scaled := int64(math.Round(credits * openAIImageChargeScale))
 	if scaled <= 0 {
-		// 未扣费（或小到无法表示）的任务没有可退金额，不占缓存。
 		return nil
 	}
 	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), cacheKey, scaled, openAIImageTaskBindingTTL)
 }
 
-// TakeOpenAIImageTaskCharge 取出并立即删除扣费记录，返回可退积分。
+// TakeOpenAIImageTaskCharge 取出可退积分并同时使该记录不再可取，返回 (积分, 是否取到)。
 //
-// 「取出即删」是退款的幂等保证：客户端会反复轮询同一个失败任务，只有第一次能拿到金额，
-// 后续轮询取不到，因此不会重复退款。
+// 幂等是退款的核心：客户端会反复轮询同一个失败任务，只能有一次拿到金额。
+// 落库路径靠单条 UPDATE ... WHERE refunded_at IS NULL RETURNING 原子完成；
+// 缓存路径（过渡用）靠「取出即删」。
 func (s *OpenAIGatewayService) TakeOpenAIImageTaskCharge(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64) (float64, bool) {
-	if s == nil || s.cache == nil {
+	if s == nil {
 		return 0, false
 	}
-	cacheKey := s.openAISessionCacheKey(OpenAIImageTaskChargeHash(taskID, userID, apiKeyID))
-	if cacheKey == "" {
+	taskKey := OpenAIImageTaskChargeHash(taskID, userID, apiKeyID)
+	if taskKey == "" {
 		return 0, false
 	}
+
+	if s.usageBillingRepo != nil {
+		credits, ok, err := s.usageBillingRepo.TakeMediaTaskCharge(ctx, taskKey)
+		if err != nil {
+			logger.LegacyPrintf("service.openai_gateway",
+				"[OpenAI] take media task charge failed task=%s user=%d err=%v", taskID, userID, err)
+			// 查库出错就不退：宁可漏退一笔，也不能在状态未知时重复退款。
+			return 0, false
+		}
+		if ok {
+			return credits, true
+		}
+		// 库里没有：可能是本次升级前已经绑到 Redis 的在途任务，继续试缓存。
+		// 这条过渡路径待 24h（旧 TTL）以后可删。
+	}
+
+	if s.cache == nil {
+		return 0, false
+	}
+	cacheKey := s.openAISessionCacheKey(taskKey)
 	gid := derefGroupID(groupID)
 	scaled, err := s.cache.GetSessionAccountID(ctx, gid, cacheKey)
 	if err != nil || scaled <= 0 {
@@ -657,6 +700,11 @@ func (s *OpenAIGatewayService) RefundOpenAIImageTaskCharge(ctx context.Context, 
 	if !ok || credits <= 0 {
 		return 0, false
 	}
+	// TODO(待定): UpdateBalance 在 amount > 0 时会顺带 AddTotalRecharged，把退款算成充值。
+	// total_recharged 驱动百分比制的低余额提醒阈值（resolveBalanceThreshold），被退款
+	// 抬高后会提前告警。正确做法是给 UserRepository 加一个只调余额、不计充值的
+	// 方法（userRepository 已有现成的裸 SQL），但那要改接口与 5 个测试 fake，
+	// 不适合捆进本次改动。目前尚无退款发生，数据未受影响。
 	if err := s.userRepo.UpdateBalance(ctx, userID, credits); err != nil {
 		logger.LegacyPrintf("service.openai_gateway",
 			"[OpenAI] image task refund failed task=%s user=%d credits=%.6f err=%v", taskID, userID, credits, err)

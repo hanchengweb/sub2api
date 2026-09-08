@@ -172,4 +172,26 @@ type UsageBillingRepository interface {
 	ReserveBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	CaptureBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	ReleaseBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
+	BindMediaTaskCharge(ctx context.Context, cmd *MediaTaskChargeCommand) error
+	TakeMediaTaskCharge(ctx context.Context, taskKey string) (float64, bool, error)
+}
+
+// MediaTaskChargeCommand 记录异步媒体任务（图片 / 视频）已扣掉的积分，
+// 供任务失败时原额退回。
+//
+// 网关在上游返回 200（任务 pending）时就已全额扣费，任务可能之后才失败，
+// 而上游对失败任务不计费。没有这条记录就无从知道该退多少。
+type MediaTaskChargeCommand struct {
+	TaskKey  string // hash(userID, apiKeyID, taskID)
+	UserID   int64
+	APIKeyID int64
+	GroupID  *int64
+	Credits  float64
+}
+
+func (c *MediaTaskChargeCommand) Normalize() {
+	if c == nil {
+		return
+	}
+	c.TaskKey = strings.TrimSpace(c.TaskKey)
 }
