@@ -4,14 +4,15 @@ import { nextTick } from 'vue'
 
 import PlaygroundView from '../PlaygroundView.vue'
 
-const { streamChat, createImageTask, getImageTask, createVideoTask, getVideoTask, getAvailable, refreshUser } =
+const { listModels, streamChat, createImageTask, getImageTask, createVideoTask, getVideoTask, getModelPlaza, refreshUser } =
   vi.hoisted(() => ({
+    listModels: vi.fn(),
     streamChat: vi.fn(),
     createImageTask: vi.fn(),
     getImageTask: vi.fn(),
     createVideoTask: vi.fn(),
     getVideoTask: vi.fn(),
-    getAvailable: vi.fn(),
+    getModelPlaza: vi.fn(),
     refreshUser: vi.fn(),
   }))
 
@@ -19,6 +20,7 @@ vi.mock('@/api/playground', async () => {
   const actual = await vi.importActual<typeof import('@/api/playground')>('@/api/playground')
   return {
     ...actual,
+    listModels,
     streamChat,
     createImageTask,
     getImageTask,
@@ -27,7 +29,7 @@ vi.mock('@/api/playground', async () => {
   }
 })
 
-vi.mock('@/api/channels', () => ({ getAvailable }))
+vi.mock('@/api/modelPlaza', () => ({ getModelPlaza }))
 
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({ user: { balance: 1000 }, refreshUser }),
@@ -68,23 +70,25 @@ beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
   refreshUser.mockResolvedValue({})
-  getAvailable.mockResolvedValue([
-    {
-      name: 'toapi',
-      description: '',
-      platforms: [
-        {
-          platform: 'openai',
-          groups: [],
-          supported_models: [
-            { name: 'gpt-5', platform: 'openai', pricing: { billing_mode: 'token' } },
-            { name: 'grok-image-1', platform: 'openai', pricing: { billing_mode: 'image' } },
-            { name: 'grok-video-1.5', platform: 'openai', pricing: { billing_mode: 'image' } },
-          ],
-        },
-      ],
-    },
+  // 照线上组 4 的真实形态构造：/v1/models 有 7 个，广场只覆盖到其中 6 个,
+  // 视频模型 t-grok-video-1.5 在广场里没有定价行。
+  listModels.mockResolvedValue([
+    'deepseek-v4-flash',
+    't-gpt-image-2',
+    't-grok-video-1.5',
   ])
+  getModelPlaza.mockResolvedValue({
+    description: '',
+    groups: [
+      {
+        id: 4,
+        models: [
+          { name: 'deepseek-v4-flash', platform: 'anthropic', pricing: { billing_mode: 'token' } },
+          { name: 't-gpt-image-2', platform: 'openai', pricing: { billing_mode: 'image' } },
+        ],
+      },
+    ],
+  })
 })
 
 describe('PlaygroundView', () => {
@@ -92,13 +96,16 @@ describe('PlaygroundView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    const options = wrapper.findAll('option').map((o) => o.text())
-    expect(options).toEqual(['gpt-5'])
+    expect(wrapper.findAll('option').map((o) => o.text())).toEqual(['deepseek-v4-flash'])
 
-    // 切到视频模式，只应看到名字里带 video 的那个
+    await wrapper.findAll('button').find((b) => b.text().includes('playground.modeImage'))!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('option').map((o) => o.text())).toEqual(['t-gpt-image-2'])
+
+    // 关键回归：视频模型在广场里没有定价行，只靠广场这一档会是空的。
     await wrapper.findAll('button').find((b) => b.text().includes('playground.modeVideo'))!.trigger('click')
     await flushPromises()
-    expect(wrapper.findAll('option').map((o) => o.text())).toEqual(['grok-video-1.5'])
+    expect(wrapper.findAll('option').map((o) => o.text())).toEqual(['t-grok-video-1.5'])
   })
 
   /**

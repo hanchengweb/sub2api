@@ -156,8 +156,9 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import { getAvailable } from '@/api/channels'
+import { getModelPlaza } from '@/api/modelPlaza'
 import {
+  listModels,
   streamChat,
   createImageTask,
   getImageTask,
@@ -454,37 +455,52 @@ const POLL_INTERVAL_MS = 5000
 const POLL_TIMEOUT_MS = 10 * 60 * 1000
 
 /**
- * 按用户实际可用的渠道装配模型列表。
+ * 装配三种模式各自的模型列表。
  *
- * 用 /channels/available 而不是模型广场：前者是「这个用户能调什么」，
- * 后者是公开价目页，管理员关掉开关时会 404。
+ * 名单来自网关 /v1/models（密钥实际能调的那一份），计费模式来自模型广场。
+ * 两个来源分工是实测出来的：广场按定价配置拼装，线上组 4 有 7 个可调模型，
+ * 广场只回 6 个——漏的正好是视频模型，只靠广场视频这一档会是空的。
+ * 反过来 /v1/models 只有模型 id，没有计费信息，分不出对话还是生图。
  */
 async function loadModels() {
+  let names: string[] = []
   try {
-    const channels = await getAvailable()
-    const chat = new Set<string>()
-    const image = new Set<string>()
-    const video = new Set<string>()
-
-    for (const channel of channels) {
-      for (const section of channel.platforms ?? []) {
-        for (const m of section.supported_models ?? []) {
-          if (/video/i.test(m.name)) video.add(m.name)
-          else if (m.pricing && m.pricing.billing_mode !== BILLING_MODE_TOKEN) image.add(m.name)
-          else chat.add(m.name)
-        }
-      }
-    }
-    chatModels.value = [...chat].sort()
-    imageModels.value = [...image].sort()
-    videoModels.value = [...video].sort()
-    selectedModel.value = availableModels.value[0] ?? ''
+    names = await listModels()
   } catch {
-    // 模型列表拿不到不该让页面白屏——历史会话仍可查看。
+    // 名单拿不到不该让页面白屏——历史会话仍可查看。
     chatModels.value = []
     imageModels.value = []
     videoModels.value = []
+    return
   }
+
+  // 广场只是补充元数据，拿不到就退回按名字判断，不影响名单本身。
+  const billingModes = new Map<string, string>()
+  try {
+    const plaza = await getModelPlaza()
+    for (const group of plaza.groups ?? []) {
+      for (const m of group.models ?? []) {
+        if (m.pricing?.billing_mode) billingModes.set(m.name, m.pricing.billing_mode)
+      }
+    }
+  } catch {
+    /* 广场关闭时会 404，忽略 */
+  }
+
+  const chat: string[] = []
+  const image: string[] = []
+  const video: string[] = []
+  for (const name of names) {
+    const mode = billingModes.get(name)
+    // 名字里带 video 的一律归视频：视频模型常常没有定价行，等不到 billing_mode。
+    if (/video/i.test(name)) video.push(name)
+    else if (mode && mode !== BILLING_MODE_TOKEN) image.push(name)
+    else chat.push(name)
+  }
+  chatModels.value = chat
+  imageModels.value = image
+  videoModels.value = video
+  selectedModel.value = availableModels.value[0] ?? ''
 }
 
 watch([mode, availableModels], () => {

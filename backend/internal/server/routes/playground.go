@@ -15,6 +15,7 @@ func RegisterPlaygroundRoutes(v1 *gin.RouterGroup, h *handler.PlaygroundHandler,
 	pg := v1.Group("/playground")
 	pg.Use(gin.HandlerFunc(jwtAuth))
 	{
+		pg.GET("/models", h.Models)
 		pg.POST("/chat/completions", h.ChatCompletions)
 		pg.POST("/images/generations", h.ImageGenerations)
 		pg.GET("/images/generations/:task_id", h.ImageStatus)

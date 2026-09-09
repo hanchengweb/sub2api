@@ -115,6 +115,15 @@ func (h *PlaygroundHandler) proxyToGateway(c *gin.Context, gatewayPath string) {
 	c.Abort()
 }
 
+// Models 列出该用户可调的模型。
+//
+// 必须走网关的 /v1/models，不能用模型广场：广场按定价配置拼装，会漏掉没配
+// 定价行的模型（线上实测组 4 有 7 个可调模型，广场只回 6 个，漏的正是视频模型
+// t-grok-video-1.5）。这里返回的就是密钥实际能调的那一份。
+func (h *PlaygroundHandler) Models(c *gin.Context) {
+	h.proxyToGateway(c, "/v1/models")
+}
+
 // ChatCompletions 在线对话（支持流式）。
 func (h *PlaygroundHandler) ChatCompletions(c *gin.Context) {
 	h.proxyToGateway(c, "/v1/chat/completions")

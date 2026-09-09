@@ -38,6 +38,26 @@ async function toError(response: Response): Promise<Error> {
   return error
 }
 
+export interface PlaygroundModel {
+  id: string
+}
+
+/**
+ * 列出当前用户可调的模型。
+ *
+ * 走网关 /v1/models 而不是模型广场：广场按定价配置拼装，会漏掉没配定价行的
+ * 模型——线上实测组 4 有 7 个可调模型，广场只回 6 个，漏的正是视频模型。
+ */
+export async function listModels(options?: { signal?: AbortSignal }): Promise<string[]> {
+  const response = await fetch(buildApiUrl('/playground/models'), {
+    headers: authHeaders(),
+    signal: options?.signal
+  })
+  if (!response.ok) throw await toError(response)
+  const payload = (await response.json()) as { data?: PlaygroundModel[] }
+  return (payload.data ?? []).map((m) => m.id).filter(Boolean)
+}
+
 /**
  * 流式对话。
  *
