@@ -36,7 +36,7 @@
       </aside>
 
       <!-- 对话区 -->
-      <section class="flex min-w-0 flex-1 flex-col card p-0">
+      <section class="flex min-w-0 flex-1 flex-col card">
         <!-- 顶栏：模型选择 -->
         <header class="flex flex-wrap items-center gap-3 border-b border-gray-100 px-4 py-3 dark:border-dark-700">
           <Icon :name="modeIcon(mode)" size="sm" class="text-primary-500" />
@@ -282,11 +282,22 @@ function ensureConversation(): PlaygroundConversation {
   return activeConversation.value as PlaygroundConversation
 }
 
-function appendMessage(conv: PlaygroundConversation, msg: PlaygroundMessage) {
+/**
+ * 追加一条消息，返回数组里那条**响应式**的引用。
+ *
+ * 必须用返回值而不是传进来的 msg：push 进响应式数组的是原始对象，
+ * 后续直接改它不会触发依赖（实测过：流式增量全部写进了原始对象，
+ * 界面一个字都不刷新）。只有改从数组读回来的代理才会重新渲染。
+ */
+function appendMessage(
+  conv: PlaygroundConversation,
+  msg: PlaygroundMessage
+): PlaygroundMessage {
   conv.messages.push(msg)
   conv.updatedAt = Date.now()
   persist()
   scrollToBottom()
+  return conv.messages[conv.messages.length - 1]
 }
 
 async function submit() {
@@ -317,6 +328,9 @@ async function submit() {
   } finally {
     busy.value = false
     busyHint.value = ''
+    // 顶栏余额随每次调用刷新——这页的用途就是让用户看着试用积分怎么花掉的，
+    // 等自动刷新那 60 秒的空档会让人以为没扣费。失败任务退款后同理需要回刷。
+    void authStore.refreshUser().catch(() => {})
   }
 }
 
@@ -330,13 +344,12 @@ async function runChat(conv: PlaygroundConversation) {
     .filter((m) => !m.error && m.content)
     .map((m) => ({ role: m.role, content: m.content }))
 
-  const reply: PlaygroundMessage = {
+  const reply = appendMessage(conv, {
     id: newId(),
     role: 'assistant',
     content: '',
     createdAt: Date.now()
-  }
-  appendMessage(conv, reply)
+  })
 
   await streamChat(
     conv.model,
@@ -363,14 +376,13 @@ async function runMedia(conv: PlaygroundConversation, prompt: string) {
     ? await createVideoTask(conv.model, prompt, { resolution: '720p', duration: 8 })
     : await createImageTask(conv.model, prompt, { size: '1:1', resolution: '1k', n: 1 })
 
-  const reply: PlaygroundMessage = {
+  const reply = appendMessage(conv, {
     id: newId(),
     role: 'assistant',
     content: '',
     taskId: mediaTaskId(task),
     createdAt: Date.now()
-  }
-  appendMessage(conv, reply)
+  })
 
   // 同步渠道一次就把结果带回来了，不必再轮询。
   const direct = mediaUrlOf(task)
