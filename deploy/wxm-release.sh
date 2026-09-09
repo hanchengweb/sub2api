@@ -319,7 +319,22 @@ consecutive_ssh_failures=0
 for _ in $(seq 1 60); do
   sleep 20
   if ssh_do "grep -q 'Successfully tagged' $LOG 2>/dev/null"; then break; fi
-  probe=$(ssh_do "grep -cE 'returned a non-zero code|^ERROR' $LOG 2>/dev/null || echo 0" 2>/dev/null) || probe=""
+  # 探测构建是否失败。
+  #
+  # 旧写法 `grep -cE ... || echo 0` 有个潜伏很久的 bug：grep -c 在零匹配时
+  # **既打印 0、又返回退出码 1**，于是 `|| echo 0` 再追加一个 0，探测值变成
+  # "0\n0"，随后 != "0" 就把一次完全正常的构建判成失败。只有日志已存在且内容
+  # 正常时才触发——也就是构建一切顺利的时候，所以一直没被发现。
+  #
+  # 现在末尾追加哨兵 done：拿得到 done 说明这次 ssh 通了，第一行才是计数；
+  # 拿不到 done 才是 ssh 断线，交给下面的重试逻辑。
+  probe_raw=$(ssh_do "grep -cE 'returned a non-zero code|^ERROR' $LOG 2>/dev/null; echo done" 2>/dev/null) || probe_raw=""
+  if [ "${probe_raw%done}" = "$probe_raw" ]; then
+    probe=""
+  else
+    probe=$(printf '%s' "$probe_raw" | head -1)
+    case "$probe" in '' | done) probe=0 ;; esac
+  fi
   if [ -z "$probe" ]; then
     consecutive_ssh_failures=$((consecutive_ssh_failures + 1))
     echo "    （ssh 探测失败 $consecutive_ssh_failures/5，构建在服务器后台继续）"
