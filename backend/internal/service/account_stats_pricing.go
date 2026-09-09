@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 )
 
 // mediaStatsContext 媒体请求的成本计算上下文。
@@ -108,7 +109,7 @@ func tryCustomRules(
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
 		}
-		return calculateStatsCost(pricing, tokens, requestCount, media)
+		return applyStatsTimePricing(pricing, calculateStatsCost(pricing, tokens, requestCount, media))
 	}
 	return nil
 }
@@ -278,4 +279,21 @@ func applyAccountStatsCost(
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
 		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, media,
 	)
+}
+
+// applyStatsTimePricing 给成本套上时段折扣。
+//
+// 乘在**算出来的成本**上而不是改定价结构：findPricingForModel 返回的是指向渠道
+// 缓存内部的指针，改它会污染所有后续请求。成本是各单价的线性组合，先算后乘与
+// 先乘后算完全等价，所以这样做既安全又不损失精度。
+func applyStatsTimePricing(pricing *ChannelModelPricing, cost *float64) *float64 {
+	if cost == nil || pricing == nil || pricing.TimePricing == nil {
+		return cost
+	}
+	m := pricing.TimePricing.MultiplierAt(time.Now())
+	if m == 1 {
+		return cost
+	}
+	scaled := *cost * m
+	return &scaled
 }

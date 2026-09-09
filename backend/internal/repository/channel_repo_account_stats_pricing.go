@@ -67,7 +67,8 @@ func (r *channelRepository) batchLoadAccountStatsModelPricing(ctx context.Contex
 
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, rule_id, platform, models, billing_mode, input_price, output_price,
-		        cache_write_price, cache_read_price, image_output_price, per_request_price, created_at, updated_at
+		        cache_write_price, cache_read_price, image_output_price, per_request_price,
+		        time_pricing, created_at, updated_at
 		 FROM channel_account_stats_model_pricing WHERE rule_id = ANY($1) ORDER BY rule_id, id`,
 		pq.Array(ruleIDs),
 	)
@@ -81,15 +82,20 @@ func (r *channelRepository) batchLoadAccountStatsModelPricing(ctx context.Contex
 		var p service.ChannelModelPricing
 		var ruleID int64
 		var modelsJSON []byte
+		var timePricingJSON sql.NullString
 		if err := rows.Scan(
 			&p.ID, &ruleID, &p.Platform, &modelsJSON, &p.BillingMode,
 			&p.InputPrice, &p.OutputPrice, &p.CacheWritePrice, &p.CacheReadPrice,
-			&p.ImageOutputPrice, &p.PerRequestPrice, &p.CreatedAt, &p.UpdatedAt,
+			&p.ImageOutputPrice, &p.PerRequestPrice, &timePricingJSON, &p.CreatedAt, &p.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan account stats model pricing: %w", err)
 		}
 		if err := json.Unmarshal(modelsJSON, &p.Models); err != nil {
 			p.Models = []string{}
+		}
+		// 解析失败按未配置处理：成本记账不该因为一条脏配置而中断。
+		if timePricingJSON.Valid {
+			p.TimePricing = service.ParseTimePricing(timePricingJSON.String)
 		}
 		pricingMap[ruleID] = append(pricingMap[ruleID], p)
 	}

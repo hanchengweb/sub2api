@@ -144,15 +144,15 @@ func TestApplyTimePricingScalesAllFields(t *testing.T) {
 	applyTimePricing(p, deepseekTimePricing(), beijing(t, "2026-09-09 22:00"))
 
 	want := map[string]struct{ got, want float64 }{
-		"input":        {*p.InputPrice, 2.0},
-		"output":       {*p.OutputPrice, 6.0},
-		"cacheWrite":   {*p.CacheWritePrice, 2.0},
-		"cacheRead":    {*p.CacheReadPrice, 0.1},
-		"imageInput":   {*p.ImageInputPrice, 0.5},
-		"imageOutput":  {*p.ImageOutputPrice, 1.0},
-		"perRequest":   {*p.PerRequestPrice, 20.0},
-		"intervalReq":  {*p.Intervals[0].PerRequestPrice, 19.75},
-		"intervalIn":   {*p.Intervals[0].InputPrice, 2.0},
+		"input":       {*p.InputPrice, 2.0},
+		"output":      {*p.OutputPrice, 6.0},
+		"cacheWrite":  {*p.CacheWritePrice, 2.0},
+		"cacheRead":   {*p.CacheReadPrice, 0.1},
+		"imageInput":  {*p.ImageInputPrice, 0.5},
+		"imageOutput": {*p.ImageOutputPrice, 1.0},
+		"perRequest":  {*p.PerRequestPrice, 20.0},
+		"intervalReq": {*p.Intervals[0].PerRequestPrice, 19.75},
+		"intervalIn":  {*p.Intervals[0].InputPrice, 2.0},
 	}
 	for name, c := range want {
 		if c.got != c.want {
