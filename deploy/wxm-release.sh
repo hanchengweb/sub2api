@@ -279,7 +279,10 @@ else
 build_launched=0
 for attempt in 1 2 3; do
   if ssh_do "docker images -q '$TAG' 2>/dev/null | grep -q ."; then build_launched=1; break; fi
-  if ssh_do "pgrep -f \"docker build -t $TAG\" >/dev/null 2>&1"; then build_launched=1; break; fi
+  # 曾经在这里用 pgrep -f 判断「构建是否已在跑」，那是错的：pgrep -f 会匹配到
+  # 承载它自己的那层 bash -c——命令行里就含有这个 tag 字符串，于是永远返回命中，
+  # 构建被整个跳过（工作目录建好了，日志和镜像都没有）。改用日志文件是否存在来判断。
+  if ssh_do "test -s $LOG"; then build_launched=1; break; fi
   if ssh_spawn "cd $WORK && nohup docker build -t '$TAG' \
     --build-arg VERSION='$VERSION' --build-arg COMMIT='$SHA' \
     --build-arg NODE_IMAGE=$MIRROR/node:24-alpine \
