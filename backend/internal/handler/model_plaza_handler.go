@@ -2,6 +2,7 @@ package handler
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -52,6 +53,25 @@ type modelPlazaModel struct {
 	OfficialPricing *modelPlazaOfficialPricing `json:"official_pricing"`
 	// VideoPricing 仅视频模型有值：按秒计价，价格在分组上而不在渠道定价表里。
 	VideoPricing *modelPlazaVideoPricing `json:"video_pricing,omitempty"`
+	// TimePricing 时段定价（可空）。pricing 里是高峰价，空闲价 = 高峰价 × 折扣。
+	TimePricing *modelPlazaTimePricing `json:"time_pricing,omitempty"`
+}
+
+// modelPlazaTimePricing 时段定价的对外视图。
+//
+// 额外回一个 is_peak_now：窗口判断依赖服务端时区，交给前端自己算会因为
+// 用户本地时区不同而算错——同一时刻在不同浏览器上显示不同的档位。
+type modelPlazaTimePricing struct {
+	Timezone          string                 `json:"timezone"`
+	OffPeakMultiplier float64                `json:"off_peak_multiplier"`
+	PeakWindows       []modelPlazaPeakWindow `json:"peak_windows"`
+	IsPeakNow         bool                   `json:"is_peak_now"`
+}
+
+type modelPlazaPeakWindow struct {
+	Days  []int  `json:"days"`
+	Start string `json:"start"`
+	End   string `json:"end"`
 }
 
 // modelPlazaVideoPricing 视频模型每秒单价（按清晰度分档）。
@@ -171,6 +191,7 @@ func toModelPlazaGroupDTO(g *service.PlazaGroup, userRates map[int64]float64) mo
 			Pricing:         toUserPricing(m.Pricing),
 			OfficialPricing: toModelPlazaOfficialPricing(m.OfficialPricing),
 			VideoPricing:    toModelPlazaVideoPricing(m.VideoPricing),
+			TimePricing:     toModelPlazaTimePricing(m.TimePricing),
 		})
 	}
 	dto := modelPlazaGroup{
@@ -191,6 +212,23 @@ func toModelPlazaGroupDTO(g *service.PlazaGroup, userRates map[int64]float64) mo
 		dto.UserRateMultiplier = &rate
 	}
 	return dto
+}
+
+// toModelPlazaTimePricing 转换时段定价；nil 透传（未配置时段定价即为 nil）。
+func toModelPlazaTimePricing(p *service.TimePricing) *modelPlazaTimePricing {
+	if p == nil {
+		return nil
+	}
+	windows := make([]modelPlazaPeakWindow, 0, len(p.PeakWindows))
+	for _, w := range p.PeakWindows {
+		windows = append(windows, modelPlazaPeakWindow{Days: w.Days, Start: w.Start, End: w.End})
+	}
+	return &modelPlazaTimePricing{
+		Timezone:          p.Timezone,
+		OffPeakMultiplier: p.OffPeakMultiplier,
+		PeakWindows:       windows,
+		IsPeakNow:         p.IsPeakAt(time.Now()),
+	}
 }
 
 // toModelPlazaVideoPricing 转换视频每秒单价；nil 透传（非视频模型即为 nil）。

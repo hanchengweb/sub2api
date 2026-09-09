@@ -26,6 +26,9 @@ type PlazaModel struct {
 	// VideoPricing 仅视频模型有值：视频按秒计价，价格存在分组的
 	// video_price_480p/720p/1080p 三列上，不在渠道定价表里，所以走单独字段。
 	VideoPricing *PlazaVideoPricing
+	// TimePricing 时段定价（可空）。Pricing 里的价格是**高峰价**，
+	// 空闲时段按 OffPeakMultiplier 打折，前端据此展示峰/谷两档。
+	TimePricing *TimePricing
 }
 
 // PlazaVideoPricing 视频模型的每秒单价（按清晰度分档）。
@@ -242,10 +245,15 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 					continue
 				}
 				idx[m.Name] = append(rows, len(pg.Models))
+				var tp *TimePricing
+				if m.Pricing != nil {
+					tp = m.Pricing.TimePricing
+				}
 				pg.Models = append(pg.Models, PlazaModel{
-					Name:     m.Name,
-					Platform: m.Platform,
-					Pricing:  m.Pricing,
+					Name:        m.Name,
+					Platform:    m.Platform,
+					Pricing:     m.Pricing,
+					TimePricing: tp,
 				})
 			}
 		}

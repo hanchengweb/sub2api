@@ -551,6 +551,14 @@ export default {
       noPricing: '未配置定价',
       peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}'
     },
+    time: {
+      peak: '峰',
+      offPeak: '谷',
+      everyday: '每天',
+      dayRange: '{from}至{to}',
+      mon: '周一', tue: '周二', wed: '周三', thu: '周四', fri: '周五', sat: '周六', sun: '周日',
+      note: '高峰时段 {windows}（{timezone}），其余时段为空闲价，低 {percent}%。当前处于「{current}」时段。'
+    },
     section: {
       text: '文本对话',
       image: '图像生成',

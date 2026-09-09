@@ -11,6 +11,14 @@
         </span>
       </div>
 
+      <!-- 时段说明：只在该分区确有时段定价的模型时出现 -->
+      <p
+        v-if="sec.timeNote"
+        class="mb-1.5 inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-1 text-[11px] text-gray-500 dark:bg-dark-800/60 dark:text-dark-400"
+      >
+        {{ sec.timeNote }}
+      </p>
+
       <div class="overflow-x-auto">
         <table class="w-full border-collapse text-sm tabular-nums" :class="sec.minWidth">
           <thead>
@@ -61,6 +69,7 @@
                       {{ paidPerMillion(iv.input_price) }}
                     </div>
                   </template>
+                  <PeakOffPeakPrice v-else-if="m.time_pricing" :model="m" :value="m.pricing?.input_price" :render="paidPerMillion" />
                   <template v-else>{{ paidPerMillion(m.pricing?.input_price) }}</template>
                 </td>
                 <td class="pz-cell px-3 py-2.5 text-right align-middle font-mono text-xs font-semibold text-gray-900 dark:text-gray-50">
@@ -70,13 +79,16 @@
                       {{ paidPerMillion(iv.output_price) }}
                     </div>
                   </template>
+                  <PeakOffPeakPrice v-else-if="m.time_pricing" :model="m" :value="m.pricing?.output_price" :render="paidPerMillion" />
                   <template v-else>{{ paidPerMillion(m.pricing?.output_price) }}</template>
                 </td>
                 <td class="pz-cell px-3 py-2.5 text-right align-middle font-mono text-xs text-gray-700 dark:text-gray-300">
-                  {{ paidPerMillion(m.pricing?.cache_write_price) }}
+                  <PeakOffPeakPrice v-if="m.time_pricing" :model="m" :value="m.pricing?.cache_write_price" :render="paidPerMillion" />
+                  <template v-else>{{ paidPerMillion(m.pricing?.cache_write_price) }}</template>
                 </td>
                 <td class="pz-cell px-3 py-2.5 text-right align-middle font-mono text-xs text-gray-700 dark:text-gray-300">
-                  {{ paidPerMillion(m.pricing?.cache_read_price) }}
+                  <PeakOffPeakPrice v-if="m.time_pricing" :model="m" :value="m.pricing?.cache_read_price" :render="paidPerMillion" />
+                  <template v-else>{{ paidPerMillion(m.pricing?.cache_read_price) }}</template>
                 </td>
                 <template v-if="showOfficial">
                   <td class="border-l border-gray-100 px-3 py-2.5 text-right align-middle font-mono text-xs text-gray-500 dark:border-dark-700/60 dark:text-dark-400">
@@ -150,6 +162,7 @@ import { useI18n } from 'vue-i18n'
 import { formatScaled } from '@/utils/pricing'
 import { platformAccentColor } from '@/utils/platformColors'
 import ModelBrandMark from './ModelBrandMark.vue'
+import PeakOffPeakPrice from './PeakOffPeakPrice.vue'
 import { BILLING_MODE_TOKEN, BILLING_MODE_IMAGE, type BillingMode } from '@/constants/channel'
 import type { PlazaModel } from '@/api/modelPlaza'
 import type { UserPricingInterval } from '@/api/channels'
@@ -207,6 +220,8 @@ interface Section {
   unitHint: string
   minWidth: string
   models: PlazaModel[]
+  /** 该分区若有时段定价的模型，给一句窗口说明；否则为空串。 */
+  timeNote: string
 }
 
 function billingMode(m: PlazaModel): BillingMode {
@@ -240,7 +255,7 @@ const sections = computed<Section[]>(() => {
     })
   }
 
-  const defs: Array<Omit<Section, 'models'>> = [
+  const defs: Array<Omit<Section, 'models' | 'timeNote'>> = [
     {
       kind: 'text',
       label: t('modelPlaza.section.text'),
@@ -260,8 +275,45 @@ const sections = computed<Section[]>(() => {
       minWidth: 'min-w-[420px]'
     }
   ]
-  return defs.filter((d) => buckets[d.kind].length > 0).map((d) => ({ ...d, models: buckets[d.kind] }))
+  return defs
+    .filter((d) => buckets[d.kind].length > 0)
+    .map((d) => ({ ...d, models: buckets[d.kind], timeNote: timeNoteFor(buckets[d.kind]) }))
 })
+
+/**
+ * 分区级的时段说明。
+ *
+ * 取该分区第一个配了时段定价的模型：同一分区里的模型通常共用一套窗口
+ * （都来自同一个上游），逐模型各挂一句只会重复刷屏。
+ */
+function timeNoteFor(models: PlazaModel[]): string {
+  const tp = models.find((m) => m.time_pricing)?.time_pricing
+  if (!tp || !tp.peak_windows?.length) return ''
+  const windows = tp.peak_windows.map((w) => `${formatDays(w.days)} ${w.start}-${w.end}`).join('、')
+  return t('modelPlaza.time.note', {
+    windows,
+    timezone: tp.timezone || 'Asia/Shanghai',
+    percent: Math.round((1 - tp.off_peak_multiplier) * 100),
+    current: tp.is_peak_now ? t('modelPlaza.time.peak') : t('modelPlaza.time.offPeak')
+  })
+}
+
+const WEEKDAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+/** 把 ISO 星期数组压成可读文案：连续区间写成「周一至周五」。 */
+function formatDays(days: number[] | undefined): string {
+  if (!days || days.length === 0 || days.length === 7) return t('modelPlaza.time.everyday')
+  const sorted = [...days].sort((a, b) => a - b)
+  const name = (d: number) => t(`modelPlaza.time.${WEEKDAY_KEYS[d - 1]}`)
+  const isRun = sorted.every((d, i) => i === 0 || d === sorted[i - 1] + 1)
+  if (isRun && sorted.length > 2) {
+    return t('modelPlaza.time.dayRange', {
+      from: name(sorted[0]),
+      to: name(sorted[sorted.length - 1])
+    })
+  }
+  return sorted.map(name).join('、')
+}
 
 /** 实付价 = 渠道单价 × 生效倍率，按积分 / 1M token 展示。 */
 function paidPerMillion(value: number | null | undefined): string {

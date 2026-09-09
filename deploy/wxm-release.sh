@@ -273,13 +273,30 @@ echo "  源码: $(ssh_do "find $WORK -type f | wc -l") 个文件"
 if ssh_do "docker images -q '$TAG' 2>/dev/null | grep -q ."; then
   echo "  镜像已存在，跳过构建（上次中断后重跑即可自愈）"
 else
-ssh_spawn "cd $WORK && nohup docker build -t '$TAG' \
-  --build-arg VERSION='$VERSION' --build-arg COMMIT='$SHA' \
-  --build-arg NODE_IMAGE=$MIRROR/node:24-alpine \
-  --build-arg GOLANG_IMAGE=$MIRROR/golang:1.26.5-alpine \
-  --build-arg ALPINE_IMAGE=$MIRROR/alpine:3.21 \
-  --build-arg GOPROXY=https://goproxy.cn,direct --build-arg GOSUMDB=sum.golang.google.cn \
-  -f deploy/Dockerfile . < /dev/null > $LOG 2>&1 &" >/dev/null
+# 启动构建也要能扛住一次网络抖动：这条 ssh 一旦失败，set -e 会直接结束发布，
+# 而这台机器今天已经重置过三次连接。重试前先看镜像在不在、构建是不是已经在跑，
+# 避免同一个 tag 起两个构建。
+build_launched=0
+for attempt in 1 2 3; do
+  if ssh_do "docker images -q '$TAG' 2>/dev/null | grep -q ."; then build_launched=1; break; fi
+  if ssh_do "pgrep -f \"docker build -t $TAG\" >/dev/null 2>&1"; then build_launched=1; break; fi
+  if ssh_spawn "cd $WORK && nohup docker build -t '$TAG' \
+    --build-arg VERSION='$VERSION' --build-arg COMMIT='$SHA' \
+    --build-arg NODE_IMAGE=$MIRROR/node:24-alpine \
+    --build-arg GOLANG_IMAGE=$MIRROR/golang:1.26.5-alpine \
+    --build-arg ALPINE_IMAGE=$MIRROR/alpine:3.21 \
+    --build-arg GOPROXY=https://goproxy.cn,direct --build-arg GOSUMDB=sum.golang.google.cn \
+    -f deploy/Dockerfile . < /dev/null > $LOG 2>&1 &" >/dev/null; then
+    build_launched=1
+    break
+  fi
+  echo "  （构建启动第 $attempt 次失败，重试）"
+  sleep 5
+done
+if [ "$build_launched" -ne 1 ]; then
+  echo "构建启动失败：ssh 连不上。这是传输问题，不是代码问题" >&2
+  exit 1
+fi
 echo "  构建中（约 8~12 分钟）…"
 
 # 轮询里的每一次 ssh 都可能掉线。不能让单次掉线直接结束发布：构建是 nohup

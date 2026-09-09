@@ -458,3 +458,80 @@ describe('PlazaModelPricingTable 视频每秒价', () => {
     expect(wrapper.text()).toContain('18.50 积分')
   })
 })
+
+describe('PlazaModelPricingTable 峰谷价', () => {
+  // 照 DeepSeek 官方：高峰周一至周五 9-12、14-18（北京时间），空闲价是一半。
+  const deepseekTimePricing = {
+    timezone: 'Asia/Shanghai',
+    off_peak_multiplier: 0.5,
+    peak_windows: [
+      { days: [1, 2, 3, 4, 5], start: '09:00', end: '12:00' },
+      { days: [1, 2, 3, 4, 5], start: '14:00', end: '18:00' }
+    ],
+    is_peak_now: true
+  }
+
+  function timedModel(isPeakNow: boolean): PlazaModel {
+    return tokenModel({
+      name: 'deepseek-v4-flash',
+      time_pricing: { ...deepseekTimePricing, is_peak_now: isPeakNow }
+    } as Partial<PlazaModel>)
+  }
+
+  it('峰谷两档都渲染,空闲价 = 高峰价 × 折扣', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: { models: [timedModel(true)], rateMultiplier: 1 }
+    })
+    const text = wrapper.text()
+    // 高峰输入 3.00，空闲 1.50
+    expect(text).toContain('3.00 积分')
+    expect(text).toContain('1.50 积分')
+    // 高峰输出 15.00，空闲 7.50
+    expect(text).toContain('15.00 积分')
+    expect(text).toContain('7.50 积分')
+  })
+
+  it('峰用红色、谷用绿色', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: { models: [timedModel(true)], rateMultiplier: 1 }
+    })
+    const html = wrapper.html()
+    expect(html).toMatch(/text-red-\d{3}/)
+    expect(html).toMatch(/text-emerald-\d{3}/)
+  })
+
+  /**
+   * 两行同样醒目的话，用户还是不知道此刻按哪个价扣费。
+   * 当前生效的那一档要有底色高亮。
+   */
+  it('当前生效的档位高亮,另一档淡化', () => {
+    const peak = mount(PlazaModelPricingTable, {
+      props: { models: [timedModel(true)], rateMultiplier: 1 }
+    })
+    expect(peak.html()).toContain('bg-red-50')
+    expect(peak.html()).not.toContain('bg-emerald-50')
+
+    const off = mount(PlazaModelPricingTable, {
+      props: { models: [timedModel(false)], rateMultiplier: 1 }
+    })
+    expect(off.html()).toContain('bg-emerald-50')
+    expect(off.html()).not.toContain('bg-red-50')
+  })
+
+  it('给出窗口说明与当前时段', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: { models: [timedModel(true)], rateMultiplier: 1 }
+    })
+    expect(wrapper.text()).toContain('modelPlaza.time.note')
+  })
+
+  it('未配置时段定价的模型照旧单行展示,不出现峰谷', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: { models: [tokenModel()], rateMultiplier: 1 }
+    })
+    const html = wrapper.html()
+    expect(html).not.toContain('bg-red-50')
+    expect(html).not.toContain('bg-emerald-50')
+    expect(wrapper.text()).not.toContain('modelPlaza.time.note')
+  })
+})

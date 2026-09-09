@@ -513,6 +513,10 @@ func (s *ChannelService) GetChannelModelPricing(ctx context.Context, groupID int
 	}
 
 	cp := pricing.Clone()
+	// 时段定价在这里收口：GetChannelModelPricing 是所有计费路径取渠道定价的
+	// 唯一入口（统一解析器的两处调用），在这里应用就不会出现「有的路径打折、
+	// 有的没打折」。Clone 是浅拷贝，applyTimePricing 因此必须换指针而非改值。
+	applyTimePricing(&cp, cp.TimePricing, time.Now())
 	return &cp
 }
 

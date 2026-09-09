@@ -25,6 +25,27 @@ export interface PlazaVideoPricing {
   price_per_second_1080p: number | null
 }
 
+/** 高峰窗口。days 用 ISO 星期（1=周一 … 7=周日），为空表示每天。 */
+export interface PlazaPeakWindow {
+  days: number[]
+  start: string
+  end: string
+}
+
+/**
+ * 时段定价。
+ *
+ * pricing 里的价格是**高峰价**，空闲价 = 高峰价 × off_peak_multiplier。
+ * is_peak_now 由服务端按配置时区判定：交给前端自己算会因用户本地时区不同
+ * 而算出不同结果。
+ */
+export interface PlazaTimePricing {
+  timezone: string
+  off_peak_multiplier: number
+  peak_windows: PlazaPeakWindow[]
+  is_peak_now: boolean
+}
+
 export interface PlazaModel {
   name: string
   platform: string
@@ -32,6 +53,8 @@ export interface PlazaModel {
   official_pricing: PlazaOfficialPricing | null
   /** 视频按秒计价，价格存在分组上而不在渠道定价表里，故走单独字段。 */
   video_pricing?: PlazaVideoPricing | null
+  /** 时段定价（可空）。非空时价格分峰/谷两档展示。 */
+  time_pricing?: PlazaTimePricing | null
 }
 
 export interface ModelPlazaGroup {

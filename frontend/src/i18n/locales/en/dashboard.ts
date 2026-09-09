@@ -546,6 +546,14 @@ export default {
       noPricing: 'Pricing not configured',
       peakNote: 'Peak hours {window}: billing rate ×{multiplier}'
     },
+    time: {
+      peak: 'Peak',
+      offPeak: 'Off',
+      everyday: 'daily',
+      dayRange: '{from}-{to}',
+      mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun',
+      note: 'Peak hours {windows} ({timezone}); off-peak is {percent}% cheaper. Currently in the "{current}" window.'
+    },
     section: {
       text: 'Text chat',
       image: 'Image generation',

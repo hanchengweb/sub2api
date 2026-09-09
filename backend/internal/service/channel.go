@@ -96,8 +96,11 @@ type ChannelModelPricing struct {
 	ImageOutputPrice *float64          // 图片输出价格（向后兼容）
 	PerRequestPrice  *float64          // 默认按次计费价格（USD）
 	Intervals        []PricingInterval // 区间定价列表
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// TimePricing 时段定价（可空）。非空时，上面配的价格视为「高峰价」，
+	// 高峰窗口之外按折扣系数打折。语义见 time_pricing.go。
+	TimePricing *TimePricing
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // PricingInterval 定价区间（token 区间 / 按次分层 / 图片分辨率分层）
@@ -181,6 +184,9 @@ func (p *ChannelModelPricing) GetTierByLabel(label string) *PricingInterval {
 }
 
 // Clone 返回 ChannelModelPricing 的拷贝（切片独立，指针字段共享，调用方只读安全）
+// 注意：这是**浅拷贝**——所有 *float64 价格字段与原对象共享同一块内存。
+// 需要改价的调用方必须替换指针而不是通过指针改值，否则会污染定价缓存
+// （applyTimePricing 就是这么做的，见 time_pricing.go）。
 func (p ChannelModelPricing) Clone() ChannelModelPricing {
 	cp := p
 	if p.Models != nil {
