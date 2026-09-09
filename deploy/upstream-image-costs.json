@@ -1,0 +1,72 @@
+{
+  "_comment": [
+    "上游（toAPI）生图模型的成本表，来源：toAPI 控制台价目截图（2026-09-09 韩诚提供）。",
+    "",
+    "unit_cny_per_image 是「元 / 张」，换算成本站积分需 ×100（¥1 = 100 积分）。",
+    "tier 为空表示该模型不分清晰度；quality 为空表示不分质量档。",
+    "",
+    "这张表是定价对齐的基准：售价按各档 ≥30% 毛利定，成本侧也按同一维度配置。",
+    "现网只配了「模型 → 一个扁平成本」，既漏了清晰度档差，也完全没有质量维度——",
+    "gpt-image-2-vip 4K 高质量上游要 ¥1.32，我们却按 ¥0.3268 收，每张倒贴约 1 元。"
+  ],
+  "source": "toAPI console pricing table",
+  "captured_at": "2026-09-09",
+  "currency": "CNY",
+  "models": [
+    { "model": "flux-2-flex",                          "vendor": "Black Forest Labs", "tier": null, "quality": null,   "unit_cny_per_image": 0.49 },
+    { "model": "flux-2-pro",                           "vendor": "Black Forest Labs", "tier": null, "quality": null,   "unit_cny_per_image": 0.175 },
+    { "model": "flux-kontext-max",                     "vendor": "Black Forest Labs", "tier": null, "quality": null,   "unit_cny_per_image": 0.28 },
+    { "model": "flux-kontext-pro",                     "vendor": "Black Forest Labs", "tier": null, "quality": null,   "unit_cny_per_image": 0.14 },
+
+    { "model": "gemini-2.5-flash-image-official",      "vendor": "Google Gemini",     "tier": null, "quality": null,   "unit_cny_per_image": 0.3416 },
+    { "model": "gemini-2.5-flash-image-preview",       "vendor": "Google Gemini",     "tier": null, "quality": null,   "unit_cny_per_image": 0.084 },
+    { "model": "gemini-3-pro-image-official",          "vendor": "Google Gemini",     "tier": null, "quality": null,   "unit_cny_per_image": 0.7504 },
+    { "model": "gemini-3-pro-image-preview",           "vendor": "Google Gemini",     "tier": null, "quality": null,   "unit_cny_per_image": 0.42 },
+    { "model": "gemini-3.1-flash-image-official",      "vendor": "Google Gemini",     "tier": null, "quality": null,   "unit_cny_per_image": 0.3752 },
+    { "model": "gemini-3.1-flash-image-preview",       "vendor": "Google Gemini",     "tier": null, "quality": null,   "unit_cny_per_image": 0.21 },
+    { "model": "gemini-3.1-flash-lite-image-official", "vendor": "Google Gemini",     "tier": null, "quality": null,   "unit_cny_per_image": 0.1904 },
+
+    { "model": "nano_banana",                          "vendor": "Google Nano Banana", "tier": null, "quality": null,  "unit_cny_per_image": 0.084 },
+    { "model": "nano_banana_2",                        "vendor": "Google Nano Banana", "tier": "1K", "quality": null,  "unit_cny_per_image": 0.21 },
+    { "model": "nano_banana_2",                        "vendor": "Google Nano Banana", "tier": "2K", "quality": null,  "unit_cny_per_image": 0.28 },
+    { "model": "nano_banana_2",                        "vendor": "Google Nano Banana", "tier": "4K", "quality": null,  "unit_cny_per_image": 0.42 },
+    { "model": "nano_banana_pro",                      "vendor": "Google Nano Banana", "tier": null, "quality": null,  "unit_cny_per_image": 0.42 },
+
+    { "model": "gpt-image-2-official", "vendor": "OpenAI", "tier": "1K", "quality": "低",   "unit_cny_per_image": 0.0269 },
+    { "model": "gpt-image-2-official", "vendor": "OpenAI", "tier": "1K", "quality": "中等", "unit_cny_per_image": 0.2363 },
+    { "model": "gpt-image-2-official", "vendor": "OpenAI", "tier": "1K", "quality": "高",   "unit_cny_per_image": 0.945 },
+    { "model": "gpt-image-2-official", "vendor": "OpenAI", "tier": "2K", "quality": "低",   "unit_cny_per_image": 0.0592 },
+    { "model": "gpt-image-2-official", "vendor": "OpenAI", "tier": "2K", "quality": "中等", "unit_cny_per_image": 0.5216 },
+    { "model": "gpt-image-2-official", "vendor": "OpenAI", "tier": "2K", "quality": "高",   "unit_cny_per_image": 2.09 },
+    { "model": "gpt-image-2-official", "vendor": "OpenAI", "tier": "4K", "quality": "低",   "unit_cny_per_image": 0.0736 },
+    { "model": "gpt-image-2-official", "vendor": "OpenAI", "tier": "4K", "quality": "中等", "unit_cny_per_image": 0.6616 },
+    { "model": "gpt-image-2-official", "vendor": "OpenAI", "tier": "4K", "quality": "高",   "unit_cny_per_image": 2.65 },
+
+    { "model": "gpt-image-2-vip", "vendor": "OpenAI", "tier": "1K", "quality": "低",   "unit_cny_per_image": 0.0133 },
+    { "model": "gpt-image-2-vip", "vendor": "OpenAI", "tier": "1K", "quality": "中等", "unit_cny_per_image": 0.1183 },
+    { "model": "gpt-image-2-vip", "vendor": "OpenAI", "tier": "1K", "quality": "高",   "unit_cny_per_image": 0.4725 },
+    { "model": "gpt-image-2-vip", "vendor": "OpenAI", "tier": "2K", "quality": "低",   "unit_cny_per_image": 0.0298 },
+    { "model": "gpt-image-2-vip", "vendor": "OpenAI", "tier": "2K", "quality": "中等", "unit_cny_per_image": 0.2608 },
+    { "model": "gpt-image-2-vip", "vendor": "OpenAI", "tier": "2K", "quality": "高",   "unit_cny_per_image": 1.04 },
+    { "model": "gpt-image-2-vip", "vendor": "OpenAI", "tier": "4K", "quality": "低",   "unit_cny_per_image": 0.0368 },
+    { "model": "gpt-image-2-vip", "vendor": "OpenAI", "tier": "4K", "quality": "中等", "unit_cny_per_image": 0.3308 },
+    { "model": "gpt-image-2-vip", "vendor": "OpenAI", "tier": "4K", "quality": "高",   "unit_cny_per_image": 1.32 },
+
+    { "model": "gpt-image-2", "vendor": "OpenAI", "tier": "1K", "quality": null, "unit_cny_per_image": 0.105 },
+    { "model": "gpt-image-2", "vendor": "OpenAI", "tier": "2K", "quality": null, "unit_cny_per_image": 0.14 },
+    { "model": "gpt-image-2", "vendor": "OpenAI", "tier": "4K", "quality": null, "unit_cny_per_image": 0.175 },
+
+    { "model": "doubao-seedream-4-0",     "vendor": "字节豆包 Doubao", "tier": null, "quality": null, "unit_cny_per_image": 0.1995 },
+    { "model": "doubao-seedream-4-5",     "vendor": "字节豆包 Doubao", "tier": null, "quality": null, "unit_cny_per_image": 0.2499 },
+    { "model": "doubao-seedream-5-0",     "vendor": "字节豆包 Doubao", "tier": null, "quality": null, "unit_cny_per_image": 0.2205 },
+    { "model": "doubao-seedream-5-0-pro", "vendor": "字节豆包 Doubao", "tier": null, "quality": null, "unit_cny_per_image": 0.3 },
+
+    { "model": "vidu-image",  "vendor": "智谱清影 Vidu", "tier": null, "quality": null, "unit_cny_per_image": 0.4687 },
+    { "model": "viduq2-fast", "vendor": "智谱清影 Vidu", "tier": null, "quality": null, "unit_cny_per_image": 0.2109 },
+    { "model": "viduq2-pro",  "vendor": "智谱清影 Vidu", "tier": null, "quality": null, "unit_cny_per_image": 0.7031 },
+    { "model": "viduq3-fast", "vendor": "智谱清影 Vidu", "tier": null, "quality": null, "unit_cny_per_image": 0.3516 },
+
+    { "model": "qwen-image-3.0",     "vendor": "阿里云通义 Qwen", "tier": null, "quality": null, "unit_cny_per_image": 0.147 },
+    { "model": "qwen-image-3.0-pro", "vendor": "阿里云通义 Qwen", "tier": null, "quality": null, "unit_cny_per_image": 0.196 }
+  ]
+}

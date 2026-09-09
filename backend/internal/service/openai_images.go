@@ -221,6 +221,9 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	if err := validateOpenAIImagesModel(req.Model); err != nil {
 		return nil, err
 	}
+	if err := s.validateOpenAIImagesQuality(c, req); err != nil {
+		return nil, err
+	}
 	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
 	req.RequiredCapability = classifyOpenAIImagesCapability(req)
 	return req, nil
@@ -455,6 +458,53 @@ func applyOpenAIImagesDefaults(req *OpenAIImagesRequest) {
 		return
 	}
 	req.Model = "gpt-image-2"
+}
+
+// validateOpenAIImagesQuality 在**按次/按图计费**的模型上拦截未计价的 quality 档位。
+//
+// 为什么必须拦：quality 会被原样转发给上游（见 hasOpenAINativeImageOptions 的
+// 白名单），而上游按「清晰度 × 质量」九档收费；我们按次计费的档位只看清晰度
+// （ResolveImageBillingTier 只取 size/resolution），完全不看质量。两边一对齐就是：
+//
+//	2K 高质量：上游收 104 积分，我们收 31.98 —— 每张倒贴 72
+//	4K 高质量：上游收 132 积分，我们收 32.68 —— 每张倒贴 99
+//
+// 而且这笔亏损在报表里看不见：account_stats_cost 是按我们配的扁平成本算出来的，
+// 不是上游实际账单，usage_logs 里也没有 quality 字段。
+//
+// **只对按次/按图计费生效**：token 计费下质量越高产生的 image token 越多，
+// 计费自动跟上，不存在敞口；一刀切会把原生 OpenAI 账号那条正常路径也砍掉。
+//
+// 取不到分组或渠道定价时放行：定价查不到说明走的不是渠道自定义按次价，
+// 而且宁可放行也不能让查不到定价变成生图全线不可用。
+//
+// 这是止血措施。等 quality 纳入计费维度（清晰度 × 质量九档）后即可移除。
+// 选择报错而不是静默降级：把 high 悄悄降成 low，用户拿到的图不如所求却收不到
+// 任何说明，比明确拒绝更糟。
+func (s *OpenAIGatewayService) validateOpenAIImagesQuality(c *gin.Context, req *OpenAIImagesRequest) error {
+	switch strings.ToLower(strings.TrimSpace(req.Quality)) {
+	case "", "low", "standard":
+		// 空值走上游默认档。线上历史记录的成本都等于「低质量」价，
+		// 据此认为默认即低质量（推断，未向上游求证）。
+		return nil
+	}
+	if s == nil || s.channelService == nil || c == nil {
+		return nil
+	}
+	apiKey := getAPIKeyFromContext(c)
+	if apiKey == nil || apiKey.GroupID == nil {
+		return nil
+	}
+	pricing := s.channelService.GetChannelModelPricing(c.Request.Context(), *apiKey.GroupID, req.Model)
+	if pricing == nil {
+		return nil
+	}
+	if pricing.BillingMode != BillingModeImage && pricing.BillingMode != BillingModePerRequest {
+		return nil
+	}
+	return fmt.Errorf(
+		"quality %q is not available for this model; only the default quality is priced",
+		strings.TrimSpace(req.Quality))
 }
 
 func isOpenAIImageGenerationModel(model string) bool {

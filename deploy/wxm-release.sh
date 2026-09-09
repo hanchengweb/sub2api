@@ -283,15 +283,26 @@ for attempt in 1 2 3; do
   # 承载它自己的那层 bash -c——命令行里就含有这个 tag 字符串，于是永远返回命中，
   # 构建被整个跳过（工作目录建好了，日志和镜像都没有）。改用日志文件是否存在来判断。
   if ssh_do "test -s $LOG"; then build_launched=1; break; fi
-  if ssh_spawn "cd $WORK && nohup docker build -t '$TAG' \
-    --build-arg VERSION='$VERSION' --build-arg COMMIT='$SHA' \
-    --build-arg NODE_IMAGE=$MIRROR/node:24-alpine \
-    --build-arg GOLANG_IMAGE=$MIRROR/golang:1.26.5-alpine \
-    --build-arg ALPINE_IMAGE=$MIRROR/alpine:3.21 \
-    --build-arg GOPROXY=https://goproxy.cn,direct --build-arg GOSUMDB=sum.golang.google.cn \
-    -f deploy/Dockerfile . < /dev/null > $LOG 2>&1 &" >/dev/null; then
-    build_launched=1
-    break
+  # 构建命令先落成远端脚本，再用 setsid 启动。
+  #
+  # 直接 ssh "nohup docker build ... &" 会挂：即便本地 -n、远端 </dev/null，
+  # 后台进程仍留在 ssh 的会话里，ssh 等不到会话结束就不返回。今天在这一处挂了
+  # 两次，而且日志文件都没被创建——说明远端命令根本没跑起来。setsid 让构建
+  # 脱离该会话自成进程组，ssh 于是立刻返回。
+  if ssh_do "cat > $WORK/.build.sh" <<BUILDSH
+cd $WORK && exec docker build -t '$TAG' \
+  --build-arg VERSION='$VERSION' --build-arg COMMIT='$SHA' \
+  --build-arg NODE_IMAGE=$MIRROR/node:24-alpine \
+  --build-arg GOLANG_IMAGE=$MIRROR/golang:1.26.5-alpine \
+  --build-arg ALPINE_IMAGE=$MIRROR/alpine:3.21 \
+  --build-arg GOPROXY=https://goproxy.cn,direct --build-arg GOSUMDB=sum.golang.google.cn \
+  -f deploy/Dockerfile .
+BUILDSH
+  then
+    if ssh_spawn "setsid nohup sh $WORK/.build.sh < /dev/null > $LOG 2>&1 &" >/dev/null; then
+      build_launched=1
+      break
+    fi
   fi
   echo "  （构建启动第 $attempt 次失败，重试）"
   sleep 5
