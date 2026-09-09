@@ -620,14 +620,17 @@ const POLL_TIMEOUT_MS = 10 * 60 * 1000
  */
 async function loadModels() {
   let names: string[] = []
+  let listFailed = false
   try {
     names = await listModels()
   } catch {
-    // 名单拿不到不该让页面白屏——历史会话仍可查看。
-    chatModels.value = []
-    imageModels.value = []
-    videoModels.value = []
-    return
+    // 拿不到就退到广场目录，不能让下拉是空的。
+    //
+    // 最常见的失败不是网络问题而是余额为 0：/v1/models 走网关鉴权，
+    // 余额闸门会把它一起拦掉（实测返回 INSUFFICIENT_BALANCE）。注册不再送积分后
+    // 每个新用户第一次打开都会撞上——看到空下拉只会以为服务坏了，
+    // 而不是知道自己该去兑换积分。
+    listFailed = true
   }
 
   // 广场同时提供两样东西：计费模式（分不分对话/生图）和定价（做费用预估）。
@@ -648,6 +651,10 @@ async function loadModels() {
     /* 广场关闭时会 404，忽略 */
   }
   pricingByModel.value = priced
+
+  // 名单拿不到时用广场目录兜底：它是公开的，不受余额闸门影响，
+  // 而且现在也含视频模型（后端已把分组视频价并进广场）。
+  if (listFailed) names = [...priced.keys()]
 
   const chat: string[] = []
   const image: string[] = []

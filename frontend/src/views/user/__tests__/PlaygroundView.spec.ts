@@ -302,3 +302,33 @@ describe('PlaygroundView 参数与费用预估', () => {
     expect(wrapper.find('.bg-amber-50').exists()).toBe(true)
   })
 })
+
+
+describe('PlaygroundView 模型名单兜底', () => {
+  /**
+   * 回归：余额为 0 时 /v1/models 会被网关的余额闸门一起拦掉
+   * （实测返回 INSUFFICIENT_BALANCE）。注册不再送积分后，每个新用户第一次
+   * 打开都会撞上——不能让他看到空下拉，那只会以为服务坏了。
+   */
+  it('名单接口失败时退到广场目录，下拉不为空', async () => {
+    listModels.mockRejectedValue(
+      Object.assign(new Error('Insufficient account balance'), { code: 'INSUFFICIENT_BALANCE' })
+    )
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 广场目录里的对话模型仍然列得出来
+    expect(modelOptions(wrapper)).toEqual(['deepseek-v4-flash'])
+  })
+
+  it('名单与广场都拿不到时不白屏，只是没有模型', async () => {
+    listModels.mockRejectedValue(new Error('boom'))
+    getModelPlaza.mockRejectedValue(new Error('boom'))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('playground.noModelsForMode')
+  })
+})
