@@ -125,6 +125,19 @@ func (h *PlaygroundHandler) ImageGenerations(c *gin.Context) {
 	h.proxyToGateway(c, "/v1/images/generations")
 }
 
+// ImageStatus 查询生图任务状态。
+//
+// 与 VideoStatus 同理：异步生图失败后的退款也挂在状态查询这条路径上，
+// 必须经由代理走用户自己的密钥。
+func (h *PlaygroundHandler) ImageStatus(c *gin.Context) {
+	taskID := strings.TrimSpace(c.Param("task_id"))
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "missing task_id"}})
+		return
+	}
+	h.proxyToGateway(c, "/v1/images/generations/"+taskID)
+}
+
 // VideoGenerations 在线生视频（异步任务，返回 task id）。
 func (h *PlaygroundHandler) VideoGenerations(c *gin.Context) {
 	h.proxyToGateway(c, "/v1/videos/generations")

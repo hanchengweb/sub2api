@@ -17,6 +17,7 @@ func RegisterPlaygroundRoutes(v1 *gin.RouterGroup, h *handler.PlaygroundHandler,
 	{
 		pg.POST("/chat/completions", h.ChatCompletions)
 		pg.POST("/images/generations", h.ImageGenerations)
+		pg.GET("/images/generations/:task_id", h.ImageStatus)
 		pg.POST("/videos/generations", h.VideoGenerations)
 		pg.GET("/videos/:request_id", h.VideoStatus)
 	}
