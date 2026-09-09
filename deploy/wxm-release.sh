@@ -129,8 +129,29 @@ run_tests() {
   fi
 
   echo "== 校验 $sha =="
-  ssh_do "rm -rf $work && mkdir -p $work"
-  git archive "$sha" --format=tar | ssh_do "tar x -C $work"
+  # 源码上传要重试并核验落地。
+  #
+  # 2026-09-09 撞到过一次假失败：上传半途 Connection reset by peer，源码没落全，
+  # 闸门却报「directory prefix internal does not contain main module」——看起来
+  # 像 Go 代码坏了，实际是传输断了。gofmt 那步也证明不了什么：文件缺失时它的
+  # 报错被 2>/dev/null 吞掉，照样打印 ok。所以这里必须显式核验。
+  local uploaded=0 attempt
+  for attempt in 1 2 3; do
+    ssh_do "rm -rf $work && mkdir -p $work" || { sleep 3; continue; }
+    if git archive "$sha" --format=tar | ssh_do "tar x -C $work"; then
+      if ssh_do "test -f $work/backend/go.mod"; then
+        uploaded=1
+        break
+      fi
+    fi
+    echo "    （源码上传第 $attempt 次未落全，重试）"
+    sleep 3
+  done
+  if [ "$uploaded" -ne 1 ]; then
+    echo "源码上传失败：$work/backend/go.mod 不存在。这是传输问题，不是代码问题" >&2
+    ssh_do "rm -rf $work" || true
+    return 1
+  fi
 
   # gofmt 只看本次提交碰过的文件：仓库里本来就有几个长期未格式化的
   # 存量文件，全量检查会永远红，变成噪声后就没人看了。
@@ -222,9 +243,26 @@ else
   run_tests "$SHA" || exit 1
 fi
 
-# 1) 推送源码（独立 ssh，不与构建混在一条命令里）
-ssh_do "rm -rf $WORK $LOG && mkdir -p $WORK"
-git archive "$SHA" --format=tar | ssh_do "tar x -C $WORK"
+# 1) 推送源码（独立 ssh，不与构建混在一条命令里）。$WORK 的清理交给下面的重试循环。
+ssh_do "rm -f $LOG"
+# 与校验那步同理：上传断了要重试并核验，否则可能构出一个「成功但内容不全」
+# 的镜像——那比构建失败更难发现。
+uploaded=0
+for attempt in 1 2 3; do
+  ssh_do "rm -rf $WORK && mkdir -p $WORK" || { sleep 3; continue; }
+  if git archive "$SHA" --format=tar | ssh_do "tar x -C $WORK"; then
+    if ssh_do "test -f $WORK/backend/go.mod && test -f $WORK/deploy/Dockerfile"; then
+      uploaded=1
+      break
+    fi
+  fi
+  echo "  （源码上传第 $attempt 次未落全，重试）"
+  sleep 3
+done
+if [ "$uploaded" -ne 1 ]; then
+  echo "源码上传失败：$WORK 内容不完整。这是传输问题，不是代码问题" >&2
+  exit 1
+fi
 echo "  源码: $(ssh_do "find $WORK -type f | wc -l") 个文件"
 
 # 2) 构建。
