@@ -1,0 +1,23 @@
+package routes
+
+import (
+	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+
+	"github.com/gin-gonic/gin"
+)
+
+// RegisterPlaygroundRoutes 注册「在线使用」页的网关代理。
+//
+// 挂 JWT 而非 API key 鉴权：调用方是登录中的网页端，它拿不到明文密钥。
+// 代理内部再取该用户自己的密钥去调网关，明文 key 不出浏览器。
+func RegisterPlaygroundRoutes(v1 *gin.RouterGroup, h *handler.PlaygroundHandler, jwtAuth middleware.JWTAuthMiddleware) {
+	pg := v1.Group("/playground")
+	pg.Use(gin.HandlerFunc(jwtAuth))
+	{
+		pg.POST("/chat/completions", h.ChatCompletions)
+		pg.POST("/images/generations", h.ImageGenerations)
+		pg.POST("/videos/generations", h.VideoGenerations)
+		pg.GET("/videos/:request_id", h.VideoStatus)
+	}
+}
