@@ -32,6 +32,9 @@
 #   7. 所有 ssh 都带 keepalive，启动后台任务的那条还要 -n + 远端 </dev/null
 #      —— 少了 keepalive，死连接会让脚本无限等；少了 stdin 重定向，
 #         nohup 的子进程攥着 ssh 通道，ssh 等不到 EOF 同样不返回。
+#   8. 单测跳过与否，基线是「线上正在跑的提交」而不是父提交
+#      —— 按父提交比，Go 改动落在前一个 commit 时会被整段跳过，
+#         镜像里却装着没测过的代码。
 set -euo pipefail
 
 HOST="${WXM_HOST:-wxm-tenant-platform-hz-01}"
@@ -87,6 +90,10 @@ prune_build_cache() {
 
 current_image() { ssh_do "grep -m1 -oE 'sub2api:[^[:space:]]+' $STACK/docker-compose.yml"; }
 
+# 从线上镜像 tag 末段取出已部署的 commit sha。tag 形如
+# sub2api:<版本>-wxm2-<标签>-<日期>-<sha>，末段就是 sha。
+deployed_sha() { current_image 2>/dev/null | awk -F- '{print $NF}' | tr -d '[:space:]'; }
+
 health_wait() {
   ssh_do "for i in \$(seq 1 18); do sleep 10;
     S=\$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}}' sub2api 2>/dev/null);
@@ -104,7 +111,18 @@ run_tests() {
   work="/tmp/s2a-test-${sha}"
 
   # 没碰 Go 源码就不用跑：只改前端 / 脚本 / 文档的提交没必要付这九分钟。
-  if [ -z "$(git diff-tree --no-commit-id --name-only -r "$sha" -- 'backend/**/*.go' 'backend/go.mod' 'backend/go.sum')" ]; then
+  #
+  # 基线必须是**线上正在跑的那个提交**，不是本提交的父提交。用父提交比会漏：
+  # Go 改动在前一个 commit、这次发的是后面只改文档的 commit，单测就被跳过了，
+  # 而镜像里装的仍是没测过的 Go 代码。解析不出基线时一律跑测试，宁可多花九分钟。
+  local base go_changed
+  base=$(deployed_sha)
+  if [ -n "$base" ] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
+    go_changed=$(git diff --name-only "$base" "$sha" -- 'backend/**/*.go' 'backend/go.mod' 'backend/go.sum')
+  else
+    go_changed="unknown-baseline"
+  fi
+  if [ -z "$go_changed" ]; then
     echo "== 校验 $sha =="
     echo "  本提交未改动 Go 源码，跳过单测"
     return 0
