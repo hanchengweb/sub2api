@@ -79,6 +79,8 @@ type AuthService struct {
 	affiliateService      *AffiliateService
 	defaultSubAssigner    DefaultSubscriptionAssigner
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	// 可选：注册后发放试用密钥。未注入时该功能静默跳过。
+	trialKeyIssuer SignupTrialKeyIssuer
 }
 
 type DefaultSubscriptionAssigner interface {
@@ -905,6 +907,10 @@ func (s *AuthService) postAuthUserBootstrap(ctx context.Context, user *User, sig
 		signupSource = "email"
 	}
 	s.updateUserSignupSource(ctx, user.ID, signupSource)
+
+	// 放在这里而不是邮箱注册分支：本函数是邮箱注册与三处 OAuth 登录的共同入口，
+	// 写在分支里会漏掉 OAuth 注册的新用户。
+	s.issueSignupTrialKey(ctx, user.ID)
 
 	if touchLogin {
 		s.touchUserLogin(ctx, user.ID)
