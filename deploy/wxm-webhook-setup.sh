@@ -75,11 +75,11 @@ case "${1:-status}" in
     # 用 psql 变量传值：不出现在命令行参数里，也不需要自己转义引号。
     ssh -o ConnectTimeout=20 -o BatchMode=yes "$HOST" \
       "docker exec -i sub2api-postgres psql -U sub2api -d sub2api -q -v secret=\"\$(cat)\" <<'SQL'
-INSERT INTO settings (key, value, created_at, updated_at)
-VALUES ('toapis_webhook_secret', :'secret', NOW(), NOW())
+INSERT INTO settings (key, value, updated_at)
+VALUES ('toapis_webhook_secret', :'secret', NOW())
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
-INSERT INTO settings (key, value, created_at, updated_at)
-VALUES ('toapis_webhook_enabled', 'true', NOW(), NOW())
+INSERT INTO settings (key, value, updated_at)
+VALUES ('toapis_webhook_enabled', 'true', NOW())
 ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW();
 SQL" <<< "$SECRET"
     unset SECRET
@@ -90,8 +90,8 @@ SQL" <<< "$SECRET"
   rotate)
     # 轮换期上游会同时发两把密钥的签名（24 小时），两边都留着才不会漏收。
     ssh_psql <<'SQL'
-INSERT INTO settings (key, value, created_at, updated_at)
-SELECT 'toapis_webhook_secret_previous', value, NOW(), NOW()
+INSERT INTO settings (key, value, updated_at)
+SELECT 'toapis_webhook_secret_previous', value, NOW()
 FROM settings WHERE key='toapis_webhook_secret'
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
 SQL
