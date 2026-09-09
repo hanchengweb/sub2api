@@ -104,6 +104,15 @@ func (h *PlaygroundHandler) proxyToGateway(c *gin.Context, gatewayPath string) {
 	)
 
 	h.engine.HandleContext(c)
+
+	// 必须显式终止外层链路。
+	//
+	// HandleContext 会保存并恢复 c.index，所以内部路由跑完后，外层
+	// /api/v1/playground/* 这条链路会从原处继续往下走——请求于是被处理两次。
+	// 实测现象：响应体里正常 JSON 后面又拼了一段
+	// {"error":{"message":"Request body is empty"}}（第二次进来时 body 已读空）。
+	// Abort 只置终止标志，不写响应，网关 handler 已写好的内容不受影响。
+	c.Abort()
 }
 
 // ChatCompletions 在线对话（支持流式）。
