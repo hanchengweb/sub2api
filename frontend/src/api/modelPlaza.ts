@@ -18,11 +18,20 @@ export interface PlazaOfficialPricing {
   cache_read_price: number | null
 }
 
+/** 视频模型的每秒单价（按清晰度分档）。非视频模型为 null。 */
+export interface PlazaVideoPricing {
+  price_per_second_480p: number | null
+  price_per_second_720p: number | null
+  price_per_second_1080p: number | null
+}
+
 export interface PlazaModel {
   name: string
   platform: string
   pricing: UserSupportedModelPricing | null
   official_pricing: PlazaOfficialPricing | null
+  /** 视频按秒计价，价格存在分组上而不在渠道定价表里，故走单独字段。 */
+  video_pricing?: PlazaVideoPricing | null
 }
 
 export interface ModelPlazaGroup {

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -28,12 +29,21 @@ const playgroundMaxBody = 4 << 20
 // 计费、额度、分组、退款全部复用原有链路。若代理自己重写一套调用逻辑，就会出现
 // 两套计费口径，而同一件事两套口径正是这个项目反复出问题的根源。
 type PlaygroundHandler struct {
-	engine        *gin.Engine
-	apiKeyService *service.APIKeyService
+	engine         *gin.Engine
+	apiKeyService  *service.APIKeyService
+	settingService *service.SettingService
 }
 
-func NewPlaygroundHandler(engine *gin.Engine, apiKeyService *service.APIKeyService) *PlaygroundHandler {
-	return &PlaygroundHandler{engine: engine, apiKeyService: apiKeyService}
+func NewPlaygroundHandler(
+	engine *gin.Engine,
+	apiKeyService *service.APIKeyService,
+	settingService *service.SettingService,
+) *PlaygroundHandler {
+	return &PlaygroundHandler{
+		engine:         engine,
+		apiKeyService:  apiKeyService,
+		settingService: settingService,
+	}
 }
 
 // resolveUserKey 取该用户可用于在线体验的密钥。
@@ -56,7 +66,39 @@ func (h *PlaygroundHandler) resolveUserKey(c *gin.Context, userID int64) (*servi
 		}
 		return k, true
 	}
-	return nil, false
+	// 一把可用的都没有——补发试用密钥。
+	//
+	// 试用密钥功能上线前注册的老用户手上一把钥匙都没有，整个在线使用页对他们
+	// 完全不可用：模型列表是空的，发什么都失败。让他们自己先去建密钥不合理，
+	// 这页的卖点就是「开箱即用」。
+	return h.ensureTrialKey(c, userID)
+}
+
+// ensureTrialKey 给没有任何可用密钥的用户补发一把试用密钥。
+//
+// 复用注册时那套配置（signup_trial_key_*），额度口径完全一致；开关关闭时不补发。
+// 失败只记日志并返回 false，由调用方回 4xx，不把内部错误细节抛给前端。
+func (h *PlaygroundHandler) ensureTrialKey(c *gin.Context, userID int64) (*service.APIKey, bool) {
+	if h.apiKeyService == nil || h.settingService == nil {
+		return nil, false
+	}
+	enabled, quota, groupID := h.settingService.SignupTrialKeyConfig(c.Request.Context())
+	if !enabled || quota <= 0 {
+		return nil, false
+	}
+	key, err := h.apiKeyService.Create(c.Request.Context(), userID, service.CreateAPIKeyRequest{
+		Name:    service.SignupTrialKeyName,
+		GroupID: groupID,
+		Quota:   quota,
+	})
+	if err != nil {
+		logger.LegacyPrintf("handler.playground",
+			"[Playground] backfill trial key failed user=%d err=%v", userID, err)
+		return nil, false
+	}
+	logger.LegacyPrintf("handler.playground",
+		"[Playground] backfilled trial key user=%d key_id=%d quota=%.2f", userID, key.ID, quota)
+	return key, true
 }
 
 // proxyToGateway 把当前请求改写成网关请求并重新派发。

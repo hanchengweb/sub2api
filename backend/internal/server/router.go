@@ -130,7 +130,7 @@ func registerRoutes(
 	// 在线使用代理。必须在网关路由注册之后：它靠 engine 内部重派发到 /v1/*。
 	// 在这里就地构造而不放进 Handlers：它需要 *gin.Engine，而 Handlers 在 wire 里
 	// 构造时引擎还不存在。
-	routes.RegisterPlaygroundRoutes(v1, handler.NewPlaygroundHandler(r, apiKeyService), jwtAuth)
+	routes.RegisterPlaygroundRoutes(v1, handler.NewPlaygroundHandler(r, apiKeyService, settingService), jwtAuth)
 
 	handler.RegisterPageRoutes(v1, cfg.Pricing.DataDir, gin.HandlerFunc(jwtAuth), gin.HandlerFunc(adminAuth), settingService)
 }

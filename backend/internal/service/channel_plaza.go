@@ -23,6 +23,16 @@ type PlazaModel struct {
 	Platform        string
 	Pricing         *ChannelModelPricing
 	OfficialPricing *PlazaOfficialPricing
+	// VideoPricing 仅视频模型有值：视频按秒计价，价格存在分组的
+	// video_price_480p/720p/1080p 三列上，不在渠道定价表里，所以走单独字段。
+	VideoPricing *PlazaVideoPricing
+}
+
+// PlazaVideoPricing 视频模型的每秒单价（按清晰度分档）。
+type PlazaVideoPricing struct {
+	PricePer480P  *float64
+	PricePer720P  *float64
+	PricePer1080P *float64
 }
 
 // plazaPricingEquivalent 判断两份定价对用户是否等价。
@@ -241,6 +251,51 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 		}
 	}
 
+	// 补齐「白名单里有、渠道集合里没有」的模型。
+	//
+	// 广场的模型集合是从渠道 SupportedModels 拼的，而 /v1/models 直接读白名单，
+	// 两者本该一致（见上文注释），实际会漏：视频模型没有渠道定价行，就进不了
+	// 渠道集合，于是「客户端列得出来、定价页查不到价」。视频价本来就在分组上
+	// （video_price_* 三列），这里按白名单补行并挂上它。
+	for i := range groups {
+		g := groups[i]
+		pg := byGroup[g.ID]
+		if pg == nil || !g.CustomModelsListEnabled() {
+			continue
+		}
+		present := make(map[string]struct{}, len(pg.Models))
+		for j := range pg.Models {
+			present[pg.Models[j].Name] = struct{}{}
+		}
+		for _, name := range g.ModelsListConfig.Models {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if _, ok := present[name]; ok {
+				continue
+			}
+			// 只补视频模型：其余缺失项没有可展示的价格，补进来只会多一行「-」。
+			if !isPlazaVideoModelName(name) {
+				continue
+			}
+			vp := &PlazaVideoPricing{
+				PricePer480P:  g.VideoPrice480P,
+				PricePer720P:  g.VideoPrice720P,
+				PricePer1080P: g.VideoPrice1080P,
+			}
+			if vp.PricePer480P == nil && vp.PricePer720P == nil && vp.PricePer1080P == nil {
+				continue
+			}
+			pg.Models = append(pg.Models, PlazaModel{
+				Name:         name,
+				Platform:     PlatformGrok,
+				VideoPricing: vp,
+			})
+			present[name] = struct{}{}
+		}
+	}
+
 	officialMemo := make(map[string]*PlazaOfficialPricing)
 	out := make([]PlazaGroup, 0, len(order))
 	for _, gid := range order {
@@ -289,4 +344,12 @@ func (s *ChannelService) lookupOfficialPricing(modelName string, memo map[string
 	}
 	memo[modelName] = result
 	return result
+}
+
+// isPlazaVideoModelName 判断模型名是否为视频模型。
+//
+// 按名字判而不是按 billing_mode：视频模型的 billing_mode 配的是 image
+// （它走图片接口那条闸门），计费模式区分不出视频。
+func isPlazaVideoModelName(name string) bool {
+	return strings.Contains(strings.ToLower(name), "video")
 }

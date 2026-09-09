@@ -22,8 +22,8 @@ const (
 	// 试用额度上限。设置项超过这个值一律按上限收敛——赠送额度直接对应真金白银的
 	// 上游成本，配置写错一个零就是十倍支出。
 	MaxSignupTrialKeyQuota = 3000
-	// 试用密钥的名称，便于用户在密钥列表里认出它。
-	signupTrialKeyName = "试用密钥"
+	// SignupTrialKeyName 试用密钥的名称，便于用户在密钥列表里认出它。
+	SignupTrialKeyName = "试用密钥"
 )
 
 // SignupTrialKeyIssuer 注册后发放试用密钥所需的最小能力集。
@@ -43,14 +43,24 @@ func (s *AuthService) SetSignupTrialKeyIssuer(issuer SignupTrialKeyIssuer) {
 	s.trialKeyIssuer = issuer
 }
 
-// signupTrialKeyConfig 读取试用密钥配置。
-//
-// 关闭时返回 enabled=false；额度未配置走默认 1000，超过上限收敛到 3000。
+// signupTrialKeyConfig 读取试用密钥配置（注册路径用）。
 func (s *AuthService) signupTrialKeyConfig(ctx context.Context) (enabled bool, quota float64, groupID *int64) {
-	if s == nil || s.settingService == nil || s.settingService.settingRepo == nil {
+	if s == nil {
 		return false, 0, nil
 	}
-	vals, err := s.settingService.settingRepo.GetMultiple(ctx, []string{
+	return s.settingService.SignupTrialKeyConfig(ctx)
+}
+
+// SignupTrialKeyConfig 读取试用密钥配置。
+//
+// 关闭时返回 enabled=false；额度未配置走默认 1000，超过上限收敛到 3000。
+// 提到 SettingService 上是为了让注册路径与「在线使用」补发路径共用同一份口径——
+// 两处各读一遍设置，迟早会读出两套规则。
+func (s *SettingService) SignupTrialKeyConfig(ctx context.Context) (enabled bool, quota float64, groupID *int64) {
+	if s == nil || s.settingRepo == nil {
+		return false, 0, nil
+	}
+	vals, err := s.settingRepo.GetMultiple(ctx, []string{
 		SettingSignupTrialKeyEnabled, SettingSignupTrialKeyQuota, SettingSignupTrialKeyGroupID,
 	})
 	if err != nil {
@@ -107,7 +117,7 @@ func (s *AuthService) issueSignupTrialKey(ctx context.Context, userID int64) {
 	}
 
 	key, err := s.trialKeyIssuer.Create(ctx, userID, CreateAPIKeyRequest{
-		Name:    signupTrialKeyName,
+		Name:    SignupTrialKeyName,
 		GroupID: groupID,
 		Quota:   quota,
 	})

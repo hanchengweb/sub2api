@@ -50,6 +50,15 @@ type modelPlazaModel struct {
 	Platform        string                     `json:"platform"`
 	Pricing         *userSupportedModelPricing `json:"pricing"`
 	OfficialPricing *modelPlazaOfficialPricing `json:"official_pricing"`
+	// VideoPricing 仅视频模型有值：按秒计价，价格在分组上而不在渠道定价表里。
+	VideoPricing *modelPlazaVideoPricing `json:"video_pricing,omitempty"`
+}
+
+// modelPlazaVideoPricing 视频模型每秒单价（按清晰度分档）。
+type modelPlazaVideoPricing struct {
+	PricePer480P  *float64 `json:"price_per_second_480p"`
+	PricePer720P  *float64 `json:"price_per_second_720p"`
+	PricePer1080P *float64 `json:"price_per_second_1080p"`
 }
 
 // modelPlazaGroup 广场分组条目（白名单字段）。
@@ -161,6 +170,7 @@ func toModelPlazaGroupDTO(g *service.PlazaGroup, userRates map[int64]float64) mo
 			Platform:        m.Platform,
 			Pricing:         toUserPricing(m.Pricing),
 			OfficialPricing: toModelPlazaOfficialPricing(m.OfficialPricing),
+			VideoPricing:    toModelPlazaVideoPricing(m.VideoPricing),
 		})
 	}
 	dto := modelPlazaGroup{
@@ -181,6 +191,18 @@ func toModelPlazaGroupDTO(g *service.PlazaGroup, userRates map[int64]float64) mo
 		dto.UserRateMultiplier = &rate
 	}
 	return dto
+}
+
+// toModelPlazaVideoPricing 转换视频每秒单价；nil 透传（非视频模型即为 nil）。
+func toModelPlazaVideoPricing(p *service.PlazaVideoPricing) *modelPlazaVideoPricing {
+	if p == nil {
+		return nil
+	}
+	return &modelPlazaVideoPricing{
+		PricePer480P:  p.PricePer480P,
+		PricePer720P:  p.PricePer720P,
+		PricePer1080P: p.PricePer1080P,
+	}
 }
 
 // toModelPlazaOfficialPricing 转换官方参考价；nil 透传（前端显示 "-"）。

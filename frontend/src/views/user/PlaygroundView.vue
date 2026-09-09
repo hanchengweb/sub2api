@@ -3,7 +3,7 @@
     <div class="flex h-[calc(100vh-11rem)] min-h-[32rem] gap-4">
       <!-- 会话列表 -->
       <aside class="hidden w-60 shrink-0 flex-col card p-3 lg:flex">
-        <button class="btn-primary w-full justify-center" @click="startNewConversation">
+        <button class="btn btn-primary w-full" @click="startNewConversation">
           <Icon name="plus" size="sm" class="mr-1" />
           {{ t('playground.newChat') }}
         </button>
@@ -37,20 +37,20 @@
 
       <!-- 对话区 -->
       <section class="flex min-w-0 flex-1 flex-col card">
-        <!-- 顶栏：模型选择 -->
-        <header class="flex flex-wrap items-center gap-3 border-b border-gray-100 px-4 py-3 dark:border-dark-700">
+        <!-- 顶栏：模型选择。余额不放这里——右上角全站头部已经有了，
+             同一个数字在一屏里出现两次只会让人怀疑哪个是真的。 -->
+        <header class="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3 dark:border-dark-700">
           <Icon :name="modeIcon(mode)" size="sm" class="text-primary-500" />
           <select
+            v-if="availableModels.length"
             v-model="selectedModel"
-            class="input h-9 max-w-[16rem] py-1 text-sm"
+            data-testid="model-select"
+            class="input h-9 max-w-[18rem] py-1 text-sm"
             :aria-label="t('playground.model')"
           >
-            <option v-if="!availableModels.length" value="">{{ t('playground.noModels') }}</option>
             <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
           </select>
-          <span class="ml-auto text-xs text-gray-400">
-            {{ t('playground.balance') }}: {{ balanceText }}
-          </span>
+          <span v-else class="text-xs text-gray-400">{{ t('playground.noModelsForMode') }}</span>
         </header>
 
         <!-- 消息流 -->
@@ -117,7 +117,7 @@
 
         <!-- 输入区 -->
         <footer class="border-t border-gray-100 p-3 dark:border-dark-700">
-          <div class="rounded-xl border border-gray-200 p-2 dark:border-dark-600">
+          <div class="rounded-2xl border border-gray-200 p-2 shadow-sm dark:border-dark-600">
             <textarea
               v-model="draft"
               rows="2"
@@ -125,22 +125,62 @@
               class="w-full resize-none bg-transparent px-2 py-1 text-sm outline-none dark:text-dark-100"
               @keydown.enter.exact.prevent="submit"
             />
+
+            <!-- 参数条：只显示当前模式用得上的参数，且真的会带进请求。
+                 摆着好看但不生效的控件比没有更糟。 -->
+            <div v-if="mode !== 'chat'" class="flex flex-wrap items-center gap-1.5 px-1 pb-2">
+              <label v-if="mode === 'video'" class="param-chip">
+                <span class="param-label">{{ t('playground.paramDuration') }}</span>
+                <select v-model.number="videoDuration" class="param-select">
+                  <option v-for="d in durationOptions" :key="d" :value="d">{{ d }}s</option>
+                </select>
+              </label>
+              <label class="param-chip">
+                <span class="param-label">{{ t('playground.paramAspect') }}</span>
+                <select v-model="aspectRatio" class="param-select">
+                  <option v-for="a in ASPECT_OPTIONS" :key="a" :value="a">{{ a }}</option>
+                </select>
+              </label>
+              <label class="param-chip">
+                <span class="param-label">{{ t('playground.paramResolution') }}</span>
+                <select v-model="resolution" class="param-select">
+                  <option v-for="r in resolutionOptions" :key="r.value" :value="r.value">{{ r.label }}</option>
+                </select>
+              </label>
+              <label v-if="mode === 'image'" class="param-chip">
+                <span class="param-label">{{ t('playground.paramCount') }}</span>
+                <select v-model.number="imageCount" class="param-select">
+                  <option v-for="n in [1, 2, 3, 4]" :key="n" :value="n">{{ n }}</option>
+                </select>
+              </label>
+            </div>
+
             <div class="flex flex-wrap items-center gap-2 px-1">
               <!-- 三模式共用同一套界面，切换不跳页 -->
               <button
                 v-for="m in modes"
                 :key="m.value"
-                class="rounded-lg px-2.5 py-1 text-xs transition-colors"
+                class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs transition-colors"
                 :class="mode === m.value
                   ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-200'
                   : 'text-gray-500 hover:bg-gray-100 dark:text-dark-400 dark:hover:bg-dark-800'"
                 @click="switchMode(m.value)"
               >
-                <Icon :name="m.icon" size="xs" class="mr-1" />{{ t(m.labelKey) }}
+                <Icon :name="m.icon" size="xs" />{{ t(m.labelKey) }}
               </button>
 
+              <!-- 本次调用的费用预估。价格来自模型定价页同一份数据，
+                   按当前选中的档位实时算，不是写死的文案。 -->
+              <span
+                v-if="costHint"
+                class="ml-auto whitespace-nowrap rounded-lg bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+              >
+                {{ costHint }}
+              </span>
+
               <button
-                class="btn-primary ml-auto h-8 w-8 shrink-0 justify-center rounded-full p-0"
+                class="btn btn-primary h-8 w-8 shrink-0 rounded-full p-0"
+                :class="costHint ? 'ml-2' : 'ml-auto'"
                 :disabled="busy || !draft.trim() || !selectedModel"
                 :aria-label="t('playground.send')"
                 @click="submit"
@@ -164,7 +204,7 @@ import { RouterLink } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import { getModelPlaza } from '@/api/modelPlaza'
+import { getModelPlaza, type PlazaModel } from '@/api/modelPlaza'
 import {
   listModels,
   streamChat,
@@ -213,6 +253,40 @@ const busy = ref(false)
 const busyHint = ref('')
 const scrollArea = ref<HTMLElement | null>(null)
 
+// 画幅比例。toAPI 的语义：size 是比例，resolution 才是清晰度档位——
+// 与 OpenAI 相反，传反了上游直接拒。
+const ASPECT_OPTIONS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const
+const IMAGE_RESOLUTIONS = [
+  { value: '1k', label: '1K' },
+  { value: '2k', label: '2K' },
+  { value: '4k', label: '4K' }
+]
+const VIDEO_RESOLUTIONS = [
+  { value: '480p', label: '480p' },
+  { value: '720p', label: '720p' },
+  { value: '1080p', label: '1080p' }
+]
+// toAPI 视频时长边界 6~30 秒（见 video_billing_resolution.go 的
+// toapiVideoMin/MaxDurationSeconds）；超出范围会被上游拒绝并产生一次退款往返。
+const VIDEO_DURATIONS = [6, 8, 10, 12, 15, 20, 25, 30]
+
+const aspectRatio = ref<string>('1:1')
+const resolution = ref<string>('1k')
+const imageCount = ref(1)
+const videoDuration = ref(8)
+
+/**
+ * 模型名 → 广场定价 + 该分组的生效倍率，用于费用预估。
+ *
+ * 倍率必须一起存：广场返回的是渠道原价，用户实付 = 原价 × 生效倍率
+ * （专属倍率优先于分组倍率）。只存价格会在配了倍率的分组上报错价。
+ */
+interface PricedModel {
+  model: PlazaModel
+  rate: number
+}
+const pricingByModel = ref<Map<string, PricedModel>>(new Map())
+
 const chatModels = ref<string[]>([])
 const imageModels = ref<string[]>([])
 const videoModels = ref<string[]>([])
@@ -226,7 +300,66 @@ const activeConversation = computed(
   () => conversations.value.find((c) => c.id === activeId.value) ?? null
 )
 const activeMessages = computed<PlaygroundMessage[]>(() => activeConversation.value?.messages ?? [])
-const balanceText = computed(() => formatCredits(authStore.user?.balance ?? 0))
+
+const resolutionOptions = computed(() => (mode.value === 'video' ? VIDEO_RESOLUTIONS : IMAGE_RESOLUTIONS))
+const durationOptions = VIDEO_DURATIONS
+
+/**
+ * 本次调用的费用预估。
+ *
+ * 用的就是模型定价页那份数据，按当前选中的档位实时算——写死一个数字，
+ * 改了定价就会对不上。对话模式按 token 计费，发之前算不出来，所以改成报单价。
+ */
+const costHint = computed(() => {
+  const entry = pricingByModel.value.get(selectedModel.value)
+  if (!entry) return ''
+  const { model: m, rate } = entry
+
+  if (mode.value === 'video') {
+    const per = videoPricePerSecond(m, resolution.value)
+    if (per == null) return ''
+    return t('playground.costVideo', {
+      total: formatCredits(per * rate * videoDuration.value),
+      seconds: videoDuration.value
+    })
+  }
+
+  if (mode.value === 'image') {
+    const per = imagePricePerUnit(m, resolution.value)
+    if (per == null) return ''
+    return t('playground.costImage', {
+      total: formatCredits(per * rate * imageCount.value),
+      n: imageCount.value
+    })
+  }
+
+  const input = m.pricing?.input_price
+  const output = m.pricing?.output_price
+  if (input == null || output == null) return ''
+  return t('playground.costChat', {
+    input: (input * rate * 1_000_000).toFixed(2),
+    output: (output * rate * 1_000_000).toFixed(2)
+  })
+})
+
+/** 视频每秒单价：按清晰度取分组配的那一档。 */
+function videoPricePerSecond(m: PlazaModel, res: string): number | null {
+  const vp = m.video_pricing
+  if (!vp) return null
+  if (res === '1080p') return vp.price_per_second_1080p ?? vp.price_per_second_720p ?? null
+  if (res === '480p') return vp.price_per_second_480p ?? vp.price_per_second_720p ?? null
+  return vp.price_per_second_720p ?? vp.price_per_second_480p ?? null
+}
+
+/** 生图单价：优先按档位（1K/2K/4K）取，没有档位就用单一按次价。 */
+function imagePricePerUnit(m: PlazaModel, res: string): number | null {
+  const label = res.toUpperCase()
+  const tier = (m.pricing?.intervals ?? []).find(
+    (iv) => (iv.tier_label ?? '').toUpperCase() === label && iv.per_request_price != null
+  )
+  if (tier?.per_request_price != null) return tier.per_request_price
+  return m.pricing?.per_request_price ?? null
+}
 
 const availableModels = computed(() => {
   if (mode.value === 'image') return imageModels.value
@@ -390,8 +523,15 @@ async function runMedia(conv: PlaygroundConversation, prompt: string) {
   // size 是画幅比例、resolution 才是清晰度档位 —— 与 OpenAI 的语义相反，
   // 这是 toAPI 的约定（见 quickstart 文档），传反了会被上游拒绝。
   const task = isVideo
-    ? await createVideoTask(conv.model, prompt, { resolution: '720p', duration: 8 })
-    : await createImageTask(conv.model, prompt, { size: '1:1', resolution: '1k', n: 1 })
+    ? await createVideoTask(conv.model, prompt, {
+        resolution: resolution.value,
+        duration: videoDuration.value
+      })
+    : await createImageTask(conv.model, prompt, {
+        size: aspectRatio.value,
+        resolution: resolution.value,
+        n: imageCount.value
+      })
 
   const reply = appendMessage(conv, {
     id: newId(),
@@ -490,18 +630,24 @@ async function loadModels() {
     return
   }
 
-  // 广场只是补充元数据，拿不到就退回按名字判断，不影响名单本身。
+  // 广场同时提供两样东西：计费模式（分不分对话/生图）和定价（做费用预估）。
+  // 拿不到就退回按名字判断，名单本身不受影响，只是没有预估。
   const billingModes = new Map<string, string>()
+  const priced = new Map<string, PricedModel>()
   try {
     const plaza = await getModelPlaza()
     for (const group of plaza.groups ?? []) {
+      // 专属倍率优先于分组倍率，与定价页的口径一致。
+      const rate = group.user_rate_multiplier ?? group.rate_multiplier ?? 1
       for (const m of group.models ?? []) {
+        priced.set(m.name, { model: m, rate })
         if (m.pricing?.billing_mode) billingModes.set(m.name, m.pricing.billing_mode)
       }
     }
   } catch {
     /* 广场关闭时会 404，忽略 */
   }
+  pricingByModel.value = priced
 
   const chat: string[] = []
   const image: string[] = []
@@ -525,6 +671,13 @@ watch([mode, availableModels], () => {
   }
 })
 
+// 生图与视频的清晰度档位是两套值（1k/2k/4k vs 480p/720p/1080p）。
+// 切模式后不校正的话，会把 "1k" 当分辨率发给视频接口。
+watch(mode, () => {
+  const allowed = resolutionOptions.value.map((r) => r.value)
+  if (!allowed.includes(resolution.value)) resolution.value = allowed[0]
+})
+
 onMounted(async () => {
   conversations.value = loadConversations()
   activeId.value = conversations.value[0]?.id ?? ''
@@ -538,3 +691,20 @@ onBeforeUnmount(() => {
   if (pollTimer) clearTimeout(pollTimer)
 })
 </script>
+
+<style scoped>
+/* 参数芯片：外观像 toAPI 的胶囊控件，内核仍是原生 select——
+   自绘下拉要自己处理键盘、滚动与移动端弹层，收益不抵成本。 */
+.param-chip {
+  @apply inline-flex cursor-pointer items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] transition-colors;
+  @apply hover:border-gray-300 dark:border-dark-600 dark:bg-dark-800 dark:hover:border-dark-500;
+}
+
+.param-label {
+  @apply text-gray-400 dark:text-dark-500;
+}
+
+.param-select {
+  @apply cursor-pointer appearance-none border-none bg-transparent pr-0 text-[11px] font-medium text-gray-700 outline-none dark:text-gray-200;
+}
+</style>
