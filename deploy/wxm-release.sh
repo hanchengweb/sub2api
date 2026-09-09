@@ -29,6 +29,9 @@
 #   5. 构建在服务器后台跑并写日志
 #      —— 前端 + Go 编译约 8~12 分钟，超过多数 ssh 会话的耐心。
 #   6. 换镜像前先备份 compose，失败或回滚时原样还原。
+#   7. 所有 ssh 都带 keepalive，启动后台任务的那条还要 -n + 远端 </dev/null
+#      —— 少了 keepalive，死连接会让脚本无限等；少了 stdin 重定向，
+#         nohup 的子进程攥着 ssh 通道，ssh 等不到 EOF 同样不返回。
 set -euo pipefail
 
 HOST="${WXM_HOST:-wxm-tenant-platform-hz-01}"
@@ -45,7 +48,18 @@ GO_CACHE_MOUNTS="-v s2a-gomodcache:/go/pkg/mod -v s2a-gobuildcache:/root/.cache/
 # 构建缓存清理的磁盘占用阈值（%）。超过就全清，否则只清 24 小时前的。
 DISK_PRUNE_THRESHOLD="${WXM_DISK_PRUNE_THRESHOLD:-80}"
 
-ssh_do() { ssh -o ConnectTimeout=20 -o BatchMode=yes "$HOST" "$@"; }
+# ServerAliveInterval/CountMax 是必需的，不是调优：没有它，连接被中间设备静默
+# 丢弃后 ssh 会永远等下去。2026-09-08 就这么卡了 25 分钟——镜像早构好了，
+# 脚本却停在一条死连接上，而且全部输出被管道缓冲，外面看不到任何进展。
+# 60 秒内探测到对端消失，再交给轮询里已有的重试逻辑。
+SSH_OPTS="-o ConnectTimeout=20 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+
+ssh_do() { ssh $SSH_OPTS "$HOST" "$@"; }
+
+# 启动服务器后台任务专用：-n 把本地 stdin 接到 /dev/null，远端再补一次重定向。
+# 少了任何一边，nohup 出来的进程都还攥着 ssh 通道的 stdin，ssh 等不到 EOF
+# 就不返回——命令明明已经在后台跑起来了，脚本却卡在这一行。
+ssh_spawn() { ssh -n $SSH_OPTS "$HOST" "$@"; }
 
 disk_used_percent() { ssh_do "df -h / | tail -1 | awk '{print \$5}' | tr -d '%'"; }
 
@@ -203,13 +217,13 @@ echo "  源码: $(ssh_do "find $WORK -type f | wc -l") 个文件"
 if ssh_do "docker images -q '$TAG' 2>/dev/null | grep -q ."; then
   echo "  镜像已存在，跳过构建（上次中断后重跑即可自愈）"
 else
-ssh_do "cd $WORK && nohup docker build -t '$TAG' \
+ssh_spawn "cd $WORK && nohup docker build -t '$TAG' \
   --build-arg VERSION='$VERSION' --build-arg COMMIT='$SHA' \
   --build-arg NODE_IMAGE=$MIRROR/node:24-alpine \
   --build-arg GOLANG_IMAGE=$MIRROR/golang:1.26.5-alpine \
   --build-arg ALPINE_IMAGE=$MIRROR/alpine:3.21 \
   --build-arg GOPROXY=https://goproxy.cn,direct --build-arg GOSUMDB=sum.golang.google.cn \
-  -f deploy/Dockerfile . > $LOG 2>&1 &" >/dev/null
+  -f deploy/Dockerfile . < /dev/null > $LOG 2>&1 &" >/dev/null
 echo "  构建中（约 8~12 分钟）…"
 
 # 轮询里的每一次 ssh 都可能掉线。不能让单次掉线直接结束发布：构建是 nohup
