@@ -546,7 +546,18 @@ export default {
       noPricing: 'Pricing not configured',
       peakNote: 'Peak hours {window}: billing rate ×{multiplier}'
     },
+    section: {
+      text: 'Text chat',
+      image: 'Image generation',
+      video: 'Video generation',
+      unitPerImage: 'credits / image',
+      unitPerSecond: 'credits / second'
+    },
     table: {
+      cacheWriteFull: 'Cache write',
+      cacheReadFull: 'Cache read',
+      unitPrice: 'Unit price',
+      modelCount: '{n} models',
       model: 'Model',
       input: 'Input',
       output: 'Output',

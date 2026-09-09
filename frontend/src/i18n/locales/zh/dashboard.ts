@@ -551,7 +551,18 @@ export default {
       noPricing: '未配置定价',
       peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}'
     },
+    section: {
+      text: '文本对话',
+      image: '图像生成',
+      video: '视频生成',
+      unitPerImage: '积分 / 张',
+      unitPerSecond: '积分 / 秒'
+    },
     table: {
+      cacheWriteFull: '缓存写入',
+      cacheReadFull: '缓存读取',
+      unitPrice: '单价',
+      modelCount: '{n} 个模型',
       model: '模型',
       input: '输入',
       output: '输出',

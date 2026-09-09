@@ -68,7 +68,8 @@ describe('PlazaModelPricingTable', () => {
     expect(text).toContain('3.75 积分')
     expect(text).toContain('0.30 积分')
     // 倍率列
-    expect(text).toContain('1x')
+    // 倍率不再逐行重复：它是分组属性，由页头 GroupBadge 展示（含专属倍率划线）
+    expect(text).not.toContain('1x')
   })
 
   it('倍率 ≠ 1 时价格列为折后实付价,官方价列保持原价', () => {
@@ -80,7 +81,6 @@ describe('PlazaModelPricingTable', () => {
     // 官方价原值仍在(官方列不乘倍率,单位仍是美元)
     expect(text).toContain('$3.00')
     expect(text).toContain('$15.00')
-    expect(text).toContain('0.5x')
   })
 
   it('用户专属倍率覆盖分组倍率,并划线展示原倍率', () => {
@@ -90,10 +90,8 @@ describe('PlazaModelPricingTable', () => {
     expect(text).toContain('2.40 积分')
     expect(text).toContain('12.00 积分')
     // 倍率列:原倍率划线 + 专属倍率
-    const struck = wrapper.find('td .line-through')
-    expect(struck.exists()).toBe(true)
-    expect(struck.text()).toBe('1x')
-    expect(text).toContain('0.8x')
+    // 原倍率划线 + 专属倍率由页头 GroupBadge 渲染，表内只按生效倍率算价
+    expect(wrapper.find('td .line-through').exists()).toBe(false)
   })
 
   it('模型按官方输出价从高到低排序,无官方价的排最后', () => {
@@ -120,16 +118,18 @@ describe('PlazaModelPricingTable', () => {
     const noOfficial = tokenModel({ name: 'model-no-official', official_pricing: null })
 
     const wrapper = mountTable([cheap, noOfficial, expensive], 1)
-    const names = wrapper.findAll('tbody tr').map((tr) => tr.find('td').text())
+    const names = wrapper
+      .findAll('tbody tr')
+      .map((tr) => tr.find('[data-testid="model-name"]').text())
     expect(names).toEqual(['model-expensive', 'model-cheap', 'model-no-official'])
   })
 
-  it('两级表头:实付区与官方区各拆输入/输出/缓存列', () => {
+  it('文本分区把缓存拆成写/读两列,官方三列接在同一行', () => {
     const wrapper = mountTable([tokenModel()], 1)
     const text = wrapper.text()
-    expect(text).toContain('modelPlaza.table.paidPrice')
+    expect(text).toContain('modelPlaza.section.text')
     expect(text).toContain('modelPlaza.table.officialPrice')
-    // token 行:模型 + 实付 3 列 + 官方 3 列 + 倍率
+    // 模型 + 实付 4 列(缓存拆写/读) + 官方 3 列
     expect(wrapper.findAll('tbody td')).toHaveLength(8)
   })
 
@@ -140,10 +140,10 @@ describe('PlazaModelPricingTable', () => {
 
     const withoutOfficial = mountTable([tokenModel({ official_pricing: null })], 1)
     const cells = withoutOfficial.findAll('tbody td')
-    // 官方 输入/输出/缓存 三列均为 -
-    expect(cells[4].text().trim()).toBe('-')
+    // 实付列是 模型/输入/输出/缓存写/缓存读 = 索引 0..4，官方三列从 5 起
     expect(cells[5].text().trim()).toBe('-')
     expect(cells[6].text().trim()).toBe('-')
+    expect(cells[7].text().trim()).toBe('-')
   })
 
   it('per_request 模型按单次价 × 倍率展示,官方价列显示 -', () => {
@@ -166,7 +166,8 @@ describe('PlazaModelPricingTable', () => {
     const text = wrapper.text()
     // 0.04 × 0.5 = 0.02,scale=1
     expect(text).toContain('0.02 积分')
-    expect(text).toContain('modelPlaza.table.perRequest')
+    // 计费类型改由分区标题 + 单位后缀表达，不再逐行挂徽章
+    expect(text).toContain('modelPlaza.section.image')
     // 单位后缀跟在价格后(按次 → / 次)
     expect(text).toContain('modelPlaza.table.perUnitRequest')
   })
@@ -257,7 +258,7 @@ describe('PlazaModelPricingTable', () => {
     })
     const wrapper = mountTable([model], 0.1)
     const text = wrapper.text()
-    expect(text).toContain('modelPlaza.table.perImage')
+    expect(text).toContain('modelPlaza.section.image')
     // 芯片:1K $0.001 / 2K $0.002,单位后缀内嵌(按图 → / 张)
     expect(text).toContain('1K')
     expect(text).toContain('0.001 积分')
@@ -276,12 +277,11 @@ describe('PlazaModelPricingTable 官方价列默认隐藏', () => {
     return mount(PlazaModelPricingTable, { props: { models, rateMultiplier } })
   }
 
-  it('默认不渲染官方表头与官方三列,只剩模型 + 实付三列 + 倍率', () => {
+  it('默认不渲染官方列,只剩模型 + 实付四列', () => {
     const wrapper = mountDefault([tokenModel()])
-    expect(wrapper.text()).toContain('modelPlaza.table.paidPrice')
+    expect(wrapper.text()).toContain('modelPlaza.section.text')
     expect(wrapper.text()).not.toContain('modelPlaza.table.officialPrice')
     expect(wrapper.findAll('tbody td')).toHaveLength(5)
-    expect(wrapper.findAll('tbody td').at(-1)!.text()).toBe('1x')
   })
 
   it('默认形态下不出现美元符号,实付价一律以积分计', () => {
@@ -298,5 +298,75 @@ describe('PlazaModelPricingTable 官方价列默认隐藏', () => {
     expect(wrapper.text()).toContain('modelPlaza.table.officialPrice')
     expect(wrapper.findAll('tbody td')).toHaveLength(8)
     expect(wrapper.text()).toContain('$3.00')
+  })
+})
+
+describe('PlazaModelPricingTable 分区', () => {
+  function imageModel(name: string): PlazaModel {
+    return {
+      name,
+      platform: 'openai',
+      pricing: {
+        billing_mode: 'image',
+        input_price: null,
+        output_price: null,
+        cache_write_price: null,
+        cache_read_price: null,
+        image_input_price: null,
+        image_output_price: null,
+        per_request_price: 0.5,
+        intervals: []
+      },
+      official_pricing: null
+    }
+  }
+
+  it('文本 / 生图 / 视频各自成区,空分区不占版面', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: {
+        models: [tokenModel({ name: 'deepseek-v4-flash' }), imageModel('t-gpt-image-2')],
+        rateMultiplier: 1
+      }
+    })
+    const text = wrapper.text()
+    expect(text).toContain('modelPlaza.section.text')
+    expect(text).toContain('modelPlaza.section.image')
+    // 没有视频模型时不渲染视频区
+    expect(text).not.toContain('modelPlaza.section.video')
+    expect(wrapper.findAll('table')).toHaveLength(2)
+  })
+
+  /**
+   * 线上视频模型的 billing_mode 配的是 image（它走图片接口那条闸门），
+   * 只看 billing_mode 会把视频混进生图区,所以按模型名判。
+   */
+  it('视频模型按名字归入视频区,即使 billing_mode 是 image', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: { models: [imageModel('t-grok-video-1.5')], rateMultiplier: 1 }
+    })
+    const text = wrapper.text()
+    expect(text).toContain('modelPlaza.section.video')
+    expect(text).not.toContain('modelPlaza.section.image')
+    // 视频单位是每秒,不是每张
+    expect(text).toContain('modelPlaza.section.unitPerSecond')
+  })
+
+  /**
+   * 回归:模型名单元格必须有左内边距。原来只有 pr-4，文字贴着表格左边缘，
+   * 外层又是 overflow-x-auto，首字母会被切掉。
+   */
+  it('模型名单元格有左内边距,不会贴着表格边缘被切', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: { models: [tokenModel()], rateMultiplier: 1 }
+    })
+    const firstCell = wrapper.find('tbody td')
+    expect(firstCell.classes()).toContain('px-3')
+  })
+
+  it('每个模型前面带厂商标识', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: { models: [tokenModel({ name: 'deepseek-v4-flash' })], rateMultiplier: 1 }
+    })
+    expect(wrapper.findComponent({ name: 'ModelBrandMark' }).exists()).toBe(true)
   })
 })
