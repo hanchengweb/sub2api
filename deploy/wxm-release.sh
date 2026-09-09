@@ -195,7 +195,14 @@ ssh_do "rm -rf $WORK $LOG && mkdir -p $WORK"
 git archive "$SHA" --format=tar | ssh_do "tar x -C $WORK"
 echo "  源码: $(ssh_do "find $WORK -type f | wc -l") 个文件"
 
-# 2) 后台构建
+# 2) 构建。
+#
+# 先看镜像在不在：本脚本已因 SSH 中断失败过三次（Connection reset by peer /
+# client_loop: send disconnect），每次镜像其实都已构好，只是没走到换镜像那步，
+# 得手工补完。镜像 tag 含 commit sha，同名即同代码，直接复用安全。
+if ssh_do "docker images -q '$TAG' 2>/dev/null | grep -q ."; then
+  echo "  镜像已存在，跳过构建（上次中断后重跑即可自愈）"
+else
 ssh_do "cd $WORK && nohup docker build -t '$TAG' \
   --build-arg VERSION='$VERSION' --build-arg COMMIT='$SHA' \
   --build-arg NODE_IMAGE=$MIRROR/node:24-alpine \
@@ -205,16 +212,32 @@ ssh_do "cd $WORK && nohup docker build -t '$TAG' \
   -f deploy/Dockerfile . > $LOG 2>&1 &" >/dev/null
 echo "  构建中（约 8~12 分钟）…"
 
+# 轮询里的每一次 ssh 都可能掉线。不能让单次掉线直接结束发布：构建是 nohup
+# 后台跑的，服务器侧不受影响，重试就能接上。连续多次掉线才当真故障。
+consecutive_ssh_failures=0
 for _ in $(seq 1 60); do
   sleep 20
   if ssh_do "grep -q 'Successfully tagged' $LOG 2>/dev/null"; then break; fi
-  if ssh_do "grep -qE 'returned a non-zero code|^ERROR' $LOG 2>/dev/null"; then
+  probe=$(ssh_do "grep -cE 'returned a non-zero code|^ERROR' $LOG 2>/dev/null || echo 0" 2>/dev/null) || probe=""
+  if [ -z "$probe" ]; then
+    consecutive_ssh_failures=$((consecutive_ssh_failures + 1))
+    echo "    （ssh 探测失败 $consecutive_ssh_failures/5，构建在服务器后台继续）"
+    if [ "$consecutive_ssh_failures" -ge 5 ]; then
+      echo "ssh 连续失败，放弃轮询。镜像可能已构好，重跑本命令会直接跳过构建" >&2
+      exit 1
+    fi
+    continue
+  fi
+  consecutive_ssh_failures=0
+  if [ "$probe" != "0" ]; then
     echo "构建失败，末尾日志：" >&2; ssh_do "tail -25 $LOG" >&2; exit 1
   fi
-  printf '    %s\n' "$(ssh_do "grep -E '^Step' $LOG | tail -1")"
+  printf '    %s
+' "$(ssh_do "grep -E '^Step' $LOG | tail -1" 2>/dev/null)"
 done
 ssh_do "grep -q 'Successfully tagged' $LOG" || { echo "构建超时" >&2; exit 1; }
 echo "  构建完成: $(ssh_do "docker images '$TAG' --format '{{.Size}}'")"
+fi
 
 # 3) 备份 compose 并换镜像
 OLD=$(current_image)
