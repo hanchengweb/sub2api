@@ -370,3 +370,91 @@ describe('PlazaModelPricingTable 分区', () => {
     expect(wrapper.findComponent({ name: 'ModelBrandMark' }).exists()).toBe(true)
   })
 })
+
+
+describe('PlazaModelPricingTable 视频每秒价', () => {
+  function videoModel(pricing: Record<string, number | null>): PlazaModel {
+    return {
+      name: 't-grok-video-1.5',
+      platform: 'grok',
+      pricing: null,
+      official_pricing: null,
+      video_pricing: pricing as never
+    }
+  }
+
+  /**
+   * 回归：视频价存在分组的 video_price_* 三列上，不在渠道定价表里，走单独字段。
+   * 后端补出来了但表格没渲染，线上就会看到「视频生成」分区里单价是 -。
+   */
+  it('渲染视频每秒单价,而不是显示 -', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: {
+        models: [
+          videoModel({
+            price_per_second_480p: 37,
+            price_per_second_720p: 37,
+            price_per_second_1080p: 37
+          })
+        ],
+        rateMultiplier: 1
+      }
+    })
+    const text = wrapper.text()
+    expect(text).toContain('modelPlaza.section.video')
+    expect(text).toContain('37.00 积分')
+    expect(text).toContain('modelPlaza.section.unitPerSecond')
+  })
+
+  it('三档同价时只显示一条,不重复三个一样的芯片', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: {
+        models: [
+          videoModel({
+            price_per_second_480p: 37,
+            price_per_second_720p: 37,
+            price_per_second_1080p: 37
+          })
+        ],
+        rateMultiplier: 1
+      }
+    })
+    expect(wrapper.text().match(/37\.00 积分/g)).toHaveLength(1)
+  })
+
+  it('三档不同价时按清晰度分别标注', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: {
+        models: [
+          videoModel({
+            price_per_second_480p: 20,
+            price_per_second_720p: 37,
+            price_per_second_1080p: 55
+          })
+        ],
+        rateMultiplier: 1
+      }
+    })
+    const text = wrapper.text()
+    expect(text).toContain('480p')
+    expect(text).toContain('20.00 积分')
+    expect(text).toContain('1080p')
+    expect(text).toContain('55.00 积分')
+  })
+
+  it('倍率对视频每秒价同样生效', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: {
+        models: [
+          videoModel({
+            price_per_second_480p: 37,
+            price_per_second_720p: 37,
+            price_per_second_1080p: 37
+          })
+        ],
+        rateMultiplier: 0.5
+      }
+    })
+    expect(wrapper.text()).toContain('18.50 积分')
+  })
+})

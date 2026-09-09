@@ -104,7 +104,20 @@
 
               <!-- 按次 / 按图 / 按秒：档位做成 chip 并排，比堆在一列里可读 -->
               <td v-else class="pz-cell px-3 py-2.5 align-middle">
-                <div v-if="requestIntervals(m).length" class="flex flex-wrap items-center gap-1.5">
+                <!-- 视频按秒计价，价格来自分组的 video_price_* 三列，不在渠道定价表里，
+                     所以走单独字段；三档同价时只显示一个，避免三个一样的 chip。 -->
+                <div v-if="videoTiers(m).length" class="flex flex-wrap items-center gap-1.5">
+                  <span
+                    v-for="tier in videoTiers(m)"
+                    :key="tier.label"
+                    class="inline-flex items-center gap-1 rounded-md bg-white/70 px-2 py-0.5 font-mono text-xs text-gray-800 ring-1 ring-black/5 dark:bg-dark-700/60 dark:text-gray-200 dark:ring-white/10"
+                  >
+                    <span v-if="tier.label" class="font-sans text-gray-400 dark:text-dark-500">{{ tier.label }}</span>
+                    {{ tier.price }}
+                  </span>
+                  <span class="text-[11px] text-gray-400 dark:text-dark-500">{{ t('modelPlaza.section.unitPerSecond') }}</span>
+                </div>
+                <div v-else-if="requestIntervals(m).length" class="flex flex-wrap items-center gap-1.5">
                   <span
                     v-for="(iv, i) in requestIntervals(m)"
                     :key="i"
@@ -271,6 +284,30 @@ function perUnitSuffix(m: PlazaModel): string {
 
 function tokenIntervals(m: PlazaModel): UserPricingInterval[] {
   return m.pricing?.intervals ?? []
+}
+
+/**
+ * 视频每秒单价的展示档位。
+ *
+ * 三档同价时合并成一条无标签的，线上就是这种情况（480p/720p/1080p 都是 37）；
+ * 三个一模一样的 chip 只会让人以为自己看错了。
+ */
+function videoTiers(m: PlazaModel): Array<{ label: string; price: string }> {
+  const vp = m.video_pricing
+  if (!vp) return []
+  const entries: Array<[string, number | null]> = [
+    ['480p', vp.price_per_second_480p],
+    ['720p', vp.price_per_second_720p],
+    ['1080p', vp.price_per_second_1080p]
+  ]
+  const present = entries.filter((e): e is [string, number] => e[1] != null)
+  if (present.length === 0) return []
+
+  const uniq = new Set(present.map((e) => e[1]))
+  if (uniq.size === 1) {
+    return [{ label: '', price: paidRequestPrice(present[0][1]) }]
+  }
+  return present.map(([label, price]) => ({ label, price: paidRequestPrice(price) }))
 }
 
 function requestIntervals(m: PlazaModel): UserPricingInterval[] {
