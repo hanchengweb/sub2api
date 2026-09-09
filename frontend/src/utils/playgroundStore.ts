@@ -17,6 +17,8 @@ export interface PlaygroundMessage {
   taskId?: string
   /** 该条消息是否处于错误态 */
   error?: string
+  /** 错误是「余额不足」——渲染时额外给一个兑换入口 */
+  needsTopUp?: boolean
   createdAt: number
 }
 

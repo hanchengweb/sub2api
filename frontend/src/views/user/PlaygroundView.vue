@@ -99,6 +99,13 @@
               </a>
 
               <p v-if="msg.error" class="mt-1 text-xs text-red-500">{{ msg.error }}</p>
+              <RouterLink
+                v-if="msg.needsTopUp"
+                to="/redeem"
+                class="mt-1 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-300"
+              >
+                <Icon name="gift" size="xs" />{{ t('playground.goRedeem') }}
+              </RouterLink>
             </div>
           </div>
 
@@ -152,6 +159,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -168,6 +176,7 @@ import {
   mediaUrlOf,
   isTerminalStatus,
   isFailedStatus,
+  isInsufficientBalance,
   type ChatMessage,
   type MediaTaskResult
 } from '@/api/playground'
@@ -318,12 +327,19 @@ async function submit() {
     if (mode.value === 'chat') await runChat(conv)
     else await runMedia(conv, text)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    // 余额不足是新用户最常撞上的一条（注册不再自动送积分），单独给中文引导，
+    // 不要把 "Insufficient account balance" 这句英文原文丢给用户。
+    const needsTopUp = isInsufficientBalance(err)
     appendMessage(conv, {
       id: newId(),
       role: 'assistant',
       content: '',
-      error: message,
+      error: needsTopUp
+        ? t('playground.insufficientBalance')
+        : err instanceof Error
+          ? err.message
+          : String(err),
+      needsTopUp,
       createdAt: Date.now()
     })
   } finally {

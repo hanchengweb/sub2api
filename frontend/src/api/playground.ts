@@ -26,16 +26,32 @@ function authHeaders(): Record<string, string> {
   }
 }
 
-/** 把网关返回的错误体解析成可读信息；解析不出就退回状态码。 */
+/**
+ * 把网关返回的错误体解析成可读信息；解析不出就退回状态码。
+ *
+ * 错误码有两种位置：OpenAI 风格嵌在 error 里，网关自己的鉴权/计费错误放在顶层
+ * （实测余额不足回的是 {"code":"INSUFFICIENT_BALANCE","message":...}）。两处都取，
+ * 否则调用方拿不到码，只能拿一句英文原文去展示。
+ */
 async function toError(response: Response): Promise<Error> {
   const payload = (await response.json().catch(() => ({}))) as {
     error?: { message?: string; code?: string }
     message?: string
+    code?: string
   }
   const message = payload.error?.message || payload.message || `请求失败 (${response.status})`
   const error = new Error(message)
-  Object.assign(error, { status: response.status, code: payload.error?.code })
+  Object.assign(error, {
+    status: response.status,
+    code: payload.error?.code || payload.code
+  })
   return error
+}
+
+/** 该错误是否为「余额不足」。 */
+export function isInsufficientBalance(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  return (err as Error & { code?: string }).code === 'INSUFFICIENT_BALANCE'
 }
 
 export interface PlaygroundModel {

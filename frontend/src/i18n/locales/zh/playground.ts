@@ -19,6 +19,8 @@ export default {
     generatingVideo: '正在生成视频，通常需要 1-3 分钟…',
     generatedImage: '生成的图片',
     openOriginal: '查看原图',
+    insufficientBalance: '积分余额不足，无法发起本次调用',
+    goRedeem: '去兑换积分',
     generationFailed: '生成失败，已退回本次扣除的积分',
     noMediaUrl: '任务已完成，但没有返回可用的结果地址',
     timeout: '等待超时，任务可能仍在处理，请稍后到用量记录中查看',

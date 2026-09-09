@@ -44,6 +44,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 const AppLayoutStub = { template: '<div><slot /></div>' }
+const RouterLinkStub = { props: ['to'], template: '<a :href="to"><slot /></a>' }
 const IconStub = { props: ['name', 'size'], template: '<i />' }
 const SpinnerStub = { props: ['size'], template: '<span />' }
 
@@ -54,6 +55,7 @@ function mountView() {
         AppLayout: AppLayoutStub,
         Icon: IconStub,
         LoadingSpinner: SpinnerStub,
+        RouterLink: RouterLinkStub,
       },
     },
   })
@@ -169,6 +171,25 @@ describe('PlaygroundView', () => {
     await send(wrapper, '在吗')
 
     expect(refreshUser).toHaveBeenCalled()
+  })
+
+  /**
+   * 注册不再自动送积分后，新用户第一次调用几乎必然撞上这条。
+   * 网关回的是英文 "Insufficient account balance"，不能原样丢给用户看。
+   */
+  it('余额不足给中文引导和兑换入口，不是英文原文', async () => {
+    const err = Object.assign(new Error('Insufficient account balance'), {
+      code: 'INSUFFICIENT_BALANCE',
+    })
+    streamChat.mockRejectedValue(err)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await send(wrapper, '在吗')
+
+    expect(wrapper.text()).toContain('playground.insufficientBalance')
+    expect(wrapper.text()).not.toContain('Insufficient account balance')
+    expect(wrapper.find('a[href="/redeem"]').exists()).toBe(true)
   })
 
   it('调用失败时把错误显示在消息流里，而不是静默吞掉', async () => {

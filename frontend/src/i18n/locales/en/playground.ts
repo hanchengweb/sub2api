@@ -19,6 +19,8 @@ export default {
     generatingVideo: 'Generating video, usually takes 1-3 minutes…',
     generatedImage: 'Generated image',
     openOriginal: 'Open original',
+    insufficientBalance: 'Not enough credits to make this request',
+    goRedeem: 'Redeem credits',
     generationFailed: 'Generation failed. The credits charged for this request were refunded',
     noMediaUrl: 'The task finished but returned no usable result URL',
     timeout: 'Timed out waiting. The task may still be running — check your usage records later',
