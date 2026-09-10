@@ -178,7 +178,10 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/models',
+    // 不能用 /models：网关在根路径注册了 GET /models（给不带 /v1 前缀的客户端用的
+    // 别名，见 routes/gateway.go），带 apiKey 鉴权，会把 SPA 路由整个盖掉——
+    // 实测线上 /models 直接回 401。
+    path: '/model-gallery',
     name: 'ModelGallery',
     component: () => import('@/views/ModelGalleryView.vue'),
     meta: {
