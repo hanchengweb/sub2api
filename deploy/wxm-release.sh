@@ -328,7 +328,10 @@ echo "  构建中（约 8~12 分钟）…"
 # 轮询里的每一次 ssh 都可能掉线。不能让单次掉线直接结束发布：构建是 nohup
 # 后台跑的，服务器侧不受影响，重试就能接上。连续多次掉线才当真故障。
 consecutive_ssh_failures=0
-for _ in $(seq 1 60); do
+# 上限 40 分钟而不是 20：磁盘吃紧时 Go 编译会被拖到 20 分钟以上，
+# 2026-09-10 就因此把一次正常的构建判成超时（盘 98% 满）。构建成功会提前 break，
+# 放宽上限只影响失败路径。
+for _ in $(seq 1 120); do
   sleep 20
   if ssh_do "grep -q 'Successfully tagged' $LOG 2>/dev/null"; then break; fi
   # 探测构建是否失败。
