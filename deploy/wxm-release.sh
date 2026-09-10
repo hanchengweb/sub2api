@@ -74,13 +74,25 @@ disk_used_percent() { ssh_do "df -h / | tail -1 | awk '{print \$5}' | tr -d '%'"
 # 为什么不每次全清：全清后下次构建全冷，白白多花几分钟。常规只清 24 小时
 # 未用的，当天的缓存留着；只有磁盘真的吃紧了才全清。
 #
-# 只动构建缓存，绝不碰镜像：docker image prune -a 会把旧的 sub2api 镜像一并
-# 删掉，回滚就没了退路；这台机上还有其它服务的镜像。
+# 只动构建缓存和**悬空**镜像，不碰有 tag 的镜像。
+#
+# 这里原先写的是「绝不碰镜像：docker image prune -a 会把旧的 sub2api 镜像一并
+# 删掉」——那句话混淆了两个命令。不带 -a 的 docker image prune 只删悬空镜像
+# （<none>，没有任何 tag 引用的中间层），有 tag 的回滚目标和其它项目的镜像都不动。
+#
+# 代价是实打实的：每次用同一 tag 重建都会让上一版的层变成悬空，一个 1~3GB。
+# 2026-09-09 一天攒了 114 个、占掉 130GB，磁盘冲到 98%，而脚本每次都报
+# 「回收 0B」——因为它只清 builder cache，那部分本来就是空的，真正的大头没人管。
+# 加上这一行后当场从 97% 降到 27%。
+#
+# 仍然不用 -a：那会连带删掉这台机器上其它项目（wxm-tenant / wxm-platform /
+# wxm-college）未在运行的镜像。
 prune_build_cache() {
   local used
   used=$(disk_used_percent)
   echo "  磁盘占用: ${used}%"
   ssh_do "docker builder prune -f --filter until=24h 2>&1 | tail -1" | sed 's/^/  /'
+  ssh_do "docker image prune -f 2>&1 | tail -1" | sed 's/^/  悬空镜像 /'
   if [ "${used:-0}" -ge "$DISK_PRUNE_THRESHOLD" ]; then
     echo "  超过 ${DISK_PRUNE_THRESHOLD}% 阈值，清空全部构建缓存"
     ssh_do "docker builder prune -a -f 2>&1 | tail -1" | sed 's/^/  /'
