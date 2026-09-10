@@ -13,6 +13,7 @@ export interface PlaygroundMessage {
   content: string
   /** 生图/生视频结果的媒体地址 */
   mediaUrl?: string
+  mediaUrls?: string[]
   /** 异步任务 id；未完成时用它在重进页面后续上轮询 */
   taskId?: string
   /** 该任务是图还是视频——恢复轮询时要用它选对查询接口。

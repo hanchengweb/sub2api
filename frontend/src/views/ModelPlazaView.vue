@@ -1,12 +1,12 @@
 <template>
   <!-- 后台内嵌形态:?embedded=1 且已登录,套完整后台布局 -->
   <AppLayout v-if="isEmbedded">
-    <ModelPlazaContent :response="data" :loading="loading" :error="loadFailed" embedded />
+    <ModelPlazaContent :response="data" :loading="loading" :error="loadFailed" :initial-search="String(route.query.model ?? '')" embedded />
   </AppLayout>
 
   <!-- 独立形态:复用产品侧导航 -->
   <ProductShell v-else>
-      <ModelPlazaContent :response="data" :loading="loading" :error="loadFailed" />
+      <ModelPlazaContent :response="data" :loading="loading" :error="loadFailed" :initial-search="String(route.query.model ?? '')" />
   </ProductShell>
 </template>
 

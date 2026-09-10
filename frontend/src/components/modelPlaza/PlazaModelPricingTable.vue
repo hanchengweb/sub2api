@@ -55,9 +55,10 @@
               <!-- 模型名。px-3 的左内边距是必需的：原来只有 pr-4，文字贴着
                    表格左边缘，外层又是 overflow-x-auto，首字母会被切掉。 -->
               <td class="px-3 py-2.5 align-middle">
-                <div class="flex items-center gap-2">
+                <div class="flex min-w-0 items-center gap-2">
                   <ModelBrandMark :model="m.name" size="sm" />
-                  <span data-testid="model-name" class="truncate font-medium text-gray-900 dark:text-white">{{ m.name }}</span>
+                  <span data-testid="model-name" class="break-words font-medium text-gray-900 dark:text-white">{{ m.name }}</span>
+                  <a :href="`/playground?model=${encodeURIComponent(m.name)}&mode=${sec.kind === 'text' ? 'chat' : sec.kind}`" class="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-primary-600 hover:bg-primary-50" :aria-label="`${t('modelGallery.tryIt')} ${m.name}`" :title="t('modelGallery.tryIt')"><Icon name="arrowRight" size="sm" /></a>
                 </div>
               </td>
 
@@ -162,6 +163,7 @@ import { useI18n } from 'vue-i18n'
 import { formatScaled } from '@/utils/pricing'
 import { platformAccentColor } from '@/utils/platformColors'
 import ModelBrandMark from './ModelBrandMark.vue'
+import Icon from '@/components/icons/Icon.vue'
 import PeakOffPeakPrice from './PeakOffPeakPrice.vue'
 import { BILLING_MODE_TOKEN, BILLING_MODE_IMAGE, type BillingMode } from '@/constants/channel'
 import type { PlazaModel } from '@/api/modelPlaza'

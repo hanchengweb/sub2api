@@ -4,7 +4,7 @@ import { nextTick } from 'vue'
 
 import PlaygroundView from '../PlaygroundView.vue'
 
-const { listModels, streamChat, createImageTask, getImageTask, createVideoTask, getVideoTask, getModelPlaza, refreshUser } =
+const { listModels, streamChat, createImageTask, getImageTask, createVideoTask, getVideoTask, getModelPlaza, refreshUser, fetchMediaBlob } =
   vi.hoisted(() => ({
     listModels: vi.fn(),
     streamChat: vi.fn(),
@@ -14,6 +14,7 @@ const { listModels, streamChat, createImageTask, getImageTask, createVideoTask, 
     getVideoTask: vi.fn(),
     getModelPlaza: vi.fn(),
     refreshUser: vi.fn(),
+    fetchMediaBlob: vi.fn(),
   }))
 
 vi.mock('@/api/playground', async () => {
@@ -26,6 +27,7 @@ vi.mock('@/api/playground', async () => {
     getImageTask,
     createVideoTask,
     getVideoTask,
+    fetchMediaBlob,
   }
 })
 
@@ -95,6 +97,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
   refreshUser.mockResolvedValue({})
+  fetchMediaBlob.mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
+  URL.createObjectURL = vi.fn(() => 'blob:authenticated-result')
+  URL.revokeObjectURL = vi.fn()
+  HTMLDialogElement.prototype.close = vi.fn()
   // 照线上组 4 的真实形态构造：/v1/models 有 7 个，广场只覆盖到其中 6 个,
   // 视频模型 t-grok-video-1.5 在广场里没有定价行。
   listModels.mockResolvedValue([
@@ -208,10 +214,8 @@ describe('PlaygroundView', () => {
     await flushPromises()
     await send(wrapper, '一只猫')
 
-    // 图片走本站中转（上游图床在部分网络下不可达），断言中转地址里带的是正确的原始 URL
-    expect(wrapper.find('img').attributes('src')).toContain(
-      encodeURIComponent('https://cdn.example/a.png')
-    )
+    expect(wrapper.find('img').attributes('src')).toBe('blob:authenticated-result')
+    expect(fetchMediaBlob).toHaveBeenCalledWith('https://cdn.example/a.png', expect.any(AbortSignal))
     expect(getImageTask).not.toHaveBeenCalled()
   })
 
@@ -320,7 +324,6 @@ describe('PlaygroundView 参数与费用预估', () => {
     await switchTo(wrapper, 'playground.modeVideo')
     // 默认 8 秒 × 37 积分/秒 = 296
     expect(wrapper.text()).toContain('playground.costVideo')
-    expect(wrapper.find('.bg-amber-50').exists()).toBe(true)
   })
 })
 
@@ -443,10 +446,8 @@ describe('PlaygroundView 质量档与结果地址', () => {
     await sending
     await flushPromises()
 
-    // 图片走本站中转（上游图床在部分网络下不可达），断言中转地址里带的是正确的原始 URL
-    expect(wrapper.find('img').attributes('src')).toContain(
-      encodeURIComponent('https://files.example/x.png')
-    )
+    expect(wrapper.find('img').attributes('src')).toBe('blob:authenticated-result')
+    expect(fetchMediaBlob).toHaveBeenCalledWith('https://files.example/x.png', expect.any(AbortSignal))
     expect(wrapper.text()).not.toContain('playground.noMediaUrl')
   })
 })
@@ -555,6 +556,17 @@ describe('PlaygroundView 离开页面后恢复任务', () => {
 })
 
 describe('PlaygroundView 媒体中转与进度', () => {
+  it('displays every result returned for a multi-image request', async () => {
+    createImageTask.mockResolvedValue({ data: [{ url: 'https://files.toapis.cn/a.png' }, { url: 'https://files.toapis.cn/b.png' }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find(b => b.text().includes('playground.modeImage'))!.trigger('click')
+    await flushPromises()
+    await send(wrapper, 'two images')
+    expect(wrapper.findAll('.media-result')).toHaveLength(2)
+    expect(JSON.parse(localStorage.getItem('playground_conversations_v1')!)[0].messages[1].mediaUrls).toHaveLength(2)
+    wrapper.unmount()
+  })
   /**
    * 上游把图片放在 files.toapis.cn，部分网络环境访问不到那个域名——
    * 用户换出口 IP 后页面上只剩碎图。必须走本站中转。
@@ -570,8 +582,8 @@ describe('PlaygroundView 媒体中转与进度', () => {
 
     const src = wrapper.find('img').attributes('src') ?? ''
     expect(src, '不应直连上游图床').not.toMatch(/^https:\/\/files\.toapis\.cn/)
-    expect(src).toContain('/playground/media')
-    expect(src).toContain(encodeURIComponent('https://files.toapis.cn/images/a.png'))
+    expect(src).toBe('blob:authenticated-result')
+    expect(fetchMediaBlob).toHaveBeenCalledWith('https://files.toapis.cn/images/a.png', expect.any(AbortSignal))
   })
 
   it('轮询期间显示真实百分比进度', async () => {

@@ -234,6 +234,22 @@ export function proxiedMediaUrl(url: string): string {
   return buildApiUrl(`/playground/media?url=${encodeURIComponent(url)}`)
 }
 
+/** Media elements cannot send JWT headers; only authenticated fetches reach this endpoint. */
+export async function fetchMediaBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+  const inline = /^data:(image\/(png|jpeg|webp|gif|avif)|video\/(mp4|webm));base64,/i.test(url)
+  if (!inline && !/^https?:\/\//i.test(url)) throw new Error('Unsupported media URL')
+  const response = await fetch(inline ? url : proxiedMediaUrl(url), {
+    headers: inline ? undefined : { Authorization: authHeaders().Authorization },
+    signal
+  })
+  if (!response.ok) throw await toError(response)
+  const blob = await response.blob()
+  if (!/^(image\/(png|jpeg|webp|gif|avif)|video\/(mp4|webm|quicktime))$/i.test(blob.type) || !blob.size) {
+    throw new Error('Invalid media response')
+  }
+  return blob
+}
+
 /** 取任务 id。上游用 id 还是 task_id 不统一，两个都认。 */
 export function mediaTaskId(task: MediaTaskResult): string {
   return task.id || task.task_id || ''
@@ -246,18 +262,20 @@ export function mediaTaskId(task: MediaTaskResult): string {
  * 取不到返回空串，由调用方决定是继续轮询还是报错。
  */
 export function mediaUrlOf(task: MediaTaskResult): string {
+  return mediaUrlsOf(task)[0] ?? ''
+}
+
+export function mediaUrlsOf(task: MediaTaskResult): string[] {
   const pick = (item?: MediaTaskItem): string => {
     if (!item) return ''
     if (item.url) return item.url
     if (item.b64_json) return `data:image/png;base64,${item.b64_json}`
     return ''
   }
-  if (task.url) return task.url
-  const direct = pick(task.data?.[0])
-  if (direct) return direct
-  // 异步任务完成时结果套在 result 里，必须往里再找一层
-  if (task.result?.url) return task.result.url
-  return pick(task.result?.data?.[0])
+  return [...new Set([
+    task.url, ...(task.data ?? []).map(pick),
+    task.result?.url, ...(task.result?.data ?? []).map(pick)
+  ].filter((url): url is string => Boolean(url)))]
 }
 
 /**

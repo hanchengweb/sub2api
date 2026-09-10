@@ -1,9 +1,9 @@
 <template>
   <AppLayout>
-    <div class="flex h-[calc(100vh-11rem)] min-h-[32rem] gap-4">
+    <div class="pg-workspace">
       <!-- 会话列表 -->
-      <aside class="hidden w-60 shrink-0 flex-col card p-3 lg:flex">
-        <button class="btn btn-primary w-full" @click="startNewConversation">
+      <aside class="pg-history" :class="historyOpen ? 'flex' : 'hidden lg:flex'">
+        <button class="btn btn-primary w-full" :disabled="busy" @click="startNewConversation">
           <Icon name="plus" size="sm" class="mr-1" />
           {{ t('playground.newChat') }}
         </button>
@@ -20,12 +20,13 @@
               ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
               : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-800'"
           >
-            <button class="flex min-w-0 flex-1 items-center gap-2 text-left" @click="selectConversation(c.id)">
+            <button class="flex min-w-0 flex-1 items-center gap-2 text-left disabled:opacity-50" :disabled="busy" @click="selectConversation(c.id)">
               <Icon :name="modeIcon(c.mode)" size="sm" class="shrink-0 opacity-60" />
               <span class="min-w-0 flex-1 truncate">{{ c.title }}</span>
             </button>
             <button
-              class="shrink-0 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-60"
+              class="shrink-0 opacity-60 transition-opacity hover:text-red-500 lg:opacity-0 lg:group-hover:opacity-60 focus:opacity-100"
+              :disabled="busy"
               :aria-label="t('playground.deleteConversation')"
               @click="removeConversation(c.id)"
             >
@@ -36,19 +37,25 @@
       </aside>
 
       <!-- 对话区 -->
-      <section class="flex min-w-0 flex-1 flex-col card">
+      <section class="flex min-h-0 min-w-0 flex-1 flex-col">
         <!-- 顶栏：模型选择。余额不放这里——右上角全站头部已经有了，
              同一个数字在一屏里出现两次只会让人怀疑哪个是真的。 -->
         <header class="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3 dark:border-dark-700">
-          <Icon :name="modeIcon(mode)" size="sm" class="text-primary-500" />
+          <button class="pg-icon pg-history-toggle" :aria-label="t('playground.conversations')" :title="t('playground.conversations')" :aria-expanded="historyOpen" @click="historyOpen = !historyOpen"><Icon name="chat" size="sm" /></button>
+          <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-800" role="group" :aria-label="t('playground.modeLabel')">
+            <button v-for="m in modes" :key="m.value" class="pg-mode" :class="{ 'pg-mode-active': mode === m.value }" :aria-pressed="mode === m.value" :disabled="busy" @click="switchMode(m.value)">
+              <Icon :name="m.icon" size="xs" />{{ t(m.labelKey) }}
+            </button>
+          </div>
           <!-- 自定义模型选择器。
                原生 <select> 挂不了各厂商 logo，选项一多下拉还会拉满整屏
                （27 个模型时几乎盖住整个页面）。这里限高滚动 + 按供应商分组。 -->
-          <div v-if="availableModels.length" ref="modelPickerRef" class="relative">
+          <div v-if="availableModels.length" ref="modelPickerRef" class="relative min-w-0 flex-1 basis-52" @keydown.esc="modelPickerOpen = false">
             <button
               type="button"
               data-testid="model-select"
-              class="input flex h-9 min-w-[15rem] max-w-[20rem] items-center gap-2 py-1 text-left text-sm"
+              class="input flex h-9 w-full items-center gap-2 py-1 text-left text-sm"
+              :disabled="busy"
               :aria-label="t('playground.model')"
               :aria-expanded="modelPickerOpen"
               @click="modelPickerOpen = !modelPickerOpen"
@@ -60,8 +67,10 @@
 
             <div
               v-if="modelPickerOpen"
-              class="absolute left-0 top-full z-20 mt-1 max-h-80 w-[22rem] overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+              class="absolute left-0 top-full z-20 mt-1 max-h-80 w-full min-w-0 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
             >
+              <input v-model="modelSearch" type="search" class="input sticky top-0 mb-1 text-sm" :placeholder="t('playground.searchModels')" :aria-label="t('playground.searchModels')" />
+              <p v-if="!groupedModels.length" class="p-3 text-sm text-gray-500">{{ t('playground.noSearchResults') }}</p>
               <template v-for="group in groupedModels" :key="group.vendor">
                 <p class="px-2 pb-1 pt-2 text-[11px] font-medium text-gray-400 dark:text-dark-500">
                   {{ group.vendor }}
@@ -85,13 +94,15 @@
             </div>
           </div>
           <span v-else class="text-xs text-gray-400">{{ t('playground.noModelsForMode') }}</span>
+          <RouterLink :to="{ path: '/model-plaza', query: { embedded: '1', model: selectedModel } }" class="pg-icon" :title="t('playground.pricing')" :aria-label="t('playground.pricing')"><Icon name="infoCircle" size="sm" /></RouterLink>
         </header>
 
         <!-- 消息流 -->
-        <div ref="scrollArea" class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5">
+        <div ref="scrollArea" class="pg-messages min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5">
           <div v-if="!activeMessages.length" class="flex h-full flex-col items-center justify-center text-center">
-            <Icon name="sparkles" size="xl" class="mb-3 text-primary-400" />
-            <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('playground.emptyHint') }}</p>
+            <ModelBrandMark :model="selectedModel" size="lg" class="mb-4" />
+            <h2 class="max-w-full break-words text-xl font-semibold text-gray-900 dark:text-white">{{ selectedModel || t('playground.title') }}</h2>
+            <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">{{ t(mode === 'chat' ? 'playground.chatPrompt' : mode === 'image' ? 'playground.imagePrompt' : 'playground.videoPrompt') }}</p>
           </div>
 
           <div
@@ -101,36 +112,16 @@
             :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
           >
             <div
-              class="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed"
+              class="min-w-0 text-sm leading-relaxed"
               :class="msg.role === 'user'
-                ? 'bg-primary-500 text-white'
-                : 'bg-gray-100 text-gray-800 dark:bg-dark-800 dark:text-dark-100'"
+                ? 'max-w-[85%] rounded-lg bg-primary-50 px-4 py-3 text-gray-900 dark:bg-primary-900/30 dark:text-white'
+                : 'w-full text-gray-800 dark:text-dark-100'"
             >
               <p v-if="msg.content" class="whitespace-pre-wrap break-words">{{ msg.content }}</p>
 
-              <!-- 媒体结果以卡片嵌在对话流里 -->
-              <img
-                v-if="msg.mediaUrl && !isVideoUrl(msg.mediaUrl)"
-                :src="proxiedMediaUrl(msg.mediaUrl)"
-                :alt="t('playground.generatedImage')"
-                class="mt-2 max-h-80 rounded-lg"
-              />
-              <video
-                v-else-if="msg.mediaUrl"
-                :src="proxiedMediaUrl(msg.mediaUrl)"
-                controls
-                class="mt-2 max-h-80 rounded-lg"
-              />
-
-              <a
-                v-if="msg.mediaUrl"
-                :href="proxiedMediaUrl(msg.mediaUrl)"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="mt-1 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-300"
-              >
-                <Icon name="link" size="xs" />{{ t('playground.openOriginal') }}
-              </a>
+              <div v-if="msg.mediaUrl || msg.mediaUrls?.length" class="pg-results">
+                <MediaResult v-for="(url, index) in msg.mediaUrls?.length ? msg.mediaUrls : [msg.mediaUrl!]" :key="url" :src="url" :kind="msg.mediaKind" :name="`${msg.taskId || msg.id}-${index + 1}`" />
+              </div>
 
               <!-- 生成进度：只在「有任务、还没出结果、也没报错」时显示 -->
               <div v-if="msg.taskId && !msg.mediaUrl && !msg.error" class="mt-1 w-48">
@@ -165,13 +156,14 @@
 
         <!-- 输入区 -->
         <footer class="border-t border-gray-100 p-3 dark:border-dark-700">
-          <div class="rounded-2xl border border-gray-200 p-2 shadow-sm dark:border-dark-600">
+          <div class="rounded-lg border border-gray-200 p-2 dark:border-dark-600">
             <textarea
               v-model="draft"
               rows="2"
-              :placeholder="t('playground.placeholder')"
+              :placeholder="t(mode === 'chat' ? 'playground.chatPrompt' : mode === 'image' ? 'playground.imagePrompt' : 'playground.videoPrompt')"
+              :aria-label="t('playground.placeholder')"
               class="w-full resize-none bg-transparent px-2 py-1 text-sm outline-none dark:text-dark-100"
-              @keydown.enter.exact.prevent="submit"
+              @keydown.enter.exact="onEnter"
             />
 
             <!-- 参数条：只显示当前模式用得上的参数，且真的会带进请求。
@@ -220,31 +212,17 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2 px-1">
-              <!-- 三模式共用同一套界面，切换不跳页 -->
-              <button
-                v-for="m in modes"
-                :key="m.value"
-                class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs transition-colors"
-                :class="mode === m.value
-                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-200'
-                  : 'text-gray-500 hover:bg-gray-100 dark:text-dark-400 dark:hover:bg-dark-800'"
-                @click="switchMode(m.value)"
-              >
-                <Icon :name="m.icon" size="xs" />{{ t(m.labelKey) }}
-              </button>
-
               <!-- 本次调用的费用预估。价格来自模型定价页同一份数据，
                    按当前选中的档位实时算，不是写死的文案。 -->
               <span
                 v-if="costHint"
-                class="ml-auto whitespace-nowrap rounded-lg bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+                class="min-w-0 flex-1 text-xs font-medium text-gray-500 dark:text-gray-300"
               >
                 {{ costHint }}
               </span>
 
               <button
-                class="btn btn-primary h-8 w-8 shrink-0 rounded-full p-0"
-                :class="costHint ? 'ml-2' : 'ml-auto'"
+                class="btn btn-primary ml-auto h-9 w-9 shrink-0 rounded-lg p-0"
                 :disabled="busy || !draft.trim() || !selectedModel"
                 :aria-label="t('playground.send')"
                 @click="submit"
@@ -268,6 +246,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ModelBrandMark from '@/components/modelPlaza/ModelBrandMark.vue'
+import MediaResult from '@/components/playground/MediaResult.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { getModelPlaza, type PlazaModel } from '@/api/modelPlaza'
 import {
@@ -278,8 +257,7 @@ import {
   createVideoTask,
   getVideoTask,
   mediaTaskId,
-  mediaUrlOf,
-  proxiedMediaUrl,
+  mediaUrlsOf,
   isTerminalStatus,
   isFailedStatus,
   isInsufficientBalance,
@@ -320,6 +298,8 @@ const draft = ref('')
 const busy = ref(false)
 const busyHint = ref('')
 const scrollArea = ref<HTMLElement | null>(null)
+const historyOpen = ref(false)
+const modelSearch = ref('')
 
 // 画幅比例。toAPI 的语义：size 是比例，resolution 才是清晰度档位——
 // 与 OpenAI 相反，传反了上游直接拒。
@@ -362,6 +342,7 @@ const groupedModels = computed(() => {
   const buckets = new Map<string, string[]>()
   for (const m of availableModels.value) {
     const vendor = resolveModelVendor(m).label
+    if (!`${m} ${vendor}`.toLowerCase().includes(modelSearch.value.trim().toLowerCase())) continue
     if (!buckets.has(vendor)) buckets.set(vendor, [])
     buckets.get(vendor)!.push(m)
   }
@@ -371,6 +352,7 @@ const groupedModels = computed(() => {
 function pickModel(m: string) {
   selectedModel.value = m
   modelPickerOpen.value = false
+  modelSearch.value = ''
 }
 
 /** 点选择器之外的地方就收起——否则它会一直悬在页面上挡住内容。 */
@@ -459,8 +441,8 @@ const costHint = computed(() => {
   const output = m.pricing?.output_price
   if (input == null || output == null) return ''
   return t('playground.costChat', {
-    input: (input * rate * 1_000_000).toFixed(2),
-    output: (output * rate * 1_000_000).toFixed(2)
+    input: (input * rate * 10_000).toFixed(2),
+    output: (output * rate * 10_000).toFixed(2)
   })
 })
 
@@ -531,10 +513,6 @@ function modeIcon(m: PlaygroundMode): ModeIconName {
   return modes.find((x) => x.value === m)?.icon ?? 'chat'
 }
 
-function isVideoUrl(url: string): boolean {
-  return /\.(mp4|webm|mov)(\?|$)/i.test(url)
-}
-
 function persist() {
   saveConversations(conversations.value)
 }
@@ -546,6 +524,7 @@ function scrollToBottom() {
 }
 
 function startNewConversation() {
+  historyOpen.value = false
   const conv: PlaygroundConversation = {
     id: newId(),
     title: t('playground.newChat'),
@@ -560,6 +539,7 @@ function startNewConversation() {
 }
 
 function selectConversation(id: string) {
+  historyOpen.value = false
   activeId.value = id
   const conv = conversations.value.find((c) => c.id === id)
   if (!conv) return
@@ -644,6 +624,12 @@ async function submit() {
   }
 }
 
+function onEnter(event: KeyboardEvent) {
+  if (event.isComposing) return
+  event.preventDefault()
+  void submit()
+}
+
 async function runChat(conv: PlaygroundConversation) {
   busyHint.value = t('playground.thinking')
   abortController = new AbortController()
@@ -704,9 +690,10 @@ async function runMedia(conv: PlaygroundConversation, prompt: string) {
   })
 
   // 同步渠道一次就把结果带回来了，不必再轮询。
-  const direct = mediaUrlOf(task)
-  if (direct) {
-    reply.mediaUrl = direct
+  const direct = mediaUrlsOf(task)
+  if (direct.length) {
+    reply.mediaUrls = direct
+    reply.mediaUrl = direct[0]
     conv.updatedAt = Date.now()
     persist()
     scrollToBottom()
@@ -755,10 +742,11 @@ async function pollTask(
       conv.updatedAt = Date.now()
     }
 
-    const url = mediaUrlOf(result)
+    const urls = mediaUrlsOf(result)
     // 拿到地址就算完成——有的渠道结果就绪时不再回传 status。
-    if (url) {
-      reply.mediaUrl = url
+    if (urls.length) {
+      reply.mediaUrls = urls
+      reply.mediaUrl = urls[0]
       conv.updatedAt = Date.now()
       persist()
       scrollToBottom()
@@ -889,7 +877,8 @@ onMounted(async () => {
   // 从模型广场「去体验」跳过来时带着 ?model=&mode=，直接落到那个模型，
   // 省得用户在下拉里再找一遍。模型名对不上就忽略，不要报错吓人。
   const wantedMode = String(route.query.mode ?? '')
-  if (wantedMode === 'chat' || wantedMode === 'image' || wantedMode === 'video') {
+  if (wantedMode === 'text') mode.value = 'chat'
+  else if (wantedMode === 'chat' || wantedMode === 'image' || wantedMode === 'video') {
     mode.value = wantedMode
   }
   conversations.value = loadConversations()
@@ -916,7 +905,7 @@ onBeforeUnmount(() => {
 /* 参数芯片：外观像 toAPI 的胶囊控件，内核仍是原生 select——
    自绘下拉要自己处理键盘、滚动与移动端弹层，收益不抵成本。 */
 .param-chip {
-  @apply inline-flex cursor-pointer items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] transition-colors;
+  @apply inline-flex cursor-pointer items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs transition-colors;
   @apply hover:border-gray-300 dark:border-dark-600 dark:bg-dark-800 dark:hover:border-dark-500;
 }
 
@@ -925,6 +914,19 @@ onBeforeUnmount(() => {
 }
 
 .param-select {
-  @apply cursor-pointer appearance-none border-none bg-transparent pr-0 text-[11px] font-medium text-gray-700 outline-none dark:text-gray-200;
+  @apply cursor-pointer border-none bg-transparent text-xs font-medium text-gray-700 outline-none dark:text-gray-200;
+}
+.pg-workspace { @apply relative flex min-h-0 overflow-hidden bg-white dark:bg-dark-900; height: calc(100dvh - 8rem - 1px); }
+.pg-history { @apply w-56 shrink-0 flex-col border-r border-gray-100 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-950; }
+.pg-icon { @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-dark-700; }
+.pg-mode { @apply inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-gray-500 disabled:opacity-50; }
+.pg-mode-active { @apply bg-white text-primary-700 shadow-sm dark:bg-dark-700 dark:text-primary-300; }
+.pg-results { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; margin-top: 8px; }
+@media (min-width: 1024px) { .pg-history-toggle { display: none; } }
+@media (max-width: 1023px) {
+  .pg-history { position: absolute; inset: 58px auto 0 0; z-index: 30; box-shadow: 8px 0 16px rgb(0 0 0 / 8%); }
+}
+@media (max-width: 767px) {
+  .pg-workspace { height: calc(100dvh - 6rem - 1px); }
 }
 </style>

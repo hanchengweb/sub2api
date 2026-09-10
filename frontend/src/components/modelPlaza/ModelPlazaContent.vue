@@ -9,7 +9,7 @@
     <!-- 全局价格说明(管理员配置,Markdown) -->
     <div
       v-if="descriptionHtml"
-      class="plaza-description rounded-2xl border border-gray-100 bg-white px-5 py-4 text-sm shadow-card dark:border-dark-700/50 dark:bg-dark-800/50"
+      class="plaza-description border-l-2 border-primary-300 py-2 pl-4 text-sm"
       v-html="descriptionHtml"
     ></div>
 
@@ -47,6 +47,11 @@
         @update:rate="selectedRate = $event"
         @update:search="searchQuery = $event"
       />
+      <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-700">
+        <button v-for="item in kinds" :key="item.value" class="rounded-md px-3 py-2 text-sm" :class="kind === item.value ? 'bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-dark-800'" :aria-pressed="kind === item.value" @click="kind = item.value">{{ t(item.label) }}</button>
+        <span class="ml-auto text-xs text-gray-500" aria-live="polite">{{ t('modelPlaza.table.modelCount', { n: visibleCount }) }}</span>
+        <button v-if="searchActive || kind || selectedPlatform !== 'all' || selectedGroupId !== 'all' || selectedRate !== 'all'" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100" :aria-label="t('modelPlaza.filters.all')" :title="t('modelPlaza.filters.all')" @click="resetFilters"><Icon name="refresh" size="sm" /></button>
+      </div>
 
       <!-- 分组分节的模型清单(默认按生效倍率升序) -->
       <div v-if="filteredGroups.length > 0" class="space-y-5">
@@ -72,6 +77,7 @@ import PlazaFilterBar from './PlazaFilterBar.vue'
 import PlazaGroupSection from './PlazaGroupSection.vue'
 import type { ModelPlazaGroup, ModelPlazaResponse } from '@/api/modelPlaza'
 import { useAuthStore } from '@/stores/auth'
+import { resolveModelKind, resolveModelVendor, type ModelKind } from '@/utils/modelVendor'
 
 const props = defineProps<{
   response: ModelPlazaResponse | null
@@ -79,6 +85,7 @@ const props = defineProps<{
   error?: boolean
   /** 后台内嵌形态(AppLayout 内):隐藏页头。 */
   embedded?: boolean
+  initialSearch?: string
 }>()
 
 const { t } = useI18n()
@@ -88,7 +95,23 @@ const isAuthenticated = computed(() => authStore.isAuthenticated)
 const selectedPlatform = ref<string>('all')
 const selectedGroupId = ref<number | 'all'>('all')
 const selectedRate = ref<number | 'all'>('all')
-const searchQuery = ref('')
+const searchQuery = ref(props.initialSearch ?? '')
+watch(() => props.initialSearch, value => { searchQuery.value = value ?? '' })
+const kind = ref<ModelKind | ''>('')
+const kinds = [
+  { value: '' as const, label: 'modelGallery.all' },
+  { value: 'text' as const, label: 'modelGallery.kindText' },
+  { value: 'image' as const, label: 'modelGallery.kindImage' },
+  { value: 'video' as const, label: 'modelGallery.kindVideo' }
+]
+const visibleCount = computed(() => filteredGroups.value.reduce((sum, group) => sum + group.models.length, 0))
+function resetFilters() {
+  searchQuery.value = ''
+  kind.value = ''
+  selectedPlatform.value = 'all'
+  selectedGroupId.value = 'all'
+  selectedRate.value = 'all'
+}
 
 const searchActive = computed(() => searchQuery.value.trim() !== '')
 
@@ -141,9 +164,12 @@ const filteredGroups = computed(() => {
   }
   // 模型名搜索:分组内只留命中的模型,整组无命中则隐藏该分组。
   const q = searchQuery.value.trim().toLowerCase()
-  if (q) {
+  if (q || kind.value) {
     groups = groups
-      .map((g) => ({ ...g, models: g.models.filter((m) => m.name.toLowerCase().includes(q)) }))
+      .map((g) => ({ ...g, models: g.models.filter((m) =>
+        `${m.name} ${resolveModelVendor(m.name).label}`.toLowerCase().includes(q) &&
+        (!kind.value || resolveModelKind(m.name, m.pricing?.billing_mode) === kind.value)
+      ) }))
       .filter((g) => g.models.length > 0)
   }
   // 专属倍率会改变生效值,不能只依赖后端按默认倍率的排序。
