@@ -119,3 +119,27 @@ func TestParseGrokMediaRequestCarriesQualityIntoTier(t *testing.T) {
 		t.Fatalf("SizeTier = %q, want 1K·低", plain.SizeTier)
 	}
 }
+
+// 回归：openai 图片链路原先只看 size，而 toAPI 的 size 是宽高比（"1:1"），
+// 解析不出像素就一律落到默认 2K —— 1K 请求按 2K 收费、4K 也按 2K 收费。
+// 两条链路（openai_images / grok_media）必须算出同一个档位。
+func TestOpenAIImagesRequestUsesResolutionAndQuality(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2-vip","prompt":"cat","size":"1:1","resolution":"1k","quality":"high"}`)
+	svc := &OpenAIGatewayService{}
+	parsed, err := svc.ParseOpenAIImagesRequest(imagesRequestContext(t, body), body)
+	if err != nil {
+		t.Fatalf("解析失败：%v", err)
+	}
+	if parsed.Resolution != "1k" {
+		t.Fatalf("Resolution = %q, want 1k", parsed.Resolution)
+	}
+	if parsed.SizeTier != "1K·高" {
+		t.Fatalf("SizeTier = %q, want 1K·高（原先会算成 2K）", parsed.SizeTier)
+	}
+
+	// 与 grok_media 那条链路必须一致
+	grok := ParseGrokMediaRequest("application/json", body)
+	if grok.SizeTier != parsed.SizeTier {
+		t.Fatalf("两条链路档位不一致：openai=%q grok=%q", parsed.SizeTier, grok.SizeTier)
+	}
+}

@@ -53,7 +53,8 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_JSON(t *testing.T) {
 	require.Equal(t, "draw a cat", parsed.Prompt)
 	require.True(t, parsed.Stream)
 	require.Equal(t, "1024x1024", parsed.Size)
-	require.Equal(t, "1K", parsed.SizeTier)
+	// 请求体里带了 quality:"high"，档位标签应据此带上高质量后缀
+	require.Equal(t, "1K·高", parsed.SizeTier)
 	require.Equal(t, OpenAIImagesCapabilityNative, parsed.RequiredCapability)
 	require.False(t, parsed.Multipart)
 }
@@ -87,7 +88,8 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEdit(t *testing.T
 	require.Equal(t, "gpt-image-2", parsed.Model)
 	require.Equal(t, "replace background", parsed.Prompt)
 	require.Equal(t, "1536x1024", parsed.Size)
-	require.Equal(t, "2K", parsed.SizeTier)
+	// 档位标签现在带质量后缀；这些用例都没指定 quality，归低质量档。
+	require.Equal(t, "2K·低", parsed.SizeTier)
 	require.Len(t, parsed.Uploads, 1)
 	require.Equal(t, OpenAIImagesCapabilityNative, parsed.RequiredCapability)
 }
@@ -173,7 +175,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_NormalizesOfficialAndCusto
 			require.NoError(t, err)
 			require.NotNil(t, parsed)
 			require.Equal(t, tt.size, parsed.Size)
-			require.Equal(t, tt.wantTier, parsed.SizeTier)
+			require.Equal(t, tt.wantTier+"·"+ImageQualityLow, parsed.SizeTier)
 		})
 	}
 }
@@ -208,7 +210,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_UnknownSizesDoNotBlockPass
 			require.NoError(t, err)
 			require.NotNil(t, parsed)
 			require.Equal(t, tt.size, parsed.Size)
-			require.Equal(t, tt.wantTier, parsed.SizeTier)
+			require.Equal(t, tt.wantTier+"·"+ImageQualityLow, parsed.SizeTier)
 		})
 	}
 }
@@ -228,7 +230,8 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_LegacyImageModelUnknownSiz
 	require.NoError(t, err)
 	require.NotNil(t, parsed)
 	require.Equal(t, "2048x1152", parsed.Size)
-	require.Equal(t, "2K", parsed.SizeTier)
+	// 档位标签现在带质量后缀；这些用例都没指定 quality，归低质量档。
+	require.Equal(t, "2K·低", parsed.SizeTier)
 }
 
 func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEditWithMaskAndNativeOptions(t *testing.T) {

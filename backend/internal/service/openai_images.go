@@ -62,17 +62,21 @@ type OpenAIImagesUpload struct {
 }
 
 type OpenAIImagesRequest struct {
-	Endpoint           string
-	ContentType        string
-	Multipart          bool
-	Model              string
-	ExplicitModel      bool
-	Prompt             string
-	Stream             bool
-	N                  int
-	Size               string
-	ExplicitSize       bool
-	SizeTier           string
+	Endpoint      string
+	ContentType   string
+	Multipart     bool
+	Model         string
+	ExplicitModel bool
+	Prompt        string
+	Stream        bool
+	N             int
+	Size          string
+	ExplicitSize  bool
+	SizeTier      string
+	// Resolution 档位字段。toAPI 口径下 size 是宽高比（"1:1"）、resolution 才是
+	// 清晰度（"1k"）；这条链路原先只看 size，比例解析不出像素就一律落到默认 2K，
+	// 于是 1K 请求按 2K 收费、4K 请求也按 2K 收费。
+	Resolution         string
 	ResponseFormat     string
 	Quality            string
 	Background         string
@@ -224,7 +228,10 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	if err := s.validateOpenAIImagesQuality(c, req); err != nil {
 		return nil, err
 	}
-	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
+	// 档位口径必须与 grok_media 那条链路一致：resolution 优先（上游按它计费），
+	// 再拼上质量后缀，否则同一个模型从两条路进来会算出两种价。
+	req.SizeTier = ImageBillingTierWithQuality(
+		ResolveImageBillingTier(req.Size, req.Resolution), req.Quality)
 	req.RequiredCapability = classifyOpenAIImagesCapability(req)
 	return req, nil
 }
@@ -257,6 +264,7 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 		req.Size = strings.TrimSpace(sizeResult.String())
 		req.ExplicitSize = req.Size != ""
 	}
+	req.Resolution = strings.TrimSpace(gjson.GetBytes(body, "resolution").String())
 	req.ResponseFormat = strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "response_format").String()))
 	req.Quality = strings.TrimSpace(gjson.GetBytes(body, "quality").String())
 	req.Background = strings.TrimSpace(gjson.GetBytes(body, "background").String())
@@ -397,6 +405,8 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 				return fmt.Errorf("n must be a positive integer")
 			}
 			req.N = n
+		case "resolution":
+			req.Resolution = value
 		case "quality":
 			req.Quality = value
 			req.HasNativeOptions = true
