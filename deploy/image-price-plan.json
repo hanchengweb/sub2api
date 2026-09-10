@@ -423,6 +423,60 @@
       "unit_cny_per_image": 0.196,
       "cost_credits": 19.6,
       "price_credits": 48.6
+    },
+    {
+      "model": "gpt-image-2.5-flare",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": null,
+      "unit_cny_per_image": 0.105,
+      "cost_credits": 10.5,
+      "price_credits": 39.5
+    },
+    {
+      "model": "gpt-image-2.5-flare",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": null,
+      "unit_cny_per_image": 0.14,
+      "cost_credits": 14.0,
+      "price_credits": 43.0
+    },
+    {
+      "model": "gpt-image-2.5-flare",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": null,
+      "unit_cny_per_image": 0.175,
+      "cost_credits": 17.5,
+      "price_credits": 46.5
+    },
+    {
+      "model": "gpt-image-2.5-sunburst",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": null,
+      "unit_cny_per_image": 0.105,
+      "cost_credits": 10.5,
+      "price_credits": 39.5
+    },
+    {
+      "model": "gpt-image-2.5-sunburst",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": null,
+      "unit_cny_per_image": 0.14,
+      "cost_credits": 14.0,
+      "price_credits": 43.0
+    },
+    {
+      "model": "gpt-image-2.5-sunburst",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": null,
+      "unit_cny_per_image": 0.175,
+      "cost_credits": 17.5,
+      "price_credits": 46.5
     }
   ]
 }
