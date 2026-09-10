@@ -1,6 +1,6 @@
 <template>
   <!-- 后台内嵌形态:?embedded=1 且已登录,套完整后台布局 -->
-  <AppLayout v-if="isEmbedded">
+  <AppLayout v-if="isEmbedded" class="pricing-layout">
     <ModelPlazaContent :response="data" :loading="loading" :error="loadFailed" :initial-search="String(route.query.model ?? '')" embedded />
   </AppLayout>
 
@@ -43,3 +43,8 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.pricing-layout { @apply bg-white dark:bg-dark-950; }
+.pricing-layout :deep(.bg-mesh-gradient) { display: none; }
+</style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-5">
+  <div class="pricing-workspace space-y-6">
     <!-- 页头(独立形态下展示标题;后台形态 AppHeader 已有页面标题) -->
     <div v-if="!embedded">
       <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-3xl">{{ t('modelPlaza.title') }}</h1>
@@ -23,12 +23,16 @@
     </p>
 
     <!-- 加载/错误/空 -->
-    <div v-if="loading" class="flex min-h-[240px] items-center justify-center">
-      <div class="h-8 w-8 animate-spin rounded-full border-2 border-primary-600/25 border-t-primary-600 dark:border-primary-400/25 dark:border-t-primary-400"></div>
+    <div v-if="loading" class="divide-y divide-gray-100 dark:divide-dark-700" role="status" :aria-label="t('common.loading')">
+      <div v-for="row in 6" :key="row" class="flex items-center gap-4 py-6 motion-safe:animate-pulse">
+        <div class="h-9 w-9 rounded-lg bg-gray-100 dark:bg-dark-800"></div>
+        <div class="h-3 w-40 rounded bg-gray-100 dark:bg-dark-800"></div>
+        <div class="ml-auto h-3 w-28 rounded bg-gray-100 dark:bg-dark-800"></div>
+      </div>
     </div>
     <div
       v-else-if="error"
-      class="rounded-2xl border border-red-200 bg-red-50 px-5 py-8 text-center text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+      class="rounded-lg border border-red-200 bg-red-50 px-5 py-8 text-center text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
     >
       {{ t('modelPlaza.loadFailed') }}
     </div>
@@ -47,19 +51,19 @@
         @update:rate="selectedRate = $event"
         @update:search="searchQuery = $event"
       />
-      <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-700">
-        <button v-for="item in kinds" :key="item.value" class="rounded-md px-3 py-2 text-sm" :class="kind === item.value ? 'bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-dark-800'" :aria-pressed="kind === item.value" @click="kind = item.value">{{ t(item.label) }}</button>
+      <div class="pricing-tabs flex flex-wrap items-center gap-1 border-b border-gray-200 dark:border-dark-700">
+        <button v-for="item in kinds" :key="item.value" class="pricing-tab" :class="{ 'is-active': kind === item.value }" :aria-pressed="kind === item.value" @click="kind = item.value">{{ t(item.label) }}</button>
         <span class="ml-auto text-xs text-gray-500" aria-live="polite">{{ t('modelPlaza.table.modelCount', { n: visibleCount }) }}</span>
         <button v-if="searchActive || kind || selectedPlatform !== 'all' || selectedGroupId !== 'all' || selectedRate !== 'all'" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100" :aria-label="t('modelPlaza.filters.all')" :title="t('modelPlaza.filters.all')" @click="resetFilters"><Icon name="refresh" size="sm" /></button>
       </div>
 
       <!-- 分组分节的模型清单(默认按生效倍率升序) -->
-      <div v-if="filteredGroups.length > 0" class="space-y-5">
+      <div v-if="filteredGroups.length > 0" class="space-y-10">
         <PlazaGroupSection v-for="g in filteredGroups" :key="g.id" :group="g" />
       </div>
       <div
         v-else
-        class="rounded-2xl border border-dashed border-gray-300 px-5 py-12 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-dark-400"
+        class="border-b border-gray-200 px-5 py-16 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-dark-400"
       >
         {{ searchActive ? t('modelPlaza.noSearchResult') : t('modelPlaza.empty') }}
       </div>
@@ -180,6 +184,10 @@ const filteredGroups = computed(() => {
 </script>
 
 <style scoped>
+.pricing-workspace { max-width: 1440px; margin-inline: auto; }
+.pricing-tab { @apply relative min-h-12 border-b-2 border-transparent px-4 text-sm font-medium text-gray-500 transition-colors hover:text-gray-900 focus-visible:outline-primary-500 dark:text-gray-400 dark:hover:text-gray-100; }
+.pricing-tab.is-active { @apply border-gray-900 text-gray-900 dark:border-white dark:text-white; }
+@media (max-width: 639px) { .pricing-tab { padding-inline: 10px; font-size: 13px; } }
 .plaza-description {
   line-height: 1.7;
   overflow-wrap: anywhere;

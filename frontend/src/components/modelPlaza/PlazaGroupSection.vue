@@ -1,11 +1,12 @@
 <template>
   <section
-    class="min-w-0 border-b border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900"
+    class="pricing-group min-w-0"
   >
     <!-- 分组头部:名称/平台/倍率徽章/专属/订阅徽章 + 描述 -->
-    <header class="border-b border-gray-100 px-3 py-4 dark:border-dark-700/60 sm:px-4">
+    <header class="pb-6 pt-1">
       <div class="flex flex-wrap items-center gap-2">
         <GroupBadge
+          class="pricing-group-label"
           :name="group.name"
           :platform="group.platform as GroupPlatform"
           :subscription-type="(group.subscription_type || 'standard') as SubscriptionType"
@@ -44,7 +45,7 @@
     </header>
 
     <!-- 模型价格表 -->
-    <div class="min-w-0 px-1 py-4 sm:px-4">
+    <div class="min-w-0">
       <PlazaModelPricingTable
         v-if="group.models.length > 0"
         :models="group.models"
@@ -89,3 +90,8 @@ const peakNote = computed(() => {
   })
 })
 </script>
+
+<style scoped>
+.pricing-group-label { @apply gap-2.5 bg-transparent p-0 text-base font-semibold text-gray-900 dark:bg-transparent dark:text-gray-100; }
+.pricing-group-label :deep(> span:not(.truncate)) { @apply text-xs; }
+</style>

@@ -1,11 +1,12 @@
 <template>
-  <div class="plaza-pricing-table space-y-5" :style="accentStyle">
+  <div class="plaza-pricing-table space-y-8">
     <section v-for="sec in sections" :key="sec.kind">
       <!-- 分区头：类型 + 计价口径。三类的口径不同（1M token / 每张 / 每秒），
            混在一张表里表头只能取最泛的说法，分开才能各自说准。 -->
-      <div class="mb-1.5 flex items-baseline gap-2">
-        <span class="pz-title text-[13px] font-semibold">{{ sec.label }}</span>
-        <span class="text-[11px] text-gray-400 dark:text-dark-500">{{ sec.unitHint }}</span>
+      <div class="pz-section-heading">
+        <span class="pz-section-icon"><Icon :name="sec.kind === 'text' ? 'chat' : sec.kind === 'image' ? 'sparkles' : 'play'" size="sm" /></span>
+        <span class="pz-title">{{ sec.label }}</span>
+        <span class="text-xs text-gray-500 dark:text-gray-400">{{ sec.unitHint }}</span>
         <span class="ml-auto text-[11px] text-gray-400 dark:text-dark-500">
           {{ t('modelPlaza.table.modelCount', { n: sec.models.length }) }}
         </span>
@@ -19,11 +20,11 @@
         {{ sec.timeNote }}
       </p>
 
-      <div class="overflow-x-auto">
-        <table class="w-full border-collapse text-sm tabular-nums" :class="sec.minWidth">
+      <div class="pz-table-frame">
+        <table class="w-full border-collapse text-sm tabular-nums" :class="sec.minWidth" :data-kind="sec.kind">
           <thead>
             <tr
-              class="border-b border-gray-200 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:border-dark-700 dark:text-dark-500"
+              class="border-b border-gray-200 text-left font-medium text-gray-500 dark:border-dark-700 dark:text-gray-400"
             >
               <th class="w-[38%] px-3 py-2 font-medium">{{ t('modelPlaza.table.model') }}</th>
               <template v-if="sec.kind === 'text'">
@@ -56,9 +57,9 @@
                    表格左边缘，外层又是 overflow-x-auto，首字母会被切掉。 -->
               <td class="px-3 py-2.5 align-middle">
                 <div class="flex min-w-0 items-center gap-2">
-                  <ModelBrandMark :model="m.name" size="sm" />
+                  <ModelBrandMark :model="m.name" size="md" />
                   <span data-testid="model-name" class="break-words font-medium text-gray-900 dark:text-white">{{ m.name }}</span>
-                  <a :href="`/playground?model=${encodeURIComponent(m.name)}&mode=${sec.kind === 'text' ? 'chat' : sec.kind}`" class="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-primary-600 hover:bg-primary-50" :aria-label="`${t('modelGallery.tryIt')} ${m.name}`" :title="t('modelGallery.tryIt')"><Icon name="arrowRight" size="sm" /></a>
+                  <a :href="`/playground?model=${encodeURIComponent(m.name)}&mode=${sec.kind === 'text' ? 'chat' : sec.kind}`" class="pz-model-action" :aria-label="`${t('modelGallery.tryIt')} ${m.name}`" :title="t('modelGallery.tryIt')"><Icon name="arrowRight" size="sm" /></a>
                 </div>
               </td>
 
@@ -119,24 +120,24 @@
               <td v-else class="pz-cell px-3 py-2.5 align-middle">
                 <!-- 视频按秒计价，价格来自分组的 video_price_* 三列，不在渠道定价表里，
                      所以走单独字段；三档同价时只显示一个，避免三个一样的 chip。 -->
-                <div v-if="videoTiers(m).length" class="flex flex-wrap items-center gap-1.5">
+                <div v-if="videoTiers(m).length" class="pz-tier-list">
                   <span
                     v-for="tier in videoTiers(m)"
                     :key="tier.label"
-                    class="inline-flex items-center gap-1 rounded-md bg-white/70 px-2 py-0.5 font-mono text-xs text-gray-800 ring-1 ring-black/5 dark:bg-dark-700/60 dark:text-gray-200 dark:ring-white/10"
+                    class="pz-tier"
                   >
-                    <span v-if="tier.label" class="font-sans text-gray-400 dark:text-dark-500">{{ tier.label }}</span>
+                    <span v-if="tier.label" class="pz-tier-label">{{ tier.label }}</span>
                     {{ tier.price }}
                   </span>
                   <span class="text-[11px] text-gray-400 dark:text-dark-500">{{ t('modelPlaza.section.unitPerSecond') }}</span>
                 </div>
-                <div v-else-if="requestIntervals(m).length" class="flex flex-wrap items-center gap-1.5">
+                <div v-else-if="requestIntervals(m).length" class="pz-tier-list">
                   <span
                     v-for="(iv, i) in requestIntervals(m)"
                     :key="i"
-                    class="inline-flex items-center gap-1 rounded-md bg-white/70 px-2 py-0.5 font-mono text-xs text-gray-800 ring-1 ring-black/5 dark:bg-dark-700/60 dark:text-gray-200 dark:ring-white/10"
+                    class="pz-tier"
                   >
-                    <span class="font-sans text-gray-400 dark:text-dark-500">{{ tierLabel(iv) }}</span>
+                    <span class="pz-tier-label">{{ tierLabel(iv) }}</span>
                     {{ paidRequestPrice(iv.per_request_price) }}
                   </span>
                   <span class="text-[11px] text-gray-400 dark:text-dark-500">{{ perUnitSuffix(m) }}</span>
@@ -161,7 +162,6 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatScaled } from '@/utils/pricing'
-import { platformAccentColor } from '@/utils/platformColors'
 import ModelBrandMark from './ModelBrandMark.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PeakOffPeakPrice from './PeakOffPeakPrice.vue'
@@ -191,7 +191,6 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-const accentStyle = computed(() => ({ '--plaza-accent': platformAccentColor(props.platform ?? '') }))
 
 const PER_MILLION = 1_000_000
 /**
@@ -400,31 +399,30 @@ function trimZero(n: number): string {
 </script>
 
 <style scoped>
-/* 实付分区配色统一从 --plaza-accent（平台主色）派生，新增平台无需扩展样式 */
-.plaza-pricing-table {
-  --pz-title: color-mix(in srgb, var(--plaza-accent) 88%, black);
-  --pz-bg: color-mix(in srgb, var(--plaza-accent) 7%, transparent);
-  --pz-bg-hover: color-mix(in srgb, var(--plaza-accent) 13%, transparent);
-}
-
-.dark .plaza-pricing-table {
-  --pz-title: color-mix(in srgb, var(--plaza-accent) 70%, white);
-  --pz-bg: color-mix(in srgb, var(--plaza-accent) 6%, transparent);
-  --pz-bg-hover: color-mix(in srgb, var(--plaza-accent) 10%, transparent);
-}
-
-.pz-cell {
-  background-color: var(--pz-bg);
-  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-tbody tr:hover .pz-cell {
-  background-color: var(--pz-bg-hover);
-}
-
-.pz-title {
-  /* color-mix 不可用的老浏览器回退为平台原色 */
-  color: var(--plaza-accent);
-  color: var(--pz-title);
+.plaza-pricing-table { color: #202427; }
+.pz-section-heading { @apply mb-3 flex flex-wrap items-center gap-2.5; }
+.pz-section-icon { @apply inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100 text-gray-600 dark:bg-dark-800 dark:text-gray-300; }
+.pz-title { @apply text-sm font-semibold text-gray-900 dark:text-white; }
+.pz-table-frame { @apply overflow-x-auto border-y border-gray-200 dark:border-dark-700; }
+.pz-table-frame thead { @apply bg-gray-50 dark:bg-dark-800; }
+.pz-table-frame th { padding-block: 12px; font-size: 12px; }
+.pz-table-frame tbody td { padding-block: 16px; }
+.pz-cell { font-variant-numeric: tabular-nums; }
+.pz-tier-list { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; }
+.pz-tier { @apply inline-flex min-w-24 flex-col gap-1 text-sm font-semibold text-gray-900 dark:text-gray-100; font-variant-numeric: tabular-nums; }
+.pz-tier-label { @apply text-xs font-normal text-gray-500 dark:text-gray-400; }
+.pz-model-action { @apply ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-primary-500 dark:hover:bg-dark-700 dark:hover:text-white; }
+@media (prefers-reduced-motion: reduce) { .pz-model-action { transition: none; } }
+@media (max-width: 639px) {
+  table:not([data-kind="text"]) { min-width: 0; }
+  table:not([data-kind="text"]) thead { display: none; }
+  table:not([data-kind="text"]) tbody,
+  table:not([data-kind="text"]) tbody tr,
+  table:not([data-kind="text"]) tbody td { display: block; width: 100%; }
+  table:not([data-kind="text"]) tbody tr { padding-block: 16px; }
+  table:not([data-kind="text"]) tbody td { padding-block: 0; }
+  table:not([data-kind="text"]) tbody td + td { padding-top: 16px; }
+  .pz-tier-list { gap: 12px; }
+  .pz-tier { min-width: 88px; }
 }
 </style>
