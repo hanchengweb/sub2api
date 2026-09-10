@@ -1,0 +1,50 @@
+[
+  {
+    "file": "qwen.webp",
+    "page": "https://github.com/QwenLM/Qwen-Image",
+    "url": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-Image/merge3.jpg?x-oss-process=image/resize,w_900",
+    "usage": "Official vendor showcase; not a verified output of each listed model alias."
+  },
+  {
+    "file": "flux.webp",
+    "page": "https://github.com/black-forest-labs/flux",
+    "url": "https://raw.githubusercontent.com/black-forest-labs/flux/main/assets/grid.jpg",
+    "usage": "Official vendor showcase; not a verified output of each listed model alias."
+  },
+  {
+    "file": "doubao.webp",
+    "page": "https://seed.bytedance.com/en/seedream3_0",
+    "url": "https://lf3-static.bytednsdoc.com/obj/eden-cn/bdeh7uhpsuht/S11.png",
+    "usage": "Official vendor showcase; not a verified output of each listed model alias."
+  },
+  {
+    "file": "gemini.webp",
+    "page": "https://blog.google/innovation-and-ai/technology/ai/nano-banana-2/",
+    "url": "https://storage.googleapis.com/gweb-uniblog-publish-prod/images/NB2_Hero.width-900.format-webp.webp",
+    "usage": "Official vendor showcase; not a verified output of each listed model alias."
+  },
+  {
+    "file": "openai.webp",
+    "page": "https://github.com/openai/openai-cookbook",
+    "url": "https://raw.githubusercontent.com/openai/openai-cookbook/main/images/christmas_collectible_toy_airplane_gpt-image-2.png",
+    "usage": "Official vendor showcase; not a verified output of each listed model alias."
+  },
+  {
+    "file": "vidu.webp",
+    "page": "https://www.vidu.com/",
+    "url": "https://image01.cf.vidu.studio/vidu/media-asset/S11-753ab643.webp",
+    "usage": "Official vendor showcase; not a verified output of each listed model alias."
+  },
+  {
+    "file": "deepseek.webp",
+    "page": "https://www.deepseek.com/",
+    "url": "https://cdn.deepseek.com/images/deepseek-chat-open-graph-image.jpeg",
+    "usage": "Official vendor showcase; not a verified output of each listed model alias."
+  },
+  {
+    "file": "xai.webp",
+    "page": "https://docs.x.ai/docs/guides/image-generations",
+    "url": "https://docs.x.ai/assets/api-examples/images/style-realistic.png",
+    "usage": "Official vendor showcase; not a verified output of each listed model alias."
+  }
+]

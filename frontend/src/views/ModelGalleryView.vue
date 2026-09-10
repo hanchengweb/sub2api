@@ -55,18 +55,26 @@
          break-inside-avoid 保证卡片不被拆到两列。 -->
     <div v-else class="gallery-masonry">
       <article v-for="card in visibleCards" :key="card.name" class="gallery-card group">
-        <!-- 视觉头：品牌色渐变 + 大号官方标。模型没有预览图，用品牌色块做识别面，
-             一眼能认出是哪家的货。 -->
-        <div class="gallery-hero" :style="heroStyle(card.name)">
-          <ModelBrandMark :model="card.name" size="lg" class="!rounded-xl shadow-sm" />
+        <div class="gallery-hero">
+          <img
+            v-if="heroImage(card.name) && !failedImages.has(heroImage(card.name))"
+            :src="heroImage(card.name)"
+            :alt="`${card.vendor} showcase`"
+            class="gallery-image"
+            :class="{ 'gallery-image-brand': resolveModelVendor(card.name).key === 'deepseek' }"
+            loading="lazy"
+            decoding="async"
+            @error="failedImages.add(heroImage(card.name))"
+          />
+          <ModelBrandMark :model="card.name" size="lg" class="gallery-brand !rounded-lg shadow-sm" />
           <span class="kind-badge absolute right-2 top-2" :class="kindBadgeClass(card.kind)">
             {{ t(kindLabelKey(card.kind)) }}
           </span>
         </div>
 
-        <div class="p-3">
+        <div class="gallery-details">
           <h2
-            class="truncate text-sm font-semibold text-gray-900 dark:text-white"
+            class="gallery-name text-sm font-semibold text-gray-900 dark:text-white"
             :title="card.name"
           >
             {{ card.name }}
@@ -86,7 +94,7 @@
 
           <!-- 动作按钮不占满整行：整条绿色横杠在卡片墙里过于抢眼，
                每张卡都来一条会盖过商品本身。 -->
-          <div class="mt-3 flex items-center justify-end">
+          <div class="mt-auto flex items-center justify-end">
             <RouterLink :to="playgroundLink(card)" class="gallery-try">
               {{ t('modelGallery.tryIt') }}
               <Icon name="arrowRight" size="xs" />
@@ -161,30 +169,25 @@ function kindBadgeClass(k: ModelKind): string {
   return 'bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-300'
 }
 
-/**
- * 卡片视觉头的底色。
- *
- * 模型没有预览图，用各家品牌色的柔和渐变当识别面——同一家的卡片颜色一致，
- * 扫一眼就能按厂商归堆。用 color-mix 兑淡，直接上原色会过于刺眼且压住文字。
- */
+// Official vendor showcases, not output claims for individual reseller model aliases.
+// Source pages and original asset URLs are retained alongside the images.
 const VENDOR_HERO: Record<string, string> = {
-  deepseek: '#4D6BFE',
-  openai: '#111827',
-  doubao: '#00C8FF',
-  xai: '#111827',
-  gemini: '#3186FF',
-  nanobanana: '#FBBC04',
-  flux: '#1F2937',
-  vidu: '#1D4ED8',
-  qwen: '#615CED',
-  generic: '#94A3B8'
+  deepseek: 'deepseek.webp',
+  openai: 'openai.webp',
+  doubao: 'doubao.webp',
+  xai: 'xai.webp',
+  gemini: 'gemini.webp',
+  nanobanana: 'gemini.webp',
+  flux: 'flux.webp',
+  vidu: 'vidu.webp',
+  qwen: 'qwen.webp'
 }
 
-function heroStyle(model: string): Record<string, string> {
-  const c = VENDOR_HERO[resolveModelVendor(model).key] ?? VENDOR_HERO.generic
-  return {
-    background: `linear-gradient(135deg, color-mix(in srgb, ${c} 16%, transparent), color-mix(in srgb, ${c} 5%, transparent))`
-  }
+const failedImages = ref(new Set<string>())
+
+function heroImage(model: string): string {
+  const file = VENDOR_HERO[resolveModelVendor(model).key]
+  return file ? `/images/model-gallery/${file}` : ''
 }
 
 /** 点「去体验」直接带着模型名跳到在线使用页，省得用户再翻一遍下拉。 */
@@ -291,15 +294,44 @@ onMounted(async () => {
 }
 
 .gallery-card {
-  @apply mb-3 overflow-hidden rounded-2xl border border-gray-100 bg-white transition-all;
+  @apply mb-3 overflow-hidden rounded-lg bg-white transition-all;
   @apply hover:-translate-y-0.5 hover:shadow-card-hover;
   @apply dark:border-dark-700/60 dark:bg-dark-800/50;
   /* 卡片不能被拆到两列 */
   break-inside: avoid;
+  display: grid;
+  height: 420px;
+  grid-template-rows: 60% 40%;
 }
 
 .gallery-hero {
-  @apply relative flex h-24 items-center justify-center;
+  @apply relative overflow-hidden bg-gray-100 dark:bg-dark-700;
+}
+
+.gallery-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gallery-brand {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+}
+
+.gallery-image-brand {
+  object-fit: contain;
+  background: #f5f8ff;
+}
+
+.gallery-details {
+  @apply flex min-w-0 flex-col p-3;
+}
+
+.gallery-name {
+  overflow-wrap: anywhere;
+  line-height: 1.25rem;
 }
 
 .gallery-try {
