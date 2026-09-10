@@ -477,6 +477,168 @@
       "unit_cny_per_image": 0.175,
       "cost_credits": 17.5,
       "price_credits": 46.5
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "低",
+      "unit_cny_per_image": 0.033544,
+      "cost_credits": 3.35,
+      "price_credits": 32.35
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "低",
+      "unit_cny_per_image": 0.067144,
+      "cost_credits": 6.71,
+      "price_credits": 35.71
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "低",
+      "unit_cny_per_image": 0.067144,
+      "cost_credits": 6.71,
+      "price_credits": 35.71
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "中",
+      "unit_cny_per_image": 0.0742,
+      "cost_credits": 7.42,
+      "price_credits": 36.42
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "中",
+      "unit_cny_per_image": 0.150304,
+      "cost_credits": 15.03,
+      "price_credits": 44.03
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "中",
+      "unit_cny_per_image": 0.150304,
+      "cost_credits": 15.03,
+      "price_credits": 44.03
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "高",
+      "unit_cny_per_image": 0.295456,
+      "cost_credits": 29.55,
+      "price_credits": 58.55
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "高",
+      "unit_cny_per_image": 0.599872,
+      "cost_credits": 59.99,
+      "price_credits": 88.99
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "高",
+      "unit_cny_per_image": 0.599872,
+      "cost_credits": 59.99,
+      "price_credits": 88.99
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "低",
+      "unit_cny_per_image": 0.033544,
+      "cost_credits": 3.35,
+      "price_credits": 32.35
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "低",
+      "unit_cny_per_image": 0.067144,
+      "cost_credits": 6.71,
+      "price_credits": 35.71
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "低",
+      "unit_cny_per_image": 0.067144,
+      "cost_credits": 6.71,
+      "price_credits": 35.71
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "中",
+      "unit_cny_per_image": 0.0742,
+      "cost_credits": 7.42,
+      "price_credits": 36.42
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "中",
+      "unit_cny_per_image": 0.150304,
+      "cost_credits": 15.03,
+      "price_credits": 44.03
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "中",
+      "unit_cny_per_image": 0.150304,
+      "cost_credits": 15.03,
+      "price_credits": 44.03
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "高",
+      "unit_cny_per_image": 0.295456,
+      "cost_credits": 29.55,
+      "price_credits": 58.55
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "高",
+      "unit_cny_per_image": 0.599872,
+      "cost_credits": 59.99,
+      "price_credits": 88.99
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "高",
+      "unit_cny_per_image": 0.599872,
+      "cost_credits": 59.99,
+      "price_credits": 88.99
     }
   ]
 }

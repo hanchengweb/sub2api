@@ -8,7 +8,8 @@
     "这张表是定价对齐的基准：售价按各档 ≥30% 毛利定，成本侧也按同一维度配置。",
     "现网只配了「模型 → 一个扁平成本」，既漏了清晰度档差，也完全没有质量维度——",
     "gpt-image-2-vip 4K 高质量上游要 ¥1.32，我们却按 ¥0.3268 收，每张倒贴约 1 元。",
-    "2026-09-10 增补 gpt-image-2.5-flare / -sunburst（普通版）：官方文档与控制台定价页均为 $0.015/0.020/0.025 每张（1K/2K/4K），与 gpt-image-2 同价；固定 high 质量，不分质量档。"
+    "2026-09-10 增补 gpt-image-2.5-flare / -sunburst（普通版）：官方文档与控制台定价页均为 $0.015/0.020/0.025 每张（1K/2K/4K），与 gpt-image-2 同价；固定 high 质量，不分质量档。",
+    "2026-09-10 增补 gpt-image-2.5-flare-vip / -sunburst-vip：上游按 token 后付费、官方未公布每张价，成本由「生成一张图前后 /v1/user/balance 的 used_balance 差额」实测得出。校验：低·1K 实测 $0.004792，官方文档同参数示例算得 $0.004812，吻合。4K 取 max(4K实测, 2K实测)——成本随最长边走、上游输出 token 有上限，两次 4K 实测都略低于 2K。"
   ],
   "source": "toAPI console pricing table",
   "captured_at": "2026-09-10",
@@ -384,6 +385,132 @@
       "tier": "4K",
       "quality": null,
       "unit_cny_per_image": 0.175
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "低",
+      "unit_cny_per_image": 0.033544
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "低",
+      "unit_cny_per_image": 0.067144
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "低",
+      "unit_cny_per_image": 0.067144
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "中",
+      "unit_cny_per_image": 0.0742
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "中",
+      "unit_cny_per_image": 0.150304
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "中",
+      "unit_cny_per_image": 0.150304
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "高",
+      "unit_cny_per_image": 0.295456
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "高",
+      "unit_cny_per_image": 0.599872
+    },
+    {
+      "model": "gpt-image-2.5-flare-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "高",
+      "unit_cny_per_image": 0.599872
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "低",
+      "unit_cny_per_image": 0.033544
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "低",
+      "unit_cny_per_image": 0.067144
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "低",
+      "unit_cny_per_image": 0.067144
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "中",
+      "unit_cny_per_image": 0.0742
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "中",
+      "unit_cny_per_image": 0.150304
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "中",
+      "unit_cny_per_image": 0.150304
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "1K",
+      "quality": "高",
+      "unit_cny_per_image": 0.295456
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "2K",
+      "quality": "高",
+      "unit_cny_per_image": 0.599872
+    },
+    {
+      "model": "gpt-image-2.5-sunburst-vip",
+      "vendor": "OpenAI",
+      "tier": "4K",
+      "quality": "高",
+      "unit_cny_per_image": 0.599872
     }
   ]
 }
