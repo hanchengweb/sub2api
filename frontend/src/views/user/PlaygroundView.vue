@@ -41,15 +41,49 @@
              同一个数字在一屏里出现两次只会让人怀疑哪个是真的。 -->
         <header class="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3 dark:border-dark-700">
           <Icon :name="modeIcon(mode)" size="sm" class="text-primary-500" />
-          <select
-            v-if="availableModels.length"
-            v-model="selectedModel"
-            data-testid="model-select"
-            class="input h-9 max-w-[18rem] py-1 text-sm"
-            :aria-label="t('playground.model')"
-          >
-            <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
-          </select>
+          <!-- 自定义模型选择器。
+               原生 <select> 挂不了各厂商 logo，选项一多下拉还会拉满整屏
+               （27 个模型时几乎盖住整个页面）。这里限高滚动 + 按供应商分组。 -->
+          <div v-if="availableModels.length" ref="modelPickerRef" class="relative">
+            <button
+              type="button"
+              data-testid="model-select"
+              class="input flex h-9 min-w-[15rem] max-w-[20rem] items-center gap-2 py-1 text-left text-sm"
+              :aria-label="t('playground.model')"
+              :aria-expanded="modelPickerOpen"
+              @click="modelPickerOpen = !modelPickerOpen"
+            >
+              <ModelBrandMark :model="selectedModel" size="sm" />
+              <span class="min-w-0 flex-1 truncate">{{ selectedModel }}</span>
+              <Icon name="chevronDown" size="xs" class="shrink-0 opacity-50" />
+            </button>
+
+            <div
+              v-if="modelPickerOpen"
+              class="absolute left-0 top-full z-20 mt-1 max-h-80 w-[22rem] overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+            >
+              <template v-for="group in groupedModels" :key="group.vendor">
+                <p class="px-2 pb-1 pt-2 text-[11px] font-medium text-gray-400 dark:text-dark-500">
+                  {{ group.vendor }}
+                </p>
+                <button
+                  v-for="m in group.models"
+                  :key="m"
+                  type="button"
+                  data-testid="model-option"
+                  class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors"
+                  :class="m === selectedModel
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
+                    : 'text-gray-700 hover:bg-gray-100 dark:text-dark-200 dark:hover:bg-dark-700'"
+                  @click="pickModel(m)"
+                >
+                  <ModelBrandMark :model="m" size="sm" />
+                  <span class="min-w-0 flex-1 truncate">{{ m }}</span>
+                  <Icon v-if="m === selectedModel" name="check" size="xs" class="shrink-0" />
+                </button>
+              </template>
+            </div>
+          </div>
           <span v-else class="text-xs text-gray-400">{{ t('playground.noModelsForMode') }}</span>
         </header>
 
@@ -147,6 +181,12 @@
                   <option v-for="r in resolutionOptions" :key="r.value" :value="r.value">{{ r.label }}</option>
                 </select>
               </label>
+              <label v-if="mode === 'image' && supportsQuality" class="param-chip">
+                <span class="param-label">{{ t('playground.paramQuality') }}</span>
+                <select v-model="imageQuality" class="param-select">
+                  <option v-for="q in QUALITY_OPTIONS" :key="q.value" :value="q.value">{{ t(q.labelKey) }}</option>
+                </select>
+              </label>
               <label v-if="mode === 'image'" class="param-chip">
                 <span class="param-label">{{ t('playground.paramCount') }}</span>
                 <select v-model.number="imageCount" class="param-select">
@@ -203,6 +243,7 @@ import { RouterLink } from 'vue-router'
 
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ModelBrandMark from '@/components/modelPlaza/ModelBrandMark.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { getModelPlaza, type PlazaModel } from '@/api/modelPlaza'
 import {
@@ -270,6 +311,65 @@ const VIDEO_RESOLUTIONS = [
 // toapiVideoMin/MaxDurationSeconds）；超出范围会被上游拒绝并产生一次退款往返。
 const VIDEO_DURATIONS = [6, 8, 10, 12, 15, 20, 25, 30]
 
+/**
+ * 质量档。上游按「清晰度 × 质量」分档收费，同一个 1K 从低到高能差 35 倍
+ * （vip 1K：低 0.38 / 中 3.38 / 高 13.5 上游积分），所以必须让用户自己选，
+ * 也必须带进请求——不带就按低质量计费，用户拿到的却可能是高质量图。
+ */
+const QUALITY_OPTIONS = [
+  { value: 'low', labelKey: 'playground.qualityLow' },
+  { value: 'medium', labelKey: 'playground.qualityMedium' },
+  { value: 'high', labelKey: 'playground.qualityHigh' }
+] as const
+
+/** quality 值到档位后缀的映射，必须与后端 NormalizeImageQuality 一致。 */
+const QUALITY_LABELS: Record<string, string> = { low: '低', medium: '中', high: '高' }
+
+const modelPickerOpen = ref(false)
+const modelPickerRef = ref<HTMLElement | null>(null)
+
+/**
+ * 按供应商分组，供选择器分段展示。
+ *
+ * 供应商判定与 ModelBrandMark 保持同一套规则：那边按模型名判 logo，
+ * 这边按同样的名字判分组名，两处必须一致，否则会出现「豆包组里挂着 Google 标」。
+ */
+const VENDOR_RULES: Array<{ test: (n: string) => boolean; vendor: string }> = [
+  { test: (n) => n.includes('deepseek'), vendor: 'DeepSeek' },
+  { test: (n) => n.includes('doubao') || n.includes('seedream'), vendor: '字节豆包 Doubao' },
+  { test: (n) => n.includes('grok'), vendor: 'xAI Grok' },
+  { test: (n) => n.includes('nano_banana') || n.includes('nano-banana'), vendor: 'Google Nano Banana' },
+  { test: (n) => n.includes('gemini'), vendor: 'Google Gemini' },
+  { test: (n) => n.startsWith('flux'), vendor: 'Black Forest Labs' },
+  { test: (n) => n.startsWith('vidu'), vendor: '智谱清影 Vidu' },
+  { test: (n) => n.startsWith('qwen'), vendor: '阿里云通义 Qwen' },
+  { test: (n) => n.includes('gpt') || n.includes('dall'), vendor: 'OpenAI' }
+]
+
+const groupedModels = computed(() => {
+  const buckets = new Map<string, string[]>()
+  for (const m of availableModels.value) {
+    const n = m.toLowerCase()
+    const vendor = VENDOR_RULES.find((r) => r.test(n))?.vendor ?? '其他'
+    if (!buckets.has(vendor)) buckets.set(vendor, [])
+    buckets.get(vendor)!.push(m)
+  }
+  return [...buckets.entries()].map(([vendor, models]) => ({ vendor, models }))
+})
+
+function pickModel(m: string) {
+  selectedModel.value = m
+  modelPickerOpen.value = false
+}
+
+/** 点选择器之外的地方就收起——否则它会一直悬在页面上挡住内容。 */
+function onDocumentClick(e: MouseEvent) {
+  if (!modelPickerOpen.value) return
+  const el = modelPickerRef.value
+  if (el && !el.contains(e.target as Node)) modelPickerOpen.value = false
+}
+
+const imageQuality = ref<string>('low')
 const aspectRatio = ref<string>('1:1')
 const resolution = ref<string>('1k')
 const imageCount = ref(1)
@@ -301,6 +401,17 @@ const activeConversation = computed(
 )
 const activeMessages = computed<PlaygroundMessage[]>(() => activeConversation.value?.messages ?? [])
 
+/**
+ * 当前模型是否分质量档。
+ *
+ * 按定价档位标签判断：带「·」后缀的（如 "1K·高"）说明这个模型按质量分档收费。
+ * 不分档的模型显示质量选择器只会误导——选了也不影响价格。
+ */
+const supportsQuality = computed(() => {
+  const tiers = pricingTiersOf(selectedModel.value)
+  return tiers.some((label) => label.includes('·'))
+})
+
 const resolutionOptions = computed(() => (mode.value === 'video' ? VIDEO_RESOLUTIONS : IMAGE_RESOLUTIONS))
 const durationOptions = VIDEO_DURATIONS
 
@@ -325,7 +436,7 @@ const costHint = computed(() => {
   }
 
   if (mode.value === 'image') {
-    const per = imagePricePerUnit(m, resolution.value)
+    const per = imagePricePerUnit(m, resolution.value, imageQuality.value)
     if (per == null) return ''
     return t('playground.costImage', {
       total: formatCredits(per * rate * imageCount.value),
@@ -342,6 +453,14 @@ const costHint = computed(() => {
   })
 })
 
+/** 取某模型在定价里配的全部档位标签。 */
+function pricingTiersOf(model: string): string[] {
+  const entry = pricingByModel.value.get(model)
+  return (entry?.model.pricing?.intervals ?? [])
+    .map((iv) => (iv.tier_label ?? '').trim())
+    .filter(Boolean)
+}
+
 /** 视频每秒单价：按清晰度取分组配的那一档。 */
 function videoPricePerSecond(m: PlazaModel, res: string): number | null {
   const vp = m.video_pricing
@@ -351,13 +470,27 @@ function videoPricePerSecond(m: PlazaModel, res: string): number | null {
   return vp.price_per_second_720p ?? vp.price_per_second_480p ?? null
 }
 
-/** 生图单价：优先按档位（1K/2K/4K）取，没有档位就用单一按次价。 */
-function imagePricePerUnit(m: PlazaModel, res: string): number | null {
-  const label = res.toUpperCase()
-  const tier = (m.pricing?.intervals ?? []).find(
-    (iv) => (iv.tier_label ?? '').toUpperCase() === label && iv.per_request_price != null
-  )
-  if (tier?.per_request_price != null) return tier.per_request_price
+/**
+ * 生图单价：先按「清晰度·质量」精确查，未命中再退到纯清晰度档，最后回落单一按次价。
+ *
+ * 这套两段匹配必须与后端一致（GetTierByLabel / GetRequestTierPrice），
+ * 否则页面预估和实际扣费会对不上——1K 低与 1K 高在上游差 35 倍，估错很显眼。
+ */
+function imagePricePerUnit(m: PlazaModel, res: string, quality: string): number | null {
+  const intervals = m.pricing?.intervals ?? []
+  const find = (label: string) =>
+    intervals.find(
+      (iv) => (iv.tier_label ?? '').toUpperCase() === label.toUpperCase() && iv.per_request_price != null
+    )?.per_request_price ?? null
+
+  const base = res.toUpperCase()
+  const suffix = QUALITY_LABELS[quality]
+  if (suffix) {
+    const exact = find(`${base}·${suffix}`)
+    if (exact != null) return exact
+  }
+  const plain = find(base)
+  if (plain != null) return plain
   return m.pricing?.per_request_price ?? null
 }
 
@@ -530,6 +663,7 @@ async function runMedia(conv: PlaygroundConversation, prompt: string) {
     : await createImageTask(conv.model, prompt, {
         size: aspectRatio.value,
         resolution: resolution.value,
+        quality: imageQuality.value,
         n: imageCount.value
       })
 
@@ -686,6 +820,7 @@ watch(mode, () => {
 })
 
 onMounted(async () => {
+  document.addEventListener('click', onDocumentClick)
   conversations.value = loadConversations()
   activeId.value = conversations.value[0]?.id ?? ''
   if (activeConversation.value) mode.value = activeConversation.value.mode
@@ -693,6 +828,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick)
   disposed = true
   abortController?.abort()
   if (pollTimer) clearTimeout(pollTimer)

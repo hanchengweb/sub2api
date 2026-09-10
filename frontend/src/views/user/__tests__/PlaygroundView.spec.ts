@@ -61,9 +61,19 @@ function mountView() {
   })
 }
 
-/** 只取模型选择器里的选项——参数下拉（比例/清晰度…）也是 option，不能混。 */
-function modelOptions(wrapper: ReturnType<typeof mountView>): string[] {
-  return wrapper.findAll('[data-testid="model-select"] option').map((o) => o.text())
+/**
+ * 打开模型选择器并读出可选模型。
+ *
+ * 原生 <select> 已换成带厂商 logo 的自定义选择器（27 个模型时原生下拉会拉满整屏），
+ * 选项是按钮不是 option，且要先点开才渲染。
+ */
+async function modelOptions(wrapper: ReturnType<typeof mountView>): Promise<string[]> {
+  const trigger = wrapper.find('[data-testid="model-select"]')
+  if (!trigger.exists()) return []
+  await trigger.trigger('click')
+  const items = wrapper.findAll('[data-testid="model-option"]').map((o) => o.text())
+  await trigger.trigger('click') // 收起，免得挡住后续查询
+  return items
 }
 
 /** 走一遍「输入 → 发送」，返回 wrapper。 */
@@ -72,6 +82,7 @@ async function send(wrapper: ReturnType<typeof mountView>, text: string) {
   await wrapper.find('button[aria-label="playground.send"]').trigger('click')
   await flushPromises()
 }
+
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -129,16 +140,16 @@ describe('PlaygroundView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.findAll('option').map((o) => o.text())).toEqual(['deepseek-v4-flash'])
+    expect(await modelOptions(wrapper)).toEqual(['deepseek-v4-flash'])
 
     await wrapper.findAll('button').find((b) => b.text().includes('playground.modeImage'))!.trigger('click')
     await flushPromises()
-    expect(modelOptions(wrapper)).toEqual(['t-gpt-image-2'])
+    expect(await modelOptions(wrapper)).toEqual(['t-gpt-image-2'])
 
     // 关键回归：视频模型在广场里没有定价行，只靠广场这一档会是空的。
     await wrapper.findAll('button').find((b) => b.text().includes('playground.modeVideo'))!.trigger('click')
     await flushPromises()
-    expect(modelOptions(wrapper)).toEqual(['t-grok-video-1.5'])
+    expect(await modelOptions(wrapper)).toEqual(['t-grok-video-1.5'])
   })
 
   /**
@@ -319,7 +330,7 @@ describe('PlaygroundView 模型名单兜底', () => {
     await flushPromises()
 
     // 广场目录里的对话模型仍然列得出来
-    expect(modelOptions(wrapper)).toEqual(['deepseek-v4-flash'])
+    expect(await modelOptions(wrapper)).toEqual(['deepseek-v4-flash'])
   })
 
   it('名单与广场都拿不到时不白屏，只是没有模型', async () => {
@@ -330,5 +341,92 @@ describe('PlaygroundView 模型名单兜底', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('playground.noModelsForMode')
+  })
+})
+
+describe('PlaygroundView 质量档与结果地址', () => {
+  /**
+   * 上游按「清晰度 × 质量」分档收费，同一个 1K 从低到高差 35 倍。
+   * 质量必须带进请求，否则按低质量计费、用户却可能拿到高质量图。
+   */
+  it('质量选项带进生图请求，且预估价按质量档算', async () => {
+    getModelPlaza.mockResolvedValue({
+      description: '',
+      groups: [
+        {
+          id: 4,
+          rate_multiplier: 1,
+          models: [
+            {
+              name: 't-gpt-image-2-vip',
+              platform: 'openai',
+              pricing: {
+                billing_mode: 'image',
+                per_request_price: null,
+                intervals: [
+                  { tier_label: '1K·低', per_request_price: 30.33 },
+                  { tier_label: '1K·高', per_request_price: 76.25 },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    })
+    listModels.mockResolvedValue(['t-gpt-image-2-vip'])
+    createImageTask.mockResolvedValue({ data: [{ url: 'https://cdn.example/a.png' }] })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find((b) => b.text().includes('playground.modeImage'))!.trigger('click')
+    await flushPromises()
+
+    // 价格文案带插值参数，而本文件的 i18n mock 只回 key、不做插值，
+    // 所以这里不断言金额（金额的算法由「参数与费用预估」那组用例覆盖），
+    // 只验真正要保证的：质量选项确实带进了请求。
+
+    const qualitySelect = wrapper
+      .findAll('select')
+      .find((sel) => sel.findAll('option').some((o) => o.text() === 'playground.qualityHigh'))
+    expect(qualitySelect, '分质量档的模型应显示质量选择器').toBeTruthy()
+    await qualitySelect!.setValue('high')
+    await flushPromises()
+
+    await send(wrapper, '一只猫')
+    expect(createImageTask).toHaveBeenCalledWith(
+      't-gpt-image-2-vip',
+      '一只猫',
+      expect.objectContaining({ quality: 'high' })
+    )
+  })
+
+  /**
+   * 回归：异步生图完成时结果套在 result 里
+   * （{"status":"completed","result":{"data":[{"url":...}]}}），
+   * 只看顶层 url/data 会取不到，界面报「任务已完成，但没有返回可用的结果地址」。
+   */
+  it('从 result.data 里取出结果图，而不是报没有结果地址', async () => {
+    listModels.mockResolvedValue(['t-gpt-image-2'])
+    createImageTask.mockResolvedValue({ id: 'tsk_img_1', status: 'pending' })
+    getImageTask.mockResolvedValue({
+      id: 'tsk_img_1',
+      status: 'completed',
+      result: { type: 'image', data: [{ url: 'https://files.example/x.png' }] },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find((b) => b.text().includes('playground.modeImage'))!.trigger('click')
+    await flushPromises()
+
+    vi.useFakeTimers()
+    const sending = send(wrapper, '一只猫')
+    await vi.advanceTimersByTimeAsync(6000)
+    vi.useRealTimers()
+    await sending
+    await flushPromises()
+
+    expect(wrapper.find('img').attributes('src')).toBe('https://files.example/x.png')
+    expect(wrapper.text()).not.toContain('playground.noMediaUrl')
   })
 })

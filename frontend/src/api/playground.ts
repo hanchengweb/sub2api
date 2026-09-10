@@ -151,13 +151,21 @@ export interface MediaTask {
 export async function createImageTask(
   model: string,
   prompt: string,
-  opts: { size?: string; resolution?: string; n?: number },
+  opts: { size?: string; resolution?: string; n?: number; quality?: string },
   options?: { signal?: AbortSignal }
 ): Promise<MediaTaskResult> {
   const response = await fetch(buildApiUrl('/playground/images/generations'), {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ model, prompt, n: opts.n ?? 1, size: opts.size, resolution: opts.resolution }),
+    // quality 必须带上：上游按「清晰度 × 质量」分档收费，不带就按低质量计费
+    body: JSON.stringify({
+      model,
+      prompt,
+      n: opts.n ?? 1,
+      size: opts.size,
+      resolution: opts.resolution,
+      quality: opts.quality
+    }),
     signal: options?.signal
   })
   if (!response.ok) throw await toError(response)
@@ -194,9 +202,24 @@ export async function createVideoTask(
   return (await response.json()) as MediaTaskResult
 }
 
-export interface MediaTaskResult extends MediaTask {
-  data?: Array<{ url?: string; b64_json?: string }>
+export interface MediaTaskItem {
   url?: string
+  b64_json?: string
+}
+
+export interface MediaTaskResult extends MediaTask {
+  data?: MediaTaskItem[]
+  url?: string
+  /**
+   * 异步生图任务完成时，结果套在 result 里：
+   *   {"status":"completed","result":{"type":"image","data":[{"url":"https://..."}]}}
+   * 只看顶层 url / data 会取不到，界面就报「任务已完成，但没有返回可用的结果地址」。
+   */
+  result?: {
+    type?: string
+    url?: string
+    data?: MediaTaskItem[]
+  }
 }
 
 /** 取任务 id。上游用 id 还是 task_id 不统一，两个都认。 */
@@ -211,12 +234,18 @@ export function mediaTaskId(task: MediaTaskResult): string {
  * 取不到返回空串，由调用方决定是继续轮询还是报错。
  */
 export function mediaUrlOf(task: MediaTaskResult): string {
+  const pick = (item?: MediaTaskItem): string => {
+    if (!item) return ''
+    if (item.url) return item.url
+    if (item.b64_json) return `data:image/png;base64,${item.b64_json}`
+    return ''
+  }
   if (task.url) return task.url
-  const first = task.data?.[0]
-  if (!first) return ''
-  if (first.url) return first.url
-  if (first.b64_json) return `data:image/png;base64,${first.b64_json}`
-  return ''
+  const direct = pick(task.data?.[0])
+  if (direct) return direct
+  // 异步任务完成时结果套在 result 里，必须往里再找一层
+  if (task.result?.url) return task.result.url
+  return pick(task.result?.data?.[0])
 }
 
 /**
