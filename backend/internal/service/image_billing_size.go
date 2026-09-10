@@ -277,3 +277,64 @@ func SortedImageBillingBreakdownKeys(breakdown map[string]int) []string {
 	})
 	return keys
 }
+
+// --- 质量维度 ---
+
+const (
+	ImageQualityLow    = "低"
+	ImageQualityMedium = "中"
+	ImageQualityHigh   = "高"
+
+	// imageTierQualitySep 连接清晰度与质量的分隔符。
+	// 用「·」而不是「-」：模型名里本来就有大量连字符，混用会让标签难读也难切。
+	imageTierQualitySep = "·"
+)
+
+// NormalizeImageQuality 把客户端传的 quality 归一到计费用的质量档。
+//
+// 第二个返回值为 false 表示这个取值我们无法定价：
+//   - "auto" 让上游自行决定档位，我们事先不知道会被收哪一档的钱，
+//     按任何一档计费都可能错（低估就亏，高估就多收用户的钱）；
+//   - 其它未知取值同理。
+//
+// 空值按低质量处理：线上历史记录的成本都等于低质量价（推断，未向上游求证）。
+func NormalizeImageQuality(quality string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(quality)) {
+	case "", "low", "standard":
+		return ImageQualityLow, true
+	case "medium", "mid":
+		return ImageQualityMedium, true
+	case "high", "hd":
+		return ImageQualityHigh, true
+	default:
+		return "", false
+	}
+}
+
+// ImageBillingTierWithQuality 拼出「清晰度·质量」的计费档位标签，如 "2K·高"。
+//
+// 质量归一不了时退回纯清晰度档——调用方应当已经用 NormalizeImageQuality 拦过，
+// 这里只是不让脏值拼进标签。
+func ImageBillingTierWithQuality(tier, quality string) string {
+	tier = strings.TrimSpace(tier)
+	if tier == "" {
+		return ""
+	}
+	q, ok := NormalizeImageQuality(quality)
+	if !ok {
+		return tier
+	}
+	return tier + imageTierQualitySep + q
+}
+
+// BaseImageBillingTier 去掉质量后缀，返回纯清晰度档。
+//
+// 查价时先按「清晰度·质量」精确匹配，未命中再退到纯清晰度档：
+// 只有 gpt-image-2-official / -vip 这类模型才分质量档，其余模型的档位仍是
+// "1K"/"2K"/"4K"。有了这层回退，不分质量的模型不需要为每个质量各配一条。
+func BaseImageBillingTier(label string) string {
+	if idx := strings.Index(label, imageTierQualitySep); idx > 0 {
+		return label[:idx]
+	}
+	return label
+}

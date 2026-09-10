@@ -65,11 +65,14 @@ func (e GrokMediaEndpoint) RequiresMediaGenerationCapability() bool {
 }
 
 type GrokMediaRequestInfo struct {
-	Model           string
-	Prompt          string
-	N               int
-	Size            string
-	SizeTier        string
+	Model    string
+	Prompt   string
+	N        int
+	Size     string
+	SizeTier string
+	// Quality 图片质量档（low/medium/high）。上游按「清晰度 × 质量」分档收费，
+	// 计费档位标签必须带上它，否则高质量会按低质量的价收，每张倒贴。
+	Quality         string
 	Resolution      string
 	DurationSeconds int
 	InputImageURLs  []string
@@ -139,7 +142,8 @@ func ParseGrokMediaRequest(contentType string, body []byte) GrokMediaRequestInfo
 	info.Size = strings.TrimSpace(info.Size)
 	// 必须在 Resolution 被视频归一化覆盖之前取图片档位：
 	// 下一行会把 resolution 改成 480p/720p/1080p，图片的 "1k" 就没了。
-	info.SizeTier = ResolveImageBillingTier(info.Size, info.Resolution)
+	info.SizeTier = ImageBillingTierWithQuality(
+		ResolveImageBillingTier(info.Size, info.Resolution), info.Quality)
 	info.Resolution = NormalizeVideoBillingResolutionOrDefault(info.Resolution)
 	info.DurationSeconds = NormalizeVideoBillingDurationForModel(info.Model, info.DurationSeconds)
 	if info.N <= 0 {
@@ -156,6 +160,7 @@ func parseGrokMediaJSONRequest(body []byte, info *GrokMediaRequestInfo) {
 	info.Prompt = strings.TrimSpace(gjson.GetBytes(body, "prompt").String())
 	info.Size = strings.TrimSpace(gjson.GetBytes(body, "size").String())
 	info.Resolution = strings.TrimSpace(gjson.GetBytes(body, "resolution").String())
+	info.Quality = strings.TrimSpace(gjson.GetBytes(body, "quality").String())
 	if duration := gjson.GetBytes(body, "duration"); duration.Exists() && duration.Type == gjson.Number {
 		info.DurationSeconds = int(duration.Int())
 	}
@@ -266,6 +271,8 @@ func parseGrokMediaMultipartRequest(contentType string, body []byte, info *GrokM
 			info.Prompt = value
 		case "size":
 			info.Size = value
+		case "quality":
+			info.Quality = value
 		case "resolution":
 			info.Resolution = value
 		case "duration":

@@ -928,7 +928,9 @@ func TestForwardGrokMediaImagesGenerationNormalizesImagineAlias(t *testing.T) {
 	require.Equal(t, "grok-imagine-image-quality", result.Model)
 	require.Equal(t, "grok-imagine-image-quality", result.BillingModel)
 	require.Equal(t, 1, result.ImageCount)
-	require.Equal(t, ImageBillingSize2K, result.ImageSize)
+	// 计费档位标签现在带质量后缀：上游按「清晰度 × 质量」分档收费，
+	// 不带质量就会把高质量按低质量的价收。请求未指定 quality 时归为低质量档。
+	require.Equal(t, ImageBillingSize2K+"·"+ImageQualityLow, result.ImageSize)
 }
 
 func TestForwardGrokMediaAppliesAccountModelMappingAfterEndpointNormalization(t *testing.T) {
@@ -1111,7 +1113,9 @@ func TestForwardGrokMediaImagesGenerationStripsUnsupportedSize(t *testing.T) {
 	result, err := svc.ForwardGrokMedia(context.Background(), c, account, GrokMediaEndpointImagesGenerations, "", body, "application/json")
 	require.NoError(t, err)
 	require.JSONEq(t, `{"model":"grok-imagine-image","prompt":"draw a cat"}`, string(upstream.lastBody))
-	require.Equal(t, ImageBillingSize1K, result.ImageSize)
+	// 计费档位标签现在带质量后缀：上游按「清晰度 × 质量」分档收费，
+	// 不带质量就会把高质量按低质量的价收。请求未指定 quality 时归为低质量档。
+	require.Equal(t, ImageBillingSize1K+"·"+ImageQualityLow, result.ImageSize)
 	require.Equal(t, "1024x1024", result.ImageInputSize)
 }
 

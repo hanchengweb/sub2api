@@ -172,8 +172,22 @@ func (p *ChannelModelPricing) GetIntervalForContext(totalTokens int) *PricingInt
 	return FindMatchingInterval(p.Intervals, totalTokens)
 }
 
-// GetTierByLabel 根据标签查找层级（用于 per_request / image 模式）
+// GetTierByLabel 根据标签查找层级（用于 per_request / image 模式）。
+//
+// 先按完整标签精确匹配，未命中再退到去掉质量后缀的纯清晰度档：
+// 只有部分模型（gpt-image-2-official / -vip）分质量档，其余的档位仍是
+// "1K"/"2K"/"4K"。有这层回退，不分质量的模型不必为每个质量各配一条。
 func (p *ChannelModelPricing) GetTierByLabel(label string) *PricingInterval {
+	if iv := p.findTierByExactLabel(label); iv != nil {
+		return iv
+	}
+	if base := BaseImageBillingTier(label); base != label {
+		return p.findTierByExactLabel(base)
+	}
+	return nil
+}
+
+func (p *ChannelModelPricing) findTierByExactLabel(label string) *PricingInterval {
 	labelLower := strings.ToLower(label)
 	for i := range p.Intervals {
 		if strings.ToLower(p.Intervals[i].TierLabel) == labelLower {

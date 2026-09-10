@@ -289,14 +289,30 @@ func intervalToModelPricing(iv *PricingInterval, supportsCacheBreakdown bool, ch
 	return pricing
 }
 
-// GetRequestTierPrice 根据层级标签获取按次价格
+// GetRequestTierPrice 根据层级标签获取按次价格。
+//
+// 与成本侧 GetTierByLabel 同样的两段匹配：先按「清晰度·质量」精确命中，
+// 未命中再退到纯清晰度档。两侧口径必须一致，否则会出现「按质量档收用户的钱、
+// 按清晰度档记成本」这种对不上的账。
 func (r *ModelPricingResolver) GetRequestTierPrice(resolved *ResolvedPricing, tierLabel string) float64 {
-	for _, tier := range resolved.RequestTiers {
-		if tier.TierLabel == tierLabel && tier.PerRequestPrice != nil {
-			return *tier.PerRequestPrice
+	if p, ok := findRequestTierPrice(resolved.RequestTiers, tierLabel); ok {
+		return p
+	}
+	if base := BaseImageBillingTier(tierLabel); base != tierLabel {
+		if p, ok := findRequestTierPrice(resolved.RequestTiers, base); ok {
+			return p
 		}
 	}
 	return 0
+}
+
+func findRequestTierPrice(tiers []PricingInterval, tierLabel string) (float64, bool) {
+	for _, tier := range tiers {
+		if tier.TierLabel == tierLabel && tier.PerRequestPrice != nil {
+			return *tier.PerRequestPrice, true
+		}
+	}
+	return 0, false
 }
 
 // GetRequestTierPriceByContext 根据 context token 数获取按次价格

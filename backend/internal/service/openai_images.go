@@ -460,7 +460,7 @@ func applyOpenAIImagesDefaults(req *OpenAIImagesRequest) {
 	req.Model = "gpt-image-2"
 }
 
-// validateOpenAIImagesQuality 在**按次/按图计费**的模型上拦截未计价的 quality 档位。
+// validateOpenAIImagesQuality 在**按次/按图计费**的模型上拦截无法定价的 quality 取值。
 //
 // 为什么必须拦：quality 会被原样转发给上游（见 hasOpenAINativeImageOptions 的
 // 白名单），而上游按「清晰度 × 质量」九档收费；我们按次计费的档位只看清晰度
@@ -482,10 +482,10 @@ func applyOpenAIImagesDefaults(req *OpenAIImagesRequest) {
 // 选择报错而不是静默降级：把 high 悄悄降成 low，用户拿到的图不如所求却收不到
 // 任何说明，比明确拒绝更糟。
 func (s *OpenAIGatewayService) validateOpenAIImagesQuality(c *gin.Context, req *OpenAIImagesRequest) error {
-	switch strings.ToLower(strings.TrimSpace(req.Quality)) {
-	case "", "low", "standard":
-		// 空值走上游默认档。线上历史记录的成本都等于「低质量」价，
-		// 据此认为默认即低质量（推断，未向上游求证）。
+	// 能归一到低/中/高的都已计价（档位标签带质量后缀，见 ImageBillingTierWithQuality），
+	// 放行。归一不了的（auto 等）仍要拦：上游自选档位，我们事先不知道被收哪一档，
+	// 按任何一档计费都可能错。
+	if _, ok := NormalizeImageQuality(req.Quality); ok {
 		return nil
 	}
 	if s == nil || s.channelService == nil || c == nil {
