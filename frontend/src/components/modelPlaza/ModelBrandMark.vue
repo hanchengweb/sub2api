@@ -47,7 +47,14 @@ const X_PATH = 'M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 1
 const GENERIC_PATH = 'M12 2 3 7v10l9 5 9-5V7zm0 2.31L18.5 8 12 11.69 5.5 8zM5 9.72l6 3.41v6.15l-6-3.33zm14 0v6.23l-6 3.33v-6.15z'
 const BYTEDANCE_PATH = 'M19.8772 1.4685L24 2.5326v18.9426l-4.1228 1.0563V1.4685zm-13.3481 9.428l4.115 1.0641v8.9786l-4.115 1.0642v-11.107zM0 2.572l4.115 1.0642v16.7354L0 21.428V2.572zm17.4553 5.6205v11.107l-4.1228-1.0642V9.2568l4.1228-1.0642z'
 
+// 新接入的几家：simple-icons 里没有对应条目，用品牌主色 + 中性几何标，
+// 不拿别家商标凑数。拿到官方 SVG 后只需替换这里的 path。
 const BRANDS: Record<string, Brand> = {
+  flux: { key: 'flux', label: 'Black Forest Labs', path: GENERIC_PATH, bg: '#1F2937', fg: '#FFFFFF' },
+  gemini: { key: 'gemini', label: 'Google Gemini', path: GENERIC_PATH, bg: '#4285F4', fg: '#FFFFFF' },
+  nanobanana: { key: 'nanobanana', label: 'Google Nano Banana', path: GENERIC_PATH, bg: '#FBBC04', fg: '#3C4043' },
+  vidu: { key: 'vidu', label: '智谱清影 Vidu', path: GENERIC_PATH, bg: '#3B5CFF', fg: '#FFFFFF' },
+  qwen: { key: 'qwen', label: '阿里云通义 Qwen', path: GENERIC_PATH, bg: '#615CED', fg: '#FFFFFF' },
   deepseek: { key: 'deepseek', label: 'DeepSeek', path: DEEPSEEK_PATH, bg: '#5786FE', fg: '#FFFFFF' },
   openai: { key: 'openai', label: 'OpenAI', path: OPENAI_PATH, bg: '#000000', fg: '#FFFFFF' },
   doubao: { key: 'doubao', label: '豆包 Seedream（字节跳动）', path: BYTEDANCE_PATH, bg: '#3C8CFF', fg: '#FFFFFF' },
@@ -66,6 +73,13 @@ const brand = computed<Brand>(() => {
   if (n.includes('deepseek')) return BRANDS.deepseek
   if (n.includes('doubao') || n.includes('seedream')) return BRANDS.doubao
   if (n.includes('grok')) return BRANDS.xai
+  // nano banana 要排在 gemini 前面：它也是 Google 的，但有自己的品牌色，
+  // 先判 gemini 会把它吞掉。
+  if (n.includes('nano_banana') || n.includes('nano-banana')) return BRANDS.nanobanana
+  if (n.includes('gemini')) return BRANDS.gemini
+  if (n.startsWith('flux')) return BRANDS.flux
+  if (n.startsWith('vidu')) return BRANDS.vidu
+  if (n.startsWith('qwen')) return BRANDS.qwen
   if (n.includes('gpt') || n.includes('dall')) return BRANDS.openai
   return BRANDS.generic
 })

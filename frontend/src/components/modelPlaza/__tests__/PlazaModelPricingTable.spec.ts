@@ -535,3 +535,36 @@ describe('PlazaModelPricingTable 峰谷价', () => {
     expect(wrapper.text()).not.toContain('modelPlaza.time.note')
   })
 })
+
+describe('ModelBrandMark 厂商归属', () => {
+  async function markLabel(model: string) {
+    const mod = await import('../ModelBrandMark.vue')
+    const w = mount(mod.default, { props: { model } })
+    return w.attributes('title')
+  }
+
+  it('按模型名判到正确的供应商', async () => {
+    const cases: Array<[string, string]> = [
+      ['deepseek-v4-flash', 'DeepSeek'],
+      ['gpt-image-2-vip', 'OpenAI'],
+      ['t-grok-video-1.5', 'xAI Grok'],
+      ['doubao-seedream-5-0-pro', '豆包 Seedream（字节跳动）'],
+      ['flux-2-pro', 'Black Forest Labs'],
+      ['gemini-3-pro-image-official', 'Google Gemini'],
+      ['viduq2-fast', '智谱清影 Vidu'],
+      ['qwen-image-3.0', '阿里云通义 Qwen'],
+    ]
+    for (const [model, want] of cases) {
+      expect(await markLabel(model)).toBe(want)
+    }
+  })
+
+  /**
+   * nano banana 也是 Google 的，但有自己的品牌色。判定顺序必须让它排在
+   * gemini 之前，否则会被 gemini 吞掉。
+   */
+  it('nano banana 不被 gemini 吞掉', async () => {
+    expect(await markLabel('nano_banana_2')).toBe('Google Nano Banana')
+    expect(await markLabel('nano_banana_pro')).toBe('Google Nano Banana')
+  })
+})
