@@ -38,64 +38,6 @@
 
       <!-- 对话区 -->
       <section class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <!-- 顶栏：模型选择。余额不放这里——右上角全站头部已经有了，
-             同一个数字在一屏里出现两次只会让人怀疑哪个是真的。 -->
-        <header class="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3 dark:border-dark-700">
-          <button class="pg-icon pg-history-toggle" :aria-label="t('playground.conversations')" :title="t('playground.conversations')" :aria-expanded="historyOpen" @click="historyOpen = !historyOpen"><Icon name="chat" size="sm" /></button>
-          <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-800" role="group" :aria-label="t('playground.modeLabel')">
-            <button v-for="m in modes" :key="m.value" class="pg-mode" :class="{ 'pg-mode-active': mode === m.value }" :aria-pressed="mode === m.value" :disabled="busy" @click="switchMode(m.value)">
-              <Icon :name="m.icon" size="xs" />{{ t(m.labelKey) }}
-            </button>
-          </div>
-          <!-- 自定义模型选择器。
-               原生 <select> 挂不了各厂商 logo，选项一多下拉还会拉满整屏
-               （27 个模型时几乎盖住整个页面）。这里限高滚动 + 按供应商分组。 -->
-          <div v-if="availableModels.length" ref="modelPickerRef" class="relative min-w-0 flex-1 basis-52" @keydown.esc="modelPickerOpen = false">
-            <button
-              type="button"
-              data-testid="model-select"
-              class="input flex h-9 w-full items-center gap-2 py-1 text-left text-sm"
-              :disabled="busy"
-              :aria-label="t('playground.model')"
-              :aria-expanded="modelPickerOpen"
-              @click="modelPickerOpen = !modelPickerOpen"
-            >
-              <ModelBrandMark :model="selectedModel" size="sm" />
-              <span class="min-w-0 flex-1 truncate">{{ selectedModel }}</span>
-              <Icon name="chevronDown" size="xs" class="shrink-0 opacity-50" />
-            </button>
-
-            <div
-              v-if="modelPickerOpen"
-              class="absolute left-0 top-full z-20 mt-1 max-h-80 w-full min-w-0 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
-            >
-              <input v-model="modelSearch" type="search" class="input sticky top-0 mb-1 text-sm" :placeholder="t('playground.searchModels')" :aria-label="t('playground.searchModels')" />
-              <p v-if="!groupedModels.length" class="p-3 text-sm text-gray-500">{{ t('playground.noSearchResults') }}</p>
-              <template v-for="group in groupedModels" :key="group.vendor">
-                <p class="px-2 pb-1 pt-2 text-[11px] font-medium text-gray-400 dark:text-dark-500">
-                  {{ group.vendor }}
-                </p>
-                <button
-                  v-for="m in group.models"
-                  :key="m"
-                  type="button"
-                  data-testid="model-option"
-                  class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors"
-                  :class="m === selectedModel
-                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
-                    : 'text-gray-700 hover:bg-gray-100 dark:text-dark-200 dark:hover:bg-dark-700'"
-                  @click="pickModel(m)"
-                >
-                  <ModelBrandMark :model="m" size="sm" />
-                  <span class="min-w-0 flex-1 truncate">{{ m }}</span>
-                  <Icon v-if="m === selectedModel" name="check" size="xs" class="shrink-0" />
-                </button>
-              </template>
-            </div>
-          </div>
-          <span v-else class="text-xs text-gray-400">{{ t('playground.noModelsForMode') }}</span>
-          <RouterLink :to="{ path: '/model-plaza', query: { embedded: '1', model: selectedModel } }" class="pg-icon" :title="t('playground.pricing')" :aria-label="t('playground.pricing')"><Icon name="infoCircle" size="sm" /></RouterLink>
-        </header>
 
         <!-- 消息流 -->
         <div ref="scrollArea" class="pg-messages min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5">
@@ -155,16 +97,73 @@
         </div>
 
         <!-- 输入区 -->
-        <footer class="border-t border-gray-100 p-3 dark:border-dark-700">
+        <footer class="shrink-0 border-t border-gray-100 p-3 dark:border-dark-700">
           <div class="rounded-lg border border-gray-200 p-2 dark:border-dark-600">
             <textarea
               v-model="draft"
-              rows="2"
+              rows="3"
               :placeholder="t(mode === 'chat' ? 'playground.chatPrompt' : mode === 'image' ? 'playground.imagePrompt' : 'playground.videoPrompt')"
               :aria-label="t('playground.placeholder')"
               class="w-full resize-none bg-transparent px-2 py-1 text-sm outline-none dark:text-dark-100"
               @keydown.enter.exact="onEnter"
             />
+
+            <div class="flex flex-wrap items-center gap-2 px-1 pb-3">
+              <button class="pg-icon pg-history-toggle" :aria-label="t('playground.conversations')" :title="t('playground.conversations')" :aria-expanded="historyOpen" @click="historyOpen = !historyOpen"><Icon name="chat" size="sm" /></button>
+              <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-800" role="group" :aria-label="t('playground.modeLabel')">
+                <button v-for="m in modes" :key="m.value" class="pg-mode" :class="{ 'pg-mode-active': mode === m.value }" :aria-pressed="mode === m.value" :disabled="busy" @click="switchMode(m.value)">
+                  <Icon :name="m.icon" size="xs" />{{ t(m.labelKey) }}
+                </button>
+              </div>
+              <!-- 自定义模型选择器。
+                   原生 <select> 挂不了各厂商 logo，选项一多下拉还会拉满整屏
+                   （27 个模型时几乎盖住整个页面）。这里限高滚动 + 按供应商分组。 -->
+              <div v-if="availableModels.length" ref="modelPickerRef" class="relative min-w-0 flex-1 basis-52" @keydown.esc="modelPickerOpen = false">
+                <button
+                  type="button"
+                  data-testid="model-select"
+                  class="input flex h-9 w-full items-center gap-2 py-1 text-left text-sm"
+                  :disabled="busy"
+                  :aria-label="t('playground.model')"
+                  :aria-expanded="modelPickerOpen"
+                  @click="modelPickerOpen = !modelPickerOpen"
+                >
+                  <ModelBrandMark :model="selectedModel" size="sm" />
+                  <span class="min-w-0 flex-1 truncate">{{ selectedModel }}</span>
+                  <Icon name="chevronDown" size="xs" class="shrink-0 opacity-50" />
+                </button>
+
+                <div
+                  v-if="modelPickerOpen"
+                  class="absolute left-0 bottom-full z-20 mb-1 max-h-[min(20rem,45dvh)] w-full min-w-0 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                >
+                  <input v-model="modelSearch" type="search" class="input sticky top-0 mb-1 text-sm" :placeholder="t('playground.searchModels')" :aria-label="t('playground.searchModels')" />
+                  <p v-if="!groupedModels.length" class="p-3 text-sm text-gray-500">{{ t('playground.noSearchResults') }}</p>
+                  <template v-for="group in groupedModels" :key="group.vendor">
+                    <p class="px-2 pb-1 pt-2 text-[11px] font-medium text-gray-400 dark:text-dark-500">
+                      {{ group.vendor }}
+                    </p>
+                    <button
+                      v-for="m in group.models"
+                      :key="m"
+                      type="button"
+                      data-testid="model-option"
+                      class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors"
+                      :class="m === selectedModel
+                        ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
+                        : 'text-gray-700 hover:bg-gray-100 dark:text-dark-200 dark:hover:bg-dark-700'"
+                      @click="pickModel(m)"
+                    >
+                      <ModelBrandMark :model="m" size="sm" />
+                      <span class="min-w-0 flex-1 truncate">{{ m }}</span>
+                      <Icon v-if="m === selectedModel" name="check" size="xs" class="shrink-0" />
+                    </button>
+                  </template>
+                </div>
+              </div>
+              <span v-else class="text-xs text-gray-400">{{ t('playground.noModelsForMode') }}</span>
+              <RouterLink :to="{ path: '/model-plaza', query: { embedded: '1', model: selectedModel } }" class="pg-icon" :title="t('playground.pricing')" :aria-label="t('playground.pricing')"><Icon name="infoCircle" size="sm" /></RouterLink>
+            </div>
 
             <!-- 参数条：只显示当前模式用得上的参数，且真的会带进请求。
                  摆着好看但不生效的控件比没有更糟。 -->
@@ -924,7 +923,7 @@ onBeforeUnmount(() => {
 .pg-results { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; margin-top: 8px; }
 @media (min-width: 1024px) { .pg-history-toggle { display: none; } }
 @media (max-width: 1023px) {
-  .pg-history { position: absolute; inset: 58px auto 0 0; z-index: 30; box-shadow: 8px 0 16px rgb(0 0 0 / 8%); }
+  .pg-history { position: absolute; inset: 0 auto 0 0; z-index: 30; box-shadow: 8px 0 16px rgb(0 0 0 / 8%); }
 }
 @media (max-width: 767px) {
   .pg-workspace { height: calc(100dvh - 6rem - 1px); }
