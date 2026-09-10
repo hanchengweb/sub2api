@@ -177,15 +177,31 @@
               </label>
               <label class="param-chip">
                 <span class="param-label">{{ t('playground.paramResolution') }}</span>
+                <!-- 选项里直接标出该档位的积分：清晰度与质量是联动的，
+                     只给一个总价看不出改哪个参数会让价格变。 -->
                 <select v-model="resolution" class="param-select">
-                  <option v-for="r in resolutionOptions" :key="r.value" :value="r.value">{{ r.label }}</option>
+                  <option v-for="r in resolutionOptions" :key="r.value" :value="r.value">
+                    {{ r.label }}{{ optionPriceSuffix(r.value, imageQuality) }}
+                  </option>
                 </select>
               </label>
-              <label v-if="mode === 'image' && supportsQuality" class="param-chip">
+              <label
+                v-if="mode === 'image'"
+                class="param-chip"
+                :class="{ 'opacity-50': !supportsQuality }"
+                :title="supportsQuality ? '' : t('playground.qualityNotApplicable')"
+              >
                 <span class="param-label">{{ t('playground.paramQuality') }}</span>
-                <select v-model="imageQuality" class="param-select">
-                  <option v-for="q in QUALITY_OPTIONS" :key="q.value" :value="q.value">{{ t(q.labelKey) }}</option>
+                <!-- 不分质量档的模型（26/28 个）也把控件显示出来但禁用：
+                     直接藏掉会让人以为功能坏了，反而更难解释。 -->
+                <select v-model="imageQuality" class="param-select" :disabled="!supportsQuality">
+                  <option v-for="q in QUALITY_OPTIONS" :key="q.value" :value="q.value">
+                    {{ t(q.labelKey) }}{{ optionPriceSuffix(resolution, q.value) }}
+                  </option>
                 </select>
+                <span v-if="!supportsQuality" class="ml-1 text-[10px] text-gray-400">
+                  {{ t('playground.qualityNotApplicableShort') }}
+                </span>
               </label>
               <label v-if="mode === 'image'" class="param-chip">
                 <span class="param-label">{{ t('playground.paramCount') }}</span>
@@ -452,6 +468,22 @@ const costHint = computed(() => {
     output: (output * rate * 1_000_000).toFixed(2)
   })
 })
+
+/**
+ * 某个（清晰度, 质量）组合的单价后缀，直接标在下拉选项里。
+ *
+ * 两个参数是联动的：同一个 1K，低质量 30.33、高质量 76.25，差 46 积分。
+ * 只给一个总价，用户看不出该改哪个参数——把价标在选项上，一眼就能比。
+ * 取不到价（模型没配这一档）就不加后缀，不编造数字。
+ */
+function optionPriceSuffix(res: string, quality: string): string {
+  if (mode.value !== 'image') return ''
+  const entry = pricingByModel.value.get(selectedModel.value)
+  if (!entry) return ''
+  const per = imagePricePerUnit(entry.model, res, quality)
+  if (per == null) return ''
+  return `  ${(per * entry.rate).toFixed(2)}`
+}
 
 /** 取某模型在定价里配的全部档位标签。 */
 function pricingTiersOf(model: string): string[] {

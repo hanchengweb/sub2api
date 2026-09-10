@@ -387,8 +387,15 @@ describe('PlaygroundView 质量档与结果地址', () => {
 
     const qualitySelect = wrapper
       .findAll('select')
-      .find((sel) => sel.findAll('option').some((o) => o.text() === 'playground.qualityHigh'))
+      .find((sel) => sel.findAll('option').some((o) => o.text().startsWith('playground.qualityHigh')))
     expect(qualitySelect, '分质量档的模型应显示质量选择器').toBeTruthy()
+    expect(qualitySelect!.attributes('disabled')).toBeUndefined()
+
+    // 联动可见：每个选项后面直接标出该组合的积分，
+    // 只给一个总价的话，用户看不出该改哪个参数
+    const qualityTexts = qualitySelect!.findAll('option').map((o) => o.text())
+    expect(qualityTexts.some((t) => t.includes('30.33')), '低质量选项应标价 30.33').toBe(true)
+    expect(qualityTexts.some((t) => t.includes('76.25')), '高质量选项应标价 76.25').toBe(true)
     await qualitySelect!.setValue('high')
     await flushPromises()
 
@@ -428,5 +435,44 @@ describe('PlaygroundView 质量档与结果地址', () => {
 
     expect(wrapper.find('img').attributes('src')).toBe('https://files.example/x.png')
     expect(wrapper.text()).not.toContain('playground.noMediaUrl')
+  })
+})
+
+
+describe('PlaygroundView 质量档不适用时', () => {
+  /**
+   * 28 个生图模型里只有 vip / official 两个按质量分档，其余 26 个上游就是单一价。
+   * 早先做法是直接把控件藏掉，结果用户以为功能坏了——改成显示但禁用并说明原因。
+   */
+  it('不分质量档的模型：控件仍显示但禁用', async () => {
+    getModelPlaza.mockResolvedValue({
+      description: '',
+      groups: [
+        {
+          id: 4,
+          rate_multiplier: 1,
+          models: [
+            {
+              name: 'doubao-seedream-4-0',
+              platform: 'openai',
+              pricing: { billing_mode: 'image', per_request_price: 48.95, intervals: [] },
+            },
+          ],
+        },
+      ],
+    })
+    listModels.mockResolvedValue(['doubao-seedream-4-0'])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find((b) => b.text().includes('playground.modeImage'))!.trigger('click')
+    await flushPromises()
+
+    const qualitySelect = wrapper
+      .findAll('select')
+      .find((sel) => sel.findAll('option').some((o) => o.text().startsWith('playground.qualityHigh')))
+    expect(qualitySelect, '控件应仍然渲染，只是禁用').toBeTruthy()
+    expect(qualitySelect!.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('playground.qualityNotApplicableShort')
   })
 })
