@@ -526,6 +526,26 @@ export default {
   },
 
   // Model Plaza (public group/model pricing showcase)
+  modelGallery: {
+    title: '模型广场',
+    description: '按供应商浏览全部可用模型，点开即可在线体验',
+    filterKind: '类型',
+    filterVendor: '供应商',
+    all: '全部',
+    kindText: '文本对话',
+    kindImage: '图像生成',
+    kindVideo: '视频生成',
+    perImage: '每张',
+    perSecond: '每秒',
+    input: '输入',
+    output: '输出',
+    tryIt: '去体验',
+    noPricing: '暂未配置价格',
+    empty: '没有匹配的模型',
+    loading: '加载中…',
+    loadFailed: '模型广场未开启或加载失败',
+  },
+
   modelPlaza: {
     title: '模型定价',
     description: '按分组浏览可用模型与价格',

@@ -521,6 +521,26 @@ export default {
   },
 
   // Model Pricing (public group/model pricing showcase)
+  modelGallery: {
+    title: 'Model Gallery',
+    description: 'Browse every available model by vendor and try it online',
+    filterKind: 'Type',
+    filterVendor: 'Vendor',
+    all: 'All',
+    kindText: 'Text',
+    kindImage: 'Image',
+    kindVideo: 'Video',
+    perImage: 'per image',
+    perSecond: 'per second',
+    input: 'Input',
+    output: 'Output',
+    tryIt: 'Try it',
+    noPricing: 'No price configured',
+    empty: 'No matching models',
+    loading: 'Loading…',
+    loadFailed: 'Model gallery is disabled or failed to load',
+  },
+
   modelPlaza: {
     title: 'Model Pricing',
     description: 'Browse available models and pricing by group',

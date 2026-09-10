@@ -156,6 +156,7 @@ export default {
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     playground: 'Playground',
+    modelGallery: 'Model Gallery',
     batchImage: 'Batch Images',
     usage: 'Usage',
     redeem: 'Redeem',

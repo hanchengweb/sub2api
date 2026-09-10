@@ -255,7 +255,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -288,10 +288,12 @@ import {
 } from '@/utils/playgroundStore'
 import { useAuthStore } from '@/stores/auth'
 import { formatCredits } from '@/utils/format'
+import { resolveModelVendor } from '@/utils/modelVendor'
 import { BILLING_MODE_TOKEN } from '@/constants/channel'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
+const route = useRoute()
 
 // as const 是必需的：Icon 的 name 是字面量联合类型，推成宽 string 会类型不匹配。
 const modes = [
@@ -344,29 +346,13 @@ const QUALITY_LABELS: Record<string, string> = { low: '低', medium: '中', high
 const modelPickerOpen = ref(false)
 const modelPickerRef = ref<HTMLElement | null>(null)
 
-/**
- * 按供应商分组，供选择器分段展示。
- *
- * 供应商判定与 ModelBrandMark 保持同一套规则：那边按模型名判 logo，
- * 这边按同样的名字判分组名，两处必须一致，否则会出现「豆包组里挂着 Google 标」。
- */
-const VENDOR_RULES: Array<{ test: (n: string) => boolean; vendor: string }> = [
-  { test: (n) => n.includes('deepseek'), vendor: 'DeepSeek' },
-  { test: (n) => n.includes('doubao') || n.includes('seedream'), vendor: '字节豆包 Doubao' },
-  { test: (n) => n.includes('grok'), vendor: 'xAI Grok' },
-  { test: (n) => n.includes('nano_banana') || n.includes('nano-banana'), vendor: 'Google Nano Banana' },
-  { test: (n) => n.includes('gemini'), vendor: 'Google Gemini' },
-  { test: (n) => n.startsWith('flux'), vendor: 'Black Forest Labs' },
-  { test: (n) => n.startsWith('vidu'), vendor: '智谱清影 Vidu' },
-  { test: (n) => n.startsWith('qwen'), vendor: '阿里云通义 Qwen' },
-  { test: (n) => n.includes('gpt') || n.includes('dall'), vendor: 'OpenAI' }
-]
-
+// 供应商判定用共享的 resolveModelVendor（utils/modelVendor.ts）：
+// 厂商标识组件与模型广场都用同一份，规则一旦分叉就会出现
+// 「豆包分组里挂着 Google 标」这种自相矛盾的界面。
 const groupedModels = computed(() => {
   const buckets = new Map<string, string[]>()
   for (const m of availableModels.value) {
-    const n = m.toLowerCase()
-    const vendor = VENDOR_RULES.find((r) => r.test(n))?.vendor ?? '其他'
+    const vendor = resolveModelVendor(m).label
     if (!buckets.has(vendor)) buckets.set(vendor, [])
     buckets.get(vendor)!.push(m)
   }
@@ -853,10 +839,20 @@ watch(mode, () => {
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
+  // 从模型广场「去体验」跳过来时带着 ?model=&mode=，直接落到那个模型，
+  // 省得用户在下拉里再找一遍。模型名对不上就忽略，不要报错吓人。
+  const wantedMode = String(route.query.mode ?? '')
+  if (wantedMode === 'chat' || wantedMode === 'image' || wantedMode === 'video') {
+    mode.value = wantedMode
+  }
   conversations.value = loadConversations()
   activeId.value = conversations.value[0]?.id ?? ''
-  if (activeConversation.value) mode.value = activeConversation.value.mode
+  if (activeConversation.value && !wantedMode) mode.value = activeConversation.value.mode
   await loadModels()
+  const wantedModel = String(route.query.model ?? '')
+  if (wantedModel && availableModels.value.includes(wantedModel)) {
+    selectedModel.value = wantedModel
+  }
 })
 
 onBeforeUnmount(() => {

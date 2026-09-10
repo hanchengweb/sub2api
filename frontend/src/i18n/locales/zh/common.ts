@@ -157,6 +157,7 @@ export default {
     announcements: '公告',
     apiKeys: 'API 密钥',
     playground: '在线使用',
+    modelGallery: '模型广场',
     batchImage: '批量生图',
     usage: '使用记录',
     redeem: '兑换',

@@ -14,6 +14,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { resolveModelVendor } from '@/utils/modelVendor'
 
 const props = withDefaults(
   defineProps<{
@@ -70,27 +71,9 @@ const BRANDS: Record<string, Brand> = {
   generic: { key: 'generic', label: '', path: GENERIC_PATH, bg: '#94A3B8', fg: '#FFFFFF' }
 }
 
-/**
- * 按模型名判厂商。
- *
- * 用模型名而不是 platform 字段：线上组 4 是 composite 路由，platform 一律是
- * openai/anthropic，跟真正的模型厂商对不上（doubao 就借了 gpt-image-1 的名过闸门）。
- */
-const brand = computed<Brand>(() => {
-  const n = props.model.toLowerCase()
-  if (n.includes('deepseek')) return BRANDS.deepseek
-  if (n.includes('doubao') || n.includes('seedream')) return BRANDS.doubao
-  if (n.includes('grok')) return BRANDS.xai
-  // nano banana 要排在 gemini 前面：它也是 Google 的，但有自己的品牌色，
-  // 先判 gemini 会把它吞掉。
-  if (n.includes('nano_banana') || n.includes('nano-banana')) return BRANDS.nanobanana
-  if (n.includes('gemini')) return BRANDS.gemini
-  if (n.startsWith('flux')) return BRANDS.flux
-  if (n.startsWith('vidu')) return BRANDS.vidu
-  if (n.startsWith('qwen')) return BRANDS.qwen
-  if (n.includes('gpt') || n.includes('dall')) return BRANDS.openai
-  return BRANDS.generic
-})
+// 判定规则见 utils/modelVendor.ts——那里是全站唯一一份，
+// 在线使用页的分组下拉与模型广场的分组都用它，避免三处各写一遍后互相漂移。
+const brand = computed<Brand>(() => BRANDS[resolveModelVendor(props.model).key] ?? BRANDS.generic)
 
 const sizeClass = computed(() => (props.size === 'sm' ? 'h-5 w-5' : 'h-6 w-6'))
 const glyphClass = computed(() => (props.size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5'))

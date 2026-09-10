@@ -31,6 +31,13 @@ vi.mock('@/api/playground', async () => {
 
 vi.mock('@/api/modelPlaza', () => ({ getModelPlaza }))
 
+// 组件用 useRoute 读 ?model=&mode=（从模型广场「去体验」跳过来时带的），
+// 测试里没有装 router，必须给个空 query 的桩。
+vi.mock('vue-router', async () => {
+  const actual = await vi.importActual<typeof import('vue-router')>('vue-router')
+  return { ...actual, useRoute: () => ({ query: {} }) }
+})
+
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({ user: { balance: 1000 }, refreshUser }),
 }))
