@@ -99,6 +99,7 @@
         <!-- 输入区 -->
         <footer class="shrink-0 border-t border-gray-100 p-3 dark:border-dark-700">
           <div class="rounded-lg border border-gray-200 p-2 dark:border-dark-600">
+            <div v-if="costHint" class="mb-2 px-2 text-right text-xs text-gray-500 dark:text-gray-300">{{ costHint }}</div>
             <textarea
               v-model="draft"
               rows="3"
@@ -108,7 +109,25 @@
               @keydown.enter.exact="onEnter"
             />
 
-            <div class="flex flex-wrap items-center gap-2 px-1 pb-3">
+            <div v-if="mode !== 'chat'" class="flex flex-wrap items-center gap-2 px-1 pb-3">
+              <Select v-if="mode === 'video'" v-model="videoDuration" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramDuration')" :options="durationOptions.map(value => ({ value, label: t('playground.seconds', { n: value }) }))">
+                <template #selected="{ option }"><span class="param-label">{{ t('playground.paramDuration') }}</span> {{ option?.label }}</template>
+              </Select>
+              <Select v-model="aspectRatio" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramAspect')" :options="ASPECT_OPTIONS.map(value => ({ value, label: value }))">
+                <template #selected="{ option }"><span class="param-label">{{ t('playground.paramAspect') }}</span> {{ option?.label }}</template>
+              </Select>
+              <Select v-model="resolution" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramResolution')" :options="resolutionOptions.map(r => ({ value: r.value, label: r.label + optionPriceSuffix(r.value, imageQuality) }))">
+                <template #selected="{ option }"><span class="param-label">{{ t('playground.paramResolution') }}</span> {{ option?.label }}</template>
+              </Select>
+              <Select v-if="mode === 'image' && supportsQuality" v-model="imageQuality" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramQuality')" :options="QUALITY_OPTIONS.map(q => ({ value: q.value, label: t(q.labelKey) + optionPriceSuffix(resolution, q.value) }))">
+                <template #selected="{ option }"><span class="param-label">{{ t('playground.paramQuality') }}</span> {{ option?.label }}</template>
+              </Select>
+              <Select v-if="mode === 'image'" v-model="imageCount" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramCount')" :options="[1, 2, 3, 4].map(value => ({ value, label: t('playground.images', { n: value }) }))">
+                <template #selected="{ option }">{{ option?.label }}</template>
+              </Select>
+            </div>
+
+            <div class="pg-composer-toolbar flex flex-wrap items-center gap-2 px-1">
               <button class="pg-icon pg-history-toggle" :aria-label="t('playground.conversations')" :title="t('playground.conversations')" :aria-expanded="historyOpen" @click="historyOpen = !historyOpen"><Icon name="chat" size="sm" /></button>
               <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-800" role="group" :aria-label="t('playground.modeLabel')">
                 <button v-for="m in modes" :key="m.value" class="pg-mode" :class="{ 'pg-mode-active': mode === m.value }" :aria-pressed="mode === m.value" :disabled="busy" @click="switchMode(m.value)">
@@ -118,13 +137,14 @@
               <!-- 自定义模型选择器。
                    原生 <select> 挂不了各厂商 logo，选项一多下拉还会拉满整屏
                    （27 个模型时几乎盖住整个页面）。这里限高滚动 + 按供应商分组。 -->
-              <div v-if="availableModels.length" ref="modelPickerRef" class="relative min-w-0 flex-1 basis-52" @keydown.esc="modelPickerOpen = false">
+              <div v-if="availableModels.length" ref="modelPickerRef" class="pg-model-picker relative ml-auto w-64 max-w-full min-w-0" @keydown.esc="modelPickerOpen = false">
                 <button
                   type="button"
                   data-testid="model-select"
-                  class="input flex h-9 w-full items-center gap-2 py-1 text-left text-sm"
+                  class="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-gray-800 transition hover:bg-gray-100 focus-visible:outline-primary-500 dark:text-gray-100 dark:hover:bg-dark-800"
                   :disabled="busy"
                   :aria-label="t('playground.model')"
+                  :title="selectedModel"
                   :aria-expanded="modelPickerOpen"
                   @click="modelPickerOpen = !modelPickerOpen"
                 >
@@ -135,7 +155,7 @@
 
                 <div
                   v-if="modelPickerOpen"
-                  class="absolute left-0 bottom-full z-20 mb-1 max-h-[min(20rem,45dvh)] w-full min-w-0 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                  class="absolute right-0 bottom-full z-20 mb-1 max-h-[min(20rem,45dvh)] w-full min-w-0 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
                 >
                   <input v-model="modelSearch" type="search" class="input sticky top-0 mb-1 text-sm" :placeholder="t('playground.searchModels')" :aria-label="t('playground.searchModels')" />
                   <p v-if="!groupedModels.length" class="p-3 text-sm text-gray-500">{{ t('playground.noSearchResults') }}</p>
@@ -163,65 +183,8 @@
               </div>
               <span v-else class="text-xs text-gray-400">{{ t('playground.noModelsForMode') }}</span>
               <RouterLink :to="{ path: '/model-plaza', query: { embedded: '1', model: selectedModel } }" class="pg-icon" :title="t('playground.pricing')" :aria-label="t('playground.pricing')"><Icon name="infoCircle" size="sm" /></RouterLink>
-            </div>
-
-            <!-- 参数条：只显示当前模式用得上的参数，且真的会带进请求。
-                 摆着好看但不生效的控件比没有更糟。 -->
-            <div v-if="mode !== 'chat'" class="flex flex-wrap items-center gap-1.5 px-1 pb-2">
-              <label v-if="mode === 'video'" class="param-chip">
-                <span class="param-label">{{ t('playground.paramDuration') }}</span>
-                <select v-model.number="videoDuration" class="param-select">
-                  <option v-for="d in durationOptions" :key="d" :value="d">{{ d }}s</option>
-                </select>
-              </label>
-              <label class="param-chip">
-                <span class="param-label">{{ t('playground.paramAspect') }}</span>
-                <select v-model="aspectRatio" class="param-select">
-                  <option v-for="a in ASPECT_OPTIONS" :key="a" :value="a">{{ a }}</option>
-                </select>
-              </label>
-              <label class="param-chip">
-                <span class="param-label">{{ t('playground.paramResolution') }}</span>
-                <!-- 选项里直接标出该档位的积分：清晰度与质量是联动的，
-                     只给一个总价看不出改哪个参数会让价格变。 -->
-                <select v-model="resolution" class="param-select">
-                  <option v-for="r in resolutionOptions" :key="r.value" :value="r.value">
-                    {{ r.label }}{{ optionPriceSuffix(r.value, imageQuality) }}
-                  </option>
-                </select>
-              </label>
-              <!-- 质量只对真正分档的模型显示（28 个生图模型里只有 gpt-image-2-vip 与
-                   -official 两个按质量分九档）。不分档的直接不显示，而不是显示一个
-                   置灰的「不分档」——上游价目表对这类模型压根不提质量这回事，
-                   摆一个禁用控件反而在强调一个不存在的维度。 -->
-              <label v-if="mode === 'image' && supportsQuality" class="param-chip">
-                <span class="param-label">{{ t('playground.paramQuality') }}</span>
-                <select v-model="imageQuality" class="param-select">
-                  <option v-for="q in QUALITY_OPTIONS" :key="q.value" :value="q.value">
-                    {{ t(q.labelKey) }}{{ optionPriceSuffix(resolution, q.value) }}
-                  </option>
-                </select>
-              </label>
-              <label v-if="mode === 'image'" class="param-chip">
-                <span class="param-label">{{ t('playground.paramCount') }}</span>
-                <select v-model.number="imageCount" class="param-select">
-                  <option v-for="n in [1, 2, 3, 4]" :key="n" :value="n">{{ n }}</option>
-                </select>
-              </label>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-2 px-1">
-              <!-- 本次调用的费用预估。价格来自模型定价页同一份数据，
-                   按当前选中的档位实时算，不是写死的文案。 -->
-              <span
-                v-if="costHint"
-                class="min-w-0 flex-1 text-xs font-medium text-gray-500 dark:text-gray-300"
-              >
-                {{ costHint }}
-              </span>
-
               <button
-                class="btn btn-primary ml-auto h-9 w-9 shrink-0 rounded-lg p-0"
+                class="btn btn-primary h-9 w-9 shrink-0 rounded-lg p-0"
                 :disabled="busy || !draft.trim() || !selectedModel"
                 :aria-label="t('playground.send')"
                 @click="submit"
@@ -246,6 +209,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ModelBrandMark from '@/components/modelPlaza/ModelBrandMark.vue'
 import MediaResult from '@/components/playground/MediaResult.vue'
+import Select from '@/components/common/Select.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { getModelPlaza, type PlazaModel } from '@/api/modelPlaza'
 import {
@@ -458,7 +422,7 @@ function optionPriceSuffix(res: string, quality: string): string {
   if (!entry) return ''
   const per = imagePricePerUnit(entry.model, res, quality)
   if (per == null) return ''
-  return `  ${(per * entry.rate).toFixed(2)}`
+  return `  ${formatCredits(per * entry.rate)}`
 }
 
 /** 取某模型在定价里配的全部档位标签。 */
@@ -901,20 +865,14 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* 参数芯片：外观像 toAPI 的胶囊控件，内核仍是原生 select——
-   自绘下拉要自己处理键盘、滚动与移动端弹层，收益不抵成本。 */
-.param-chip {
-  @apply inline-flex cursor-pointer items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs transition-colors;
-  @apply hover:border-gray-300 dark:border-dark-600 dark:bg-dark-800 dark:hover:border-dark-500;
-}
+.pg-param { max-width: 100%; }
+.pg-param :deep(.select-trigger) { @apply h-9 gap-2 rounded-lg border-transparent bg-gray-50 px-3 py-1 text-xs hover:bg-gray-100 dark:bg-dark-800 dark:hover:bg-dark-700; }
+.pg-param :deep(.select-value) { @apply flex items-center gap-2; }
 
 .param-label {
   @apply text-gray-400 dark:text-dark-500;
 }
 
-.param-select {
-  @apply cursor-pointer border-none bg-transparent text-xs font-medium text-gray-700 outline-none dark:text-gray-200;
-}
 .pg-workspace { @apply relative flex min-h-0 overflow-hidden bg-white dark:bg-dark-900; height: calc(100dvh - 8rem - 1px); }
 .pg-history { @apply w-56 shrink-0 flex-col border-r border-gray-100 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-950; }
 .pg-icon { @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-dark-700; }
@@ -926,6 +884,8 @@ onBeforeUnmount(() => {
   .pg-history { position: absolute; inset: 0 auto 0 0; z-index: 30; box-shadow: 8px 0 16px rgb(0 0 0 / 8%); }
 }
 @media (max-width: 767px) {
+  .pg-model-picker { width: min(256px, calc(100% - 88px)); }
+  .pg-composer-toolbar > [role="group"] { margin-right: calc(100% - 240px); }
   .pg-workspace { height: calc(100dvh - 6rem - 1px); }
 }
 </style>

@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
 import PlaygroundView from '../PlaygroundView.vue'
+import Select from '@/components/common/Select.vue'
 
 const { listModels, streamChat, createImageTask, getImageTask, createVideoTask, getVideoTask, getModelPlaza, refreshUser, fetchMediaBlob } =
   vi.hoisted(() => ({
@@ -275,7 +276,7 @@ describe('PlaygroundView 参数与费用预估', () => {
 
     await switchTo(wrapper, 'playground.modeImage')
     expect(wrapper.text()).toContain('playground.paramAspect')
-    expect(wrapper.text()).toContain('playground.paramCount')
+    expect(wrapper.findAllComponents(Select).some(sel => sel.props('ariaLabel') === 'playground.paramCount')).toBe(true)
     // 时长是视频专有
     expect(wrapper.text()).not.toContain('playground.paramDuration')
 
@@ -399,17 +400,17 @@ describe('PlaygroundView 质量档与结果地址', () => {
     // 只验真正要保证的：质量选项确实带进了请求。
 
     const qualitySelect = wrapper
-      .findAll('select')
-      .find((sel) => sel.findAll('option').some((o) => o.text().startsWith('playground.qualityHigh')))
+      .findAllComponents(Select)
+      .find((sel) => sel.props('ariaLabel') === 'playground.paramQuality')
     expect(qualitySelect, '分质量档的模型应显示质量选择器').toBeTruthy()
-    expect(qualitySelect!.attributes('disabled')).toBeUndefined()
+    expect(qualitySelect!.props('disabled')).toBe(false)
 
     // 联动可见：每个选项后面直接标出该组合的积分，
     // 只给一个总价的话，用户看不出该改哪个参数
-    const qualityTexts = qualitySelect!.findAll('option').map((o) => o.text())
+    const qualityTexts = qualitySelect!.props('options').map((o) => (o as { label: string }).label)
     expect(qualityTexts.some((t) => t.includes('30.33')), '低质量选项应标价 30.33').toBe(true)
     expect(qualityTexts.some((t) => t.includes('76.25')), '高质量选项应标价 76.25').toBe(true)
-    await qualitySelect!.setValue('high')
+    qualitySelect!.vm.$emit('update:modelValue', 'high')
     await flushPromises()
 
     await send(wrapper, '一只猫')
@@ -483,8 +484,8 @@ describe('PlaygroundView 质量档不适用时', () => {
     await flushPromises()
 
     const qualitySelect = wrapper
-      .findAll('select')
-      .find((sel) => sel.findAll('option').some((o) => o.text().startsWith('playground.qualityHigh')))
+      .findAllComponents(Select)
+      .find((sel) => sel.props('ariaLabel') === 'playground.paramQuality')
     expect(qualitySelect, '不分档的模型不该出现质量控件').toBeFalsy()
     // 也不该冒出「不分档」这类说明——上游价目表对这类模型压根不提质量维度
     expect(wrapper.text()).not.toContain('playground.qualityNotApplicable')

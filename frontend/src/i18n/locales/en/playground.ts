@@ -11,6 +11,8 @@ export default {
     paramAspect: 'Ratio',
     paramResolution: 'Quality',
     paramCount: 'Count',
+    seconds: '{n} seconds',
+    images: '{n} images',
     costVideo: '~{total} ({seconds}s)',
     costImage: '~{total} ({n} images)',
     costChat: 'Per 10K tokens: in {input} / out {output} credits',
