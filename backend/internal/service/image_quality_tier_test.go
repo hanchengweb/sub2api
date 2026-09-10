@@ -165,3 +165,57 @@ func TestNormalizeImageBillingTierKeepsQualifiedLabel(t *testing.T) {
 		t.Fatalf("got %q, want 1K", got)
 	}
 }
+
+// 回归：显式 resolution 算出的档位不能被「按像素反推」覆盖。
+//
+// toAPI 的 size 是宽高比（"1:1"），永远解析不出像素；上游又常常不回输出尺寸。
+// 于是反推一路落到默认 2K，把算好的 "1K·高" 覆盖成 "2K"——不管请求什么清晰度
+// 什么质量，最终都按 2K 收费。线上实测正是如此（image_size_source=default）。
+func TestApplyImageBillingResolutionKeepsExplicitTier(t *testing.T) {
+	r := &OpenAIForwardResult{
+		ImageCount:     1,
+		ImageSize:      "1K·高",
+		ImageInputSize: "1:1", // 宽高比，解析不出像素
+	}
+	ApplyOpenAIImageBillingResolution(r)
+	if r.ImageSize != "1K·高" {
+		t.Fatalf("显式档位被覆盖成 %q", r.ImageSize)
+	}
+
+	// 上游真回了输出尺寸时，按实际产出计费——请求 1K 却返回 4K 就该按 4K 收
+	r3 := &OpenAIForwardResult{
+		ImageCount:       1,
+		ImageSize:        "1K·低",
+		ImageInputSize:   "1:1",
+		ImageOutputSizes: []string{"3840x2160"},
+	}
+	ApplyOpenAIImageBillingResolution(r3)
+	if r3.ImageSize != ImageBillingSize4K {
+		t.Fatalf("有实际输出尺寸时应按它计费，got %q", r3.ImageSize)
+	}
+
+	// 没有显式档位时，仍按原有的像素反推逻辑走
+	r2 := &OpenAIForwardResult{
+		ImageCount:       1,
+		ImageSize:        "",
+		ImageInputSize:   "1024x1024",
+		ImageOutputSizes: []string{"2048x2048"},
+	}
+	ApplyOpenAIImageBillingResolution(r2)
+	if r2.ImageSize != ImageBillingSize2K {
+		t.Fatalf("无显式档位时应按输出像素反推，got %q", r2.ImageSize)
+	}
+}
+
+func TestIsExplicitImageBillingTier(t *testing.T) {
+	for _, ok := range []string{"1K·低", "2K·中", "4K·高"} {
+		if !IsExplicitImageBillingTier(ok) {
+			t.Fatalf("%q 应判为显式档位", ok)
+		}
+	}
+	for _, no := range []string{"2K", "1024x1024", "1:1", "", "啥·高"} {
+		if IsExplicitImageBillingTier(no) {
+			t.Fatalf("%q 不该判为显式档位", no)
+		}
+	}
+}

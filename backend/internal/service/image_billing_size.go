@@ -142,8 +142,44 @@ func ResolveImageBillingSize(inputSize string, outputSizes []string) ImageBillin
 	}
 }
 
+// hasClassifiableImageSize 判断这批尺寸里有没有能解析成档位的。
+// 有就说明上游真回了图片尺寸，应当按实际产出计费，而不是按请求档位。
+func hasClassifiableImageSize(sizes []string) bool {
+	for _, sz := range sizes {
+		if _, ok := ClassifyImageBillingTier(strings.TrimSpace(sz)); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// IsExplicitImageBillingTier 判断标签是否来自「请求显式指定的清晰度 + 质量」。
+//
+// ImageBillingTierWithQuality 只要质量能归一（含空值→低）就一定会加质量后缀，
+// 所以带后缀 = 这个档位是按请求参数算出来的，而不是按返回图片像素反推的。
+func IsExplicitImageBillingTier(label string) bool {
+	base := BaseImageBillingTier(label)
+	if base == label {
+		return false
+	}
+	_, ok := ClassifyImageBillingTier(base)
+	return ok
+}
+
 func ApplyOpenAIImageBillingResolution(result *OpenAIForwardResult) {
 	if result == nil || result.ImageCount <= 0 {
+		return
+	}
+	// 优先级：实际输出像素 > 显式 resolution 档位 > 输入像素 > 默认。
+	//
+	// 上游真回了图片尺寸时按它算最准（请求 2K 却返回 4K 就该按 4K 收），所以
+	// 有可用输出尺寸时不拦。拿不到输出尺寸时，才保留请求里显式算出的档位——
+	// toAPI 的 size 是宽高比（"1:1"）永远解析不出像素，此时按像素反推只会落到
+	// 默认 2K，把算好的档位覆盖掉。线上实测正是如此：请求 resolution=1k
+	// quality=high，最终记成 2K、按 2K 收费（image_size_source=default）。
+	if IsExplicitImageBillingTier(strings.TrimSpace(result.ImageSize)) &&
+		!hasClassifiableImageSize(result.ImageOutputSizes) &&
+		!hasClassifiableImageSize([]string{result.ImageOutputSize}) {
 		return
 	}
 	inputSize := strings.TrimSpace(result.ImageInputSize)
@@ -167,6 +203,18 @@ func ApplyOpenAIImageBillingResolution(result *OpenAIForwardResult) {
 
 func ApplyForwardImageBillingResolution(result *ForwardResult) {
 	if result == nil || result.ImageCount <= 0 {
+		return
+	}
+	// 优先级：实际输出像素 > 显式 resolution 档位 > 输入像素 > 默认。
+	//
+	// 上游真回了图片尺寸时按它算最准（请求 2K 却返回 4K 就该按 4K 收），所以
+	// 有可用输出尺寸时不拦。拿不到输出尺寸时，才保留请求里显式算出的档位——
+	// toAPI 的 size 是宽高比（"1:1"）永远解析不出像素，此时按像素反推只会落到
+	// 默认 2K，把算好的档位覆盖掉。线上实测正是如此：请求 resolution=1k
+	// quality=high，最终记成 2K、按 2K 收费（image_size_source=default）。
+	if IsExplicitImageBillingTier(strings.TrimSpace(result.ImageSize)) &&
+		!hasClassifiableImageSize(result.ImageOutputSizes) &&
+		!hasClassifiableImageSize([]string{result.ImageOutputSize}) {
 		return
 	}
 	inputSize := strings.TrimSpace(result.ImageInputSize)
