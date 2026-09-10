@@ -33,8 +33,6 @@ export default {
     qualityLow: '低',
     qualityMedium: '中',
     qualityHigh: '高',
-    qualityNotApplicable: '该模型不分质量档，上游为单一价',
-    qualityNotApplicableShort: '不分档',
     resumingImage: '正在恢复未完成的生图任务…',
     resumingVideo: '正在恢复未完成的视频任务…',
     generationFailed: '生成失败，已退回本次扣除的积分',

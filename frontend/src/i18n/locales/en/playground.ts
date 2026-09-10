@@ -33,8 +33,6 @@ export default {
     qualityLow: 'Low',
     qualityMedium: 'Medium',
     qualityHigh: 'High',
-    qualityNotApplicable: 'This model has a single price; upstream does not tier by quality',
-    qualityNotApplicableShort: 'n/a',
     resumingImage: 'Resuming unfinished image task…',
     resumingVideo: 'Resuming unfinished video task…',
     generationFailed: 'Generation failed. The credits charged for this request were refunded',

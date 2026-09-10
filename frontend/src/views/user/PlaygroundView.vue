@@ -199,23 +199,17 @@
                   </option>
                 </select>
               </label>
-              <label
-                v-if="mode === 'image'"
-                class="param-chip"
-                :class="{ 'opacity-50': !supportsQuality }"
-                :title="supportsQuality ? '' : t('playground.qualityNotApplicable')"
-              >
+              <!-- 质量只对真正分档的模型显示（28 个生图模型里只有 gpt-image-2-vip 与
+                   -official 两个按质量分九档）。不分档的直接不显示，而不是显示一个
+                   置灰的「不分档」——上游价目表对这类模型压根不提质量这回事，
+                   摆一个禁用控件反而在强调一个不存在的维度。 -->
+              <label v-if="mode === 'image' && supportsQuality" class="param-chip">
                 <span class="param-label">{{ t('playground.paramQuality') }}</span>
-                <!-- 不分质量档的模型（26/28 个）也把控件显示出来但禁用：
-                     直接藏掉会让人以为功能坏了，反而更难解释。 -->
-                <select v-model="imageQuality" class="param-select" :disabled="!supportsQuality">
+                <select v-model="imageQuality" class="param-select">
                   <option v-for="q in QUALITY_OPTIONS" :key="q.value" :value="q.value">
                     {{ t(q.labelKey) }}{{ optionPriceSuffix(resolution, q.value) }}
                   </option>
                 </select>
-                <span v-if="!supportsQuality" class="ml-1 text-[10px] text-gray-400">
-                  {{ t('playground.qualityNotApplicableShort') }}
-                </span>
               </label>
               <label v-if="mode === 'image'" class="param-chip">
                 <span class="param-label">{{ t('playground.paramCount') }}</span>

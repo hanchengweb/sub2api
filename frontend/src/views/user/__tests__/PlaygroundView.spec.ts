@@ -457,7 +457,7 @@ describe('PlaygroundView 质量档不适用时', () => {
    * 28 个生图模型里只有 vip / official 两个按质量分档，其余 26 个上游就是单一价。
    * 早先做法是直接把控件藏掉，结果用户以为功能坏了——改成显示但禁用并说明原因。
    */
-  it('不分质量档的模型：控件仍显示但禁用', async () => {
+  it('不分质量档的模型：不显示质量控件', async () => {
     getModelPlaza.mockResolvedValue({
       description: '',
       groups: [
@@ -484,9 +484,9 @@ describe('PlaygroundView 质量档不适用时', () => {
     const qualitySelect = wrapper
       .findAll('select')
       .find((sel) => sel.findAll('option').some((o) => o.text().startsWith('playground.qualityHigh')))
-    expect(qualitySelect, '控件应仍然渲染，只是禁用').toBeTruthy()
-    expect(qualitySelect!.attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('playground.qualityNotApplicableShort')
+    expect(qualitySelect, '不分档的模型不该出现质量控件').toBeFalsy()
+    // 也不该冒出「不分档」这类说明——上游价目表对这类模型压根不提质量维度
+    expect(wrapper.text()).not.toContain('playground.qualityNotApplicable')
   })
 })
 
