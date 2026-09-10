@@ -13,8 +13,11 @@ export interface PlaygroundMessage {
   content: string
   /** 生图/生视频结果的媒体地址 */
   mediaUrl?: string
-  /** 异步任务 id，用于失败时排查 */
+  /** 异步任务 id；未完成时用它在重进页面后续上轮询 */
   taskId?: string
+  /** 该任务是图还是视频——恢复轮询时要用它选对查询接口。
+   *  不能靠会话的 mode 推断：用户可能在等待期间切换了模式。 */
+  mediaKind?: 'image' | 'video'
   /** 该条消息是否处于错误态 */
   error?: string
   /** 错误是「余额不足」——渲染时额外给一个兑换入口 */

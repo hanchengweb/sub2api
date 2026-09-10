@@ -1,5 +1,6 @@
 <template>
-  <div class="mx-auto w-full max-w-7xl px-4 py-6">
+  <AppLayout>
+    <div class="w-full">
     <header class="mb-5">
       <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ t('modelGallery.title') }}</h1>
       <p class="mt-1 text-sm text-gray-500 dark:text-dark-400">{{ t('modelGallery.description') }}</p>
@@ -82,10 +83,12 @@
         </RouterLink>
       </article>
     </div>
-  </div>
+    </div>
+  </AppLayout>
 </template>
 
 <script setup lang="ts">
+import AppLayout from '@/components/layout/AppLayout.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'

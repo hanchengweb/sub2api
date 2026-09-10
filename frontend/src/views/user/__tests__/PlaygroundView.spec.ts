@@ -483,3 +483,67 @@ describe('PlaygroundView 质量档不适用时', () => {
     expect(wrapper.text()).toContain('playground.qualityNotApplicableShort')
   })
 })
+
+describe('PlaygroundView 离开页面后恢复任务', () => {
+  /**
+   * 任务在服务端照常跑，是前端在 onBeforeUnmount 里停掉了轮询。
+   * 切走再回来那条消息就永远停在灰条上——图其实早生成好了。
+   */
+  it('重进页面时续上未完成的生图任务', async () => {
+    localStorage.setItem(
+      'playground_conversations_v1',
+      JSON.stringify([
+        {
+          id: 'c1',
+          title: '生图',
+          mode: 'image',
+          model: 't-gpt-image-2-vip',
+          updatedAt: Date.now(),
+          messages: [
+            { id: 'u1', role: 'user', content: '一只猫', createdAt: Date.now() },
+            // 有 taskId、既无结果也无报错 = 离开时还没跑完
+            { id: 'a1', role: 'assistant', content: '', taskId: 'tsk_1', mediaKind: 'image', createdAt: Date.now() },
+          ],
+        },
+      ])
+    )
+    getImageTask.mockResolvedValue({
+      status: 'completed',
+      result: { type: 'image', data: [{ url: 'https://cdn.example/resumed.png' }] },
+    })
+
+    vi.useFakeTimers()
+    try {
+      const wrapper = mountView()
+      await flushPromises()
+      // 轮询有 5 秒间隔，快进到第一次查询
+      await vi.advanceTimersByTimeAsync(6000)
+      await flushPromises()
+      expect(getImageTask, '应对未完成的任务重新发起查询').toHaveBeenCalledWith('tsk_1')
+      expect(wrapper.exists()).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('已有结果或已报错的消息不再重复轮询', async () => {
+    localStorage.setItem(
+      'playground_conversations_v1',
+      JSON.stringify([
+        {
+          id: 'c1', title: 'x', mode: 'image', model: 'm', updatedAt: Date.now(),
+          messages: [
+            { id: 'a1', role: 'assistant', content: '', taskId: 't1', mediaKind: 'image',
+              mediaUrl: 'https://cdn.example/done.png', createdAt: Date.now() },
+            { id: 'a2', role: 'assistant', content: '', taskId: 't2', mediaKind: 'image',
+              error: '生成失败', createdAt: Date.now() },
+          ],
+        },
+      ])
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    expect(getImageTask).not.toHaveBeenCalled()
+    expect(wrapper.exists()).toBe(true)
+  })
+})

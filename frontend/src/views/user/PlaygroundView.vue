@@ -690,6 +690,7 @@ async function runMedia(conv: PlaygroundConversation, prompt: string) {
     role: 'assistant',
     content: '',
     taskId: mediaTaskId(task),
+    mediaKind: isVideo ? 'video' : 'image',
     createdAt: Date.now()
   })
 
@@ -837,6 +838,36 @@ watch(mode, () => {
   if (!allowed.includes(resolution.value)) resolution.value = allowed[0]
 })
 
+/**
+ * 续上离开页面时还没完成的生成任务。
+ *
+ * 任务在服务端照常跑，是前端在 onBeforeUnmount 里停掉了轮询——切走再回来，
+ * 那条消息就永远停在灰条上，图其实早就生成好了。所以重进页面时把所有
+ * 「有 taskId、既没结果也没报错」的消息重新接上轮询。
+ *
+ * 逐条 await 而不是并发：这类任务通常只有一两条，并发除了把请求打散没别的好处。
+ */
+async function resumePendingTasks() {
+  for (const conv of conversations.value) {
+    for (const msg of conv.messages) {
+      if (!msg.taskId || msg.mediaUrl || msg.error) continue
+      const isVideo = msg.mediaKind === 'video'
+      busy.value = true
+      busyHint.value = isVideo ? t('playground.resumingVideo') : t('playground.resumingImage')
+      try {
+        await pollTask(conv, msg, msg.taskId, isVideo)
+      } catch (err) {
+        msg.error = err instanceof Error ? err.message : String(err)
+        persist()
+      } finally {
+        busy.value = false
+        busyHint.value = ''
+      }
+      if (disposed) return
+    }
+  }
+}
+
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
   // 从模型广场「去体验」跳过来时带着 ?model=&mode=，直接落到那个模型，
@@ -853,6 +884,8 @@ onMounted(async () => {
   if (wantedModel && availableModels.value.includes(wantedModel)) {
     selectedModel.value = wantedModel
   }
+
+  void resumePendingTasks()
 })
 
 onBeforeUnmount(() => {
