@@ -508,7 +508,43 @@ func (s *OpenAIGatewayService) validateOpenAIImagesQuality(c *gin.Context, req *
 }
 
 func isOpenAIImageGenerationModel(model string) bool {
-	return IsGPTImageGenerationModel(model) || isGrokImageGenerationModel(model)
+	return IsGPTImageGenerationModel(model) ||
+		isGrokImageGenerationModel(model) ||
+		isThirdPartyImageGenerationModel(model)
+}
+
+// isThirdPartyImageGenerationModel 识别经中转接入的第三方生图模型。
+//
+// 这道闸门原本只认 gpt-image-* 与 grok-imagine*，用途是挡住把对话模型发到
+// 生图接口。代价是任何新供应商都进不来——线上的豆包就是「借名 gpt-image-1」
+// 才过的闸，模型名与实际厂商对不上，定价页和日志里都看着别扭。
+//
+// 这里按供应商显式列出，而不是放开成「什么都收」：
+//   - gemini/qwen 这类同时有对话模型的家族，额外要求名字里含 image，
+//     免得 gemini-2.5-pro 这种对话模型被误当成生图模型放行；
+//   - 其余几家的模型本身就只做图，前缀即可判定。
+//
+// 判定只影响「允许调用生图接口」，不影响计费——计费仍看渠道配置的 billing_mode。
+func isThirdPartyImageGenerationModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(m, "flux-"):
+		return true
+	case strings.HasPrefix(m, "nano_banana"), strings.HasPrefix(m, "nano-banana"):
+		return true
+	case strings.Contains(m, "seedream"):
+		return true
+	case strings.HasPrefix(m, "vidu"):
+		return true
+	}
+	// 有对话同名家族的，必须含 image 才算生图模型
+	if strings.HasPrefix(m, "gemini-") || strings.HasPrefix(m, "qwen-") {
+		return strings.Contains(m, "image")
+	}
+	return false
 }
 
 // IsGPTImageGenerationModel identifies the GPT native image-generation model family.
