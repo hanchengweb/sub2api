@@ -45,16 +45,24 @@ const DEEPSEEK_PATH = 'M23.748 4.651c-.254-.124-.364.113-.512.233-.051.04-.094.0
 const X_PATH = 'M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z'
 // 未知厂商的中性标记：不能拿任何一家的商标当兜底。
 const GENERIC_PATH = 'M12 2 3 7v10l9 5 9-5V7zm0 2.31L18.5 8 12 11.69 5.5 8zM5 9.72l6 3.41v6.15l-6-3.33zm14 0v6.23l-6 3.33v-6.15z'
+const GEMINI_PATH = 'M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81'
+const GOOGLE_PATH = 'M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z'
+const QWEN_PATH = 'M23.919 14.545 20.817 9.17l1.47-2.544a.56.56 0 0 0 0-.566l-1.633-2.83a.57.57 0 0 0-.49-.283h-6.207L12.487.402a.57.57 0 0 0-.49-.284H8.732a.56.56 0 0 0-.49.284L5.139 5.775h-2.94a.56.56 0 0 0-.49.284L.077 8.887a.56.56 0 0 0 0 .567L3.18 14.83l-1.47 2.545a.56.56 0 0 0 0 .566l1.634 2.83a.57.57 0 0 0 .49.283h6.205l1.47 2.545a.57.57 0 0 0 .49.284h3.266a.57.57 0 0 0 .49-.284l3.104-5.375h2.94a.57.57 0 0 0 .49-.283l1.634-2.828a.55.55 0 0 0-.004-.568M8.733.686l1.634 2.828-1.634 2.828H21.8L20.164 9.17H7.425L5.63 6.06Zm1.306 19.801-6.205-.002 1.634-2.83h3.265L2.201 6.344h3.267q3.182 5.517 6.367 11.032zm10.124-5.66L18.53 12l-6.532 11.315-1.634-2.83c2.129-3.673 4.25-7.351 6.373-11.028h3.592l3.102 5.374z'
 const BYTEDANCE_PATH = 'M19.8772 1.4685L24 2.5326v18.9426l-4.1228 1.0563V1.4685zm-13.3481 9.428l4.115 1.0641v8.9786l-4.115 1.0642v-11.107zM0 2.572l4.115 1.0642v16.7354L0 21.428V2.572zm17.4553 5.6205v11.107l-4.1228-1.0642V9.2568l4.1228-1.0642z'
 
 // 新接入的几家：simple-icons 里没有对应条目，用品牌主色 + 中性几何标，
 // 不拿别家商标凑数。拿到官方 SVG 后只需替换这里的 path。
 const BRANDS: Record<string, Brand> = {
+  // Black Forest Labs 与智谱清影 Vidu 在 simple-icons 里都没有条目，只能先用中性标。
+  // 注意：simple-icons 的 "Flux" 是 FluxCD（GitOps 工具），不是 Black Forest Labs
+  // 的 FLUX 生图模型——拿来用等于给模型挂上另一家公司的商标，不能用。
   flux: { key: 'flux', label: 'Black Forest Labs', path: GENERIC_PATH, bg: '#1F2937', fg: '#FFFFFF' },
-  gemini: { key: 'gemini', label: 'Google Gemini', path: GENERIC_PATH, bg: '#4285F4', fg: '#FFFFFF' },
-  nanobanana: { key: 'nanobanana', label: 'Google Nano Banana', path: GENERIC_PATH, bg: '#FBBC04', fg: '#3C4043' },
   vidu: { key: 'vidu', label: '智谱清影 Vidu', path: GENERIC_PATH, bg: '#3B5CFF', fg: '#FFFFFF' },
-  qwen: { key: 'qwen', label: '阿里云通义 Qwen', path: GENERIC_PATH, bg: '#615CED', fg: '#FFFFFF' },
+  gemini: { key: 'gemini', label: 'Google Gemini', path: GEMINI_PATH, bg: '#8E75B2', fg: '#FFFFFF' },
+  // Nano Banana 是 Google 的产品，simple-icons 没有它自己的条目，用 Google 的标，
+  // 底色保留它自身的香蕉黄以便与 Gemini 区分。
+  nanobanana: { key: 'nanobanana', label: 'Google Nano Banana', path: GOOGLE_PATH, bg: '#FBBC04', fg: '#3C4043' },
+  qwen: { key: 'qwen', label: '阿里云通义 Qwen', path: QWEN_PATH, bg: '#6950EF', fg: '#FFFFFF' },
   deepseek: { key: 'deepseek', label: 'DeepSeek', path: DEEPSEEK_PATH, bg: '#5786FE', fg: '#FFFFFF' },
   openai: { key: 'openai', label: 'OpenAI', path: OPENAI_PATH, bg: '#000000', fg: '#FFFFFF' },
   doubao: { key: 'doubao', label: '豆包 Seedream（字节跳动）', path: BYTEDANCE_PATH, bg: '#3C8CFF', fg: '#FFFFFF' },
