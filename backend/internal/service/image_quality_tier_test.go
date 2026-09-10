@@ -181,6 +181,10 @@ func TestApplyImageBillingResolutionKeepsExplicitTier(t *testing.T) {
 	if r.ImageSize != "1K·高" {
 		t.Fatalf("显式档位被覆盖成 %q", r.ImageSize)
 	}
+	// 必须走完整的 apply 流程：提前 return 会漏设这些字段，用量记录就写不出来
+	if r.ImageSizeSource == "" {
+		t.Fatal("ImageSizeSource 未被设置——不能提前 return 跳过 applyImageBillingResolution")
+	}
 
 	// 上游真回了输出尺寸时，按实际产出计费——请求 1K 却返回 4K 就该按 4K 收
 	r3 := &OpenAIForwardResult{

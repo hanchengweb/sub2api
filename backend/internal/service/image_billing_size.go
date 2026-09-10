@@ -142,15 +142,25 @@ func ResolveImageBillingSize(inputSize string, outputSizes []string) ImageBillin
 	}
 }
 
-// hasClassifiableImageSize 判断这批尺寸里有没有能解析成档位的。
-// 有就说明上游真回了图片尺寸，应当按实际产出计费，而不是按请求档位。
-func hasClassifiableImageSize(sizes []string) bool {
-	for _, sz := range sizes {
-		if _, ok := ClassifyImageBillingTier(strings.TrimSpace(sz)); ok {
-			return true
-		}
+// preferExplicitImageBillingTier 让「请求显式指定的清晰度+质量」压过按像素反推的结果。
+//
+// 优先级：实际输出像素 > 显式 resolution 档位 > 输入像素 > 默认。
+// 上游真回了图片尺寸时按它算最准（请求 2K 却返回 4K 就该按 4K 收），所以
+// Source 为 output 时不动。否则 toAPI 的 size 是宽高比（"1:1"）永远解析不出像素，
+// 反推只会落到默认 2K，把算好的档位覆盖掉——线上实测正是如此。
+//
+// 注意必须替换 resolved 而不是提前 return：applyImageBillingResolution 还要设置
+// ImageSizeSource / Breakdown 等字段，跳过它会让用量记录写不出来。
+func preferExplicitImageBillingTier(resolved ImageBillingSizeResolution, explicit string) ImageBillingSizeResolution {
+	explicit = strings.TrimSpace(explicit)
+	if !IsExplicitImageBillingTier(explicit) {
+		return resolved
 	}
-	return false
+	if resolved.Source == ImageSizeSourceOutput {
+		return resolved
+	}
+	resolved.BillingSize = explicit
+	return resolved
 }
 
 // IsExplicitImageBillingTier 判断标签是否来自「请求显式指定的清晰度 + 质量」。
@@ -177,11 +187,6 @@ func ApplyOpenAIImageBillingResolution(result *OpenAIForwardResult) {
 	// toAPI 的 size 是宽高比（"1:1"）永远解析不出像素，此时按像素反推只会落到
 	// 默认 2K，把算好的档位覆盖掉。线上实测正是如此：请求 resolution=1k
 	// quality=high，最终记成 2K、按 2K 收费（image_size_source=default）。
-	if IsExplicitImageBillingTier(strings.TrimSpace(result.ImageSize)) &&
-		!hasClassifiableImageSize(result.ImageOutputSizes) &&
-		!hasClassifiableImageSize([]string{result.ImageOutputSize}) {
-		return
-	}
 	inputSize := strings.TrimSpace(result.ImageInputSize)
 	if inputSize == "" && strings.TrimSpace(result.ImageSize) != ImageBillingSize2K {
 		inputSize = strings.TrimSpace(result.ImageSize)
@@ -191,6 +196,7 @@ func ApplyOpenAIImageBillingResolution(result *OpenAIForwardResult) {
 		outputSizes = []string{result.ImageOutputSize}
 	}
 	resolved := ResolveImageBillingSize(inputSize, outputSizes)
+	resolved = preferExplicitImageBillingTier(resolved, result.ImageSize)
 	applyImageBillingResolution(
 		&result.ImageSize,
 		&result.ImageInputSize,
@@ -212,11 +218,6 @@ func ApplyForwardImageBillingResolution(result *ForwardResult) {
 	// toAPI 的 size 是宽高比（"1:1"）永远解析不出像素，此时按像素反推只会落到
 	// 默认 2K，把算好的档位覆盖掉。线上实测正是如此：请求 resolution=1k
 	// quality=high，最终记成 2K、按 2K 收费（image_size_source=default）。
-	if IsExplicitImageBillingTier(strings.TrimSpace(result.ImageSize)) &&
-		!hasClassifiableImageSize(result.ImageOutputSizes) &&
-		!hasClassifiableImageSize([]string{result.ImageOutputSize}) {
-		return
-	}
 	inputSize := strings.TrimSpace(result.ImageInputSize)
 	if inputSize == "" && strings.TrimSpace(result.ImageSize) != ImageBillingSize2K {
 		inputSize = strings.TrimSpace(result.ImageSize)
@@ -226,6 +227,7 @@ func ApplyForwardImageBillingResolution(result *ForwardResult) {
 		outputSizes = []string{result.ImageOutputSize}
 	}
 	resolved := ResolveImageBillingSize(inputSize, outputSizes)
+	resolved = preferExplicitImageBillingTier(resolved, result.ImageSize)
 	applyImageBillingResolution(
 		&result.ImageSize,
 		&result.ImageInputSize,
