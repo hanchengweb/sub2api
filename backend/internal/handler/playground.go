@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -155,6 +157,69 @@ func (h *PlaygroundHandler) proxyToGateway(c *gin.Context, gatewayPath string) {
 	// {"error":{"message":"Request body is empty"}}（第二次进来时 body 已读空）。
 	// Abort 只置终止标志，不写响应，网关 handler 已写好的内容不受影响。
 	c.Abort()
+}
+
+// mediaProxyAllowedHosts 允许中转的上游媒体域名。
+//
+// **必须是白名单**：这个端点会用服务器身份去取任意 URL，放开就是一个 SSRF
+// 漏洞——攻击者能借它探测内网、云元数据地址（169.254.169.254）等。
+// 只放行已知会返回生成结果的域名。
+var mediaProxyAllowedHosts = map[string]struct{}{
+	"files.toapis.cn": {},
+	"toapis.cn":       {},
+}
+
+// mediaProxyMaxBytes 单个媒体的大小上限。生图通常 1~5MB，视频大一些。
+const mediaProxyMaxBytes = 64 << 20
+
+// Media 把上游生成结果中转一层，用本站域名回给浏览器。
+//
+// 为什么需要：上游把图片放在 files.toapis.cn，部分网络环境访问不到那个域名
+// （用户换了出口 IP 后就打不开了，页面上只剩一个碎图图标）。服务器侧一直是通的，
+// 所以由服务器代取再吐给浏览器，结果地址就始终可达。
+//
+// 只做 GET 转发，不改内容；带上 Content-Type 与缓存头，让浏览器正常缓存图片。
+func (h *PlaygroundHandler) Media(c *gin.Context) {
+	raw := strings.TrimSpace(c.Query("url"))
+	if raw == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "missing url"}})
+		return
+	}
+	target, err := url.Parse(raw)
+	if err != nil || target.Scheme != "https" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "url must be a valid https address"}})
+		return
+	}
+	if _, ok := mediaProxyAllowedHosts[strings.ToLower(target.Hostname())]; !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": "host is not allowed"}})
+		return
+	}
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, target.String(), nil)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"message": "build upstream request failed"}})
+		return
+	}
+	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"message": "fetch upstream media failed"}})
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"message": "upstream returned " + resp.Status}})
+		return
+	}
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	c.Header("Content-Type", ct)
+	// 生成结果不会变，让浏览器长期缓存，避免每次渲染都回源。
+	c.Header("Cache-Control", "private, max-age=86400")
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, io.LimitReader(resp.Body, mediaProxyMaxBytes))
 }
 
 // Models 列出该用户可调的模型。

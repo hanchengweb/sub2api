@@ -222,6 +222,18 @@ export interface MediaTaskResult extends MediaTask {
   }
 }
 
+/**
+ * 把上游媒体地址换成本站中转地址。
+ *
+ * 上游把图片放在 files.toapis.cn，部分网络环境访问不到那个域名——用户换了出口
+ * IP 后页面上就只剩碎图。服务器侧一直是通的，所以统一走 /playground/media 代取。
+ * 非 http(s) 的（如 base64 data URI）原样返回，不必绕一圈。
+ */
+export function proxiedMediaUrl(url: string): string {
+  if (!url || !/^https?:\/\//i.test(url)) return url
+  return buildApiUrl(`/playground/media?url=${encodeURIComponent(url)}`)
+}
+
 /** 取任务 id。上游用 id 还是 task_id 不统一，两个都认。 */
 export function mediaTaskId(task: MediaTaskResult): string {
   return task.id || task.task_id || ''

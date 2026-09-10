@@ -208,7 +208,10 @@ describe('PlaygroundView', () => {
     await flushPromises()
     await send(wrapper, '一只猫')
 
-    expect(wrapper.find('img').attributes('src')).toBe('https://cdn.example/a.png')
+    // 图片走本站中转（上游图床在部分网络下不可达），断言中转地址里带的是正确的原始 URL
+    expect(wrapper.find('img').attributes('src')).toContain(
+      encodeURIComponent('https://cdn.example/a.png')
+    )
     expect(getImageTask).not.toHaveBeenCalled()
   })
 
@@ -440,7 +443,10 @@ describe('PlaygroundView 质量档与结果地址', () => {
     await sending
     await flushPromises()
 
-    expect(wrapper.find('img').attributes('src')).toBe('https://files.example/x.png')
+    // 图片走本站中转（上游图床在部分网络下不可达），断言中转地址里带的是正确的原始 URL
+    expect(wrapper.find('img').attributes('src')).toContain(
+      encodeURIComponent('https://files.example/x.png')
+    )
     expect(wrapper.text()).not.toContain('playground.noMediaUrl')
   })
 })
@@ -545,5 +551,54 @@ describe('PlaygroundView 离开页面后恢复任务', () => {
     await flushPromises()
     expect(getImageTask).not.toHaveBeenCalled()
     expect(wrapper.exists()).toBe(true)
+  })
+})
+
+describe('PlaygroundView 媒体中转与进度', () => {
+  /**
+   * 上游把图片放在 files.toapis.cn，部分网络环境访问不到那个域名——
+   * 用户换出口 IP 后页面上只剩碎图。必须走本站中转。
+   */
+  it('图片走本站中转地址，不直连上游图床', async () => {
+    createImageTask.mockResolvedValue({ data: [{ url: 'https://files.toapis.cn/images/a.png' }] })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find((b) => b.text().includes('playground.modeImage'))!.trigger('click')
+    await flushPromises()
+    await send(wrapper, '一只猫')
+
+    const src = wrapper.find('img').attributes('src') ?? ''
+    expect(src, '不应直连上游图床').not.toMatch(/^https:\/\/files\.toapis\.cn/)
+    expect(src).toContain('/playground/media')
+    expect(src).toContain(encodeURIComponent('https://files.toapis.cn/images/a.png'))
+  })
+
+  it('轮询期间显示真实百分比进度', async () => {
+    vi.useFakeTimers()
+    try {
+      createImageTask.mockResolvedValue({ id: 'tsk_p', status: 'pending' })
+      getImageTask
+        .mockResolvedValueOnce({ status: 'in_progress', progress: 42 })
+        .mockResolvedValue({
+          status: 'completed',
+          result: { data: [{ url: 'https://files.toapis.cn/images/done.png' }] },
+        })
+
+      const wrapper = mountView()
+      await flushPromises()
+      await wrapper.findAll('button').find((b) => b.text().includes('playground.modeImage'))!.trigger('click')
+      await flushPromises()
+
+      await wrapper.find('textarea').setValue('一只猫')
+      await wrapper.find('button[aria-label="playground.send"]').trigger('click')
+      await flushPromises()
+
+      await vi.advanceTimersByTimeAsync(6000)
+      await flushPromises()
+      expect(wrapper.text(), '应显示上游回的真实进度').toContain('42%')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -16,6 +16,8 @@ func RegisterPlaygroundRoutes(v1 *gin.RouterGroup, h *handler.PlaygroundHandler,
 	pg.Use(gin.HandlerFunc(jwtAuth))
 	{
 		pg.GET("/models", h.Models)
+		// 媒体中转：上游图床在部分网络下不可达，由服务器代取（域名白名单防 SSRF）
+		pg.GET("/media", h.Media)
 		pg.POST("/chat/completions", h.ChatCompletions)
 		pg.POST("/images/generations", h.ImageGenerations)
 		pg.GET("/images/generations/:task_id", h.ImageStatus)

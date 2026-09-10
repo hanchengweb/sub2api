@@ -111,26 +111,40 @@
               <!-- 媒体结果以卡片嵌在对话流里 -->
               <img
                 v-if="msg.mediaUrl && !isVideoUrl(msg.mediaUrl)"
-                :src="msg.mediaUrl"
+                :src="proxiedMediaUrl(msg.mediaUrl)"
                 :alt="t('playground.generatedImage')"
                 class="mt-2 max-h-80 rounded-lg"
               />
               <video
                 v-else-if="msg.mediaUrl"
-                :src="msg.mediaUrl"
+                :src="proxiedMediaUrl(msg.mediaUrl)"
                 controls
                 class="mt-2 max-h-80 rounded-lg"
               />
 
               <a
                 v-if="msg.mediaUrl"
-                :href="msg.mediaUrl"
+                :href="proxiedMediaUrl(msg.mediaUrl)"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="mt-1 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-300"
               >
                 <Icon name="link" size="xs" />{{ t('playground.openOriginal') }}
               </a>
+
+              <!-- 生成进度：只在「有任务、还没出结果、也没报错」时显示 -->
+              <div v-if="msg.taskId && !msg.mediaUrl && !msg.error" class="mt-1 w-48">
+                <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
+                  <span>{{ msg.mediaKind === 'video' ? t('playground.generatingVideo') : t('playground.generatingImage') }}</span>
+                  <span class="font-mono">{{ msg.progress ?? 0 }}%</span>
+                </div>
+                <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
+                  <div
+                    class="h-full rounded-full bg-primary-500 transition-[width] duration-500"
+                    :style="{ width: `${msg.progress ?? 0}%` }"
+                  />
+                </div>
+              </div>
 
               <p v-if="msg.error" class="mt-1 text-xs text-red-500">{{ msg.error }}</p>
               <RouterLink
@@ -271,6 +285,7 @@ import {
   getVideoTask,
   mediaTaskId,
   mediaUrlOf,
+  proxiedMediaUrl,
   isTerminalStatus,
   isFailedStatus,
   isInsufficientBalance,
@@ -738,6 +753,13 @@ async function pollTask(
     if (disposed) return
 
     const result: MediaTaskResult = isVideo ? await getVideoTask(taskId) : await getImageTask(taskId)
+
+    // 上游在任务查询里回 progress（0~100）。给真实百分比而不是一条空转的动画——
+    // 生图要一分钟上下，没有进度用户不知道是在跑还是卡死了。
+    if (typeof result.progress === 'number' && result.progress >= 0) {
+      reply.progress = Math.min(100, Math.round(result.progress))
+      conv.updatedAt = Date.now()
+    }
 
     const url = mediaUrlOf(result)
     // 拿到地址就算完成——有的渠道结果就绪时不再回传 status。

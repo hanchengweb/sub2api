@@ -18,6 +18,8 @@ export interface PlaygroundMessage {
   /** 该任务是图还是视频——恢复轮询时要用它选对查询接口。
    *  不能靠会话的 mode 推断：用户可能在等待期间切换了模式。 */
   mediaKind?: 'image' | 'video'
+  /** 生成进度 0~100；上游在任务查询里回 progress，用来给用户一个真实的百分比 */
+  progress?: number
   /** 该条消息是否处于错误态 */
   error?: string
   /** 错误是「余额不足」——渲染时额外给一个兑换入口 */
