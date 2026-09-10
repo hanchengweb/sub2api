@@ -42,6 +42,14 @@ export const i18n = createI18n({
 
 const loadedLocales = new Set<LocaleCode>()
 
+// Keep the installed i18n instance when Vite updates a language file.
+if (import.meta.hot) {
+  import.meta.hot.accept(['./locales/en/index.ts', './locales/zh/index.ts'], ([en, zh]) => {
+    if (en) i18n.global.setLocaleMessage('en', en.default)
+    if (zh) i18n.global.setLocaleMessage('zh', zh.default)
+  })
+}
+
 export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
   if (loadedLocales.has(locale)) {
     return
