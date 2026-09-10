@@ -582,7 +582,7 @@ export default {
       rate: '折扣倍率',
       // 实付价是积分（充 ￥1 得 100 积分），官方参考价才是美元（来自 LiteLLM 目录）。
       // 两列曾共用同一个单位键，导致积分值上方挂着 $ 。
-      unitPerMillionPaid: '积分 / 1M token',
+      unitPerMillionPaid: '积分 / 1万 token',
       unitPerMillion: '$ / 1M token',
       perUnitRequest: '/ 次',
       perUnitImage: '/ 张',

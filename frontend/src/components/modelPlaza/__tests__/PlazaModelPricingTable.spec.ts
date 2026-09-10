@@ -13,16 +13,19 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+  // 实付单价放大了 100 倍：实付列现在按「每 1 万 token」展示（见组件里
+  // PER_TEN_THOUSAND 的说明），×100 后断言里的数字与按 1M 展示时一致，仍然可读。
+  // official_pricing 是 USD/token、仍按 $/1M 展示，故保持原值。
 function tokenModel(overrides: Partial<PlazaModel> = {}): PlazaModel {
   return {
     name: 'claude-sonnet',
     platform: 'anthropic',
     pricing: {
       billing_mode: 'token',
-      input_price: 3e-6,
-      output_price: 1.5e-5,
-      cache_write_price: 3.75e-6,
-      cache_read_price: 3e-7,
+      input_price: 3e-4,
+      output_price: 1.5e-3,
+      cache_write_price: 3.75e-4,
+      cache_read_price: 3e-5,
       image_input_price: null,
       image_output_price: null,
       per_request_price: null,
@@ -176,8 +179,8 @@ describe('PlazaModelPricingTable', () => {
     const model = tokenModel({
       pricing: {
         billing_mode: 'token',
-        input_price: 3e-6,
-        output_price: 1.5e-5,
+        input_price: 3e-4,
+        output_price: 1.5e-3,
         cache_write_price: null,
         cache_read_price: null,
         image_input_price: null,
@@ -188,8 +191,8 @@ describe('PlazaModelPricingTable', () => {
             min_tokens: 0,
             max_tokens: 200000,
             tier_label: '',
-            input_price: 3e-6,
-            output_price: 1.5e-5,
+            input_price: 3e-4,
+            output_price: 1.5e-3,
             cache_write_price: null,
             cache_read_price: null,
             per_request_price: null
@@ -198,8 +201,8 @@ describe('PlazaModelPricingTable', () => {
             min_tokens: 200000,
             max_tokens: null,
             tier_label: '',
-            input_price: 6e-6,
-            output_price: 3e-5,
+            input_price: 6e-4,
+            output_price: 3e-3,
             cache_write_price: null,
             cache_read_price: null,
             per_request_price: null
@@ -229,7 +232,7 @@ describe('PlazaModelPricingTable', () => {
         cache_read_price: null,
         image_input_price: null,
         // 每 token 图片输出价:不应被当作按次单价展示
-        image_output_price: 3e-5,
+        image_output_price: 3e-3,
         per_request_price: null,
         intervals: [
           {

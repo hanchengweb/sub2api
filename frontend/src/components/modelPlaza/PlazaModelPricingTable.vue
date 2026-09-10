@@ -66,29 +66,29 @@
                   <template v-if="tokenIntervals(m).length">
                     <div v-for="(iv, i) in tokenIntervals(m)" :key="i" class="whitespace-nowrap leading-5">
                       <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ tierLabel(iv) }}</span>
-                      {{ paidPerMillion(iv.input_price) }}
+                      {{ paidPerTenThousand(iv.input_price) }}
                     </div>
                   </template>
-                  <PeakOffPeakPrice v-else-if="m.time_pricing" :model="m" :value="m.pricing?.input_price" :render="paidPerMillion" />
-                  <template v-else>{{ paidPerMillion(m.pricing?.input_price) }}</template>
+                  <PeakOffPeakPrice v-else-if="m.time_pricing" :model="m" :value="m.pricing?.input_price" :render="paidPerTenThousand" />
+                  <template v-else>{{ paidPerTenThousand(m.pricing?.input_price) }}</template>
                 </td>
                 <td class="pz-cell px-3 py-2.5 text-right align-middle font-mono text-xs font-semibold text-gray-900 dark:text-gray-50">
                   <template v-if="tokenIntervals(m).length">
                     <div v-for="(iv, i) in tokenIntervals(m)" :key="i" class="whitespace-nowrap leading-5">
                       <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ tierLabel(iv) }}</span>
-                      {{ paidPerMillion(iv.output_price) }}
+                      {{ paidPerTenThousand(iv.output_price) }}
                     </div>
                   </template>
-                  <PeakOffPeakPrice v-else-if="m.time_pricing" :model="m" :value="m.pricing?.output_price" :render="paidPerMillion" />
-                  <template v-else>{{ paidPerMillion(m.pricing?.output_price) }}</template>
+                  <PeakOffPeakPrice v-else-if="m.time_pricing" :model="m" :value="m.pricing?.output_price" :render="paidPerTenThousand" />
+                  <template v-else>{{ paidPerTenThousand(m.pricing?.output_price) }}</template>
                 </td>
                 <td class="pz-cell px-3 py-2.5 text-right align-middle font-mono text-xs text-gray-700 dark:text-gray-300">
-                  <PeakOffPeakPrice v-if="m.time_pricing" :model="m" :value="m.pricing?.cache_write_price" :render="paidPerMillion" />
-                  <template v-else>{{ paidPerMillion(m.pricing?.cache_write_price) }}</template>
+                  <PeakOffPeakPrice v-if="m.time_pricing" :model="m" :value="m.pricing?.cache_write_price" :render="paidPerTenThousand" />
+                  <template v-else>{{ paidPerTenThousand(m.pricing?.cache_write_price) }}</template>
                 </td>
                 <td class="pz-cell px-3 py-2.5 text-right align-middle font-mono text-xs text-gray-700 dark:text-gray-300">
-                  <PeakOffPeakPrice v-if="m.time_pricing" :model="m" :value="m.pricing?.cache_read_price" :render="paidPerMillion" />
-                  <template v-else>{{ paidPerMillion(m.pricing?.cache_read_price) }}</template>
+                  <PeakOffPeakPrice v-if="m.time_pricing" :model="m" :value="m.pricing?.cache_read_price" :render="paidPerTenThousand" />
+                  <template v-else>{{ paidPerTenThousand(m.pricing?.cache_read_price) }}</template>
                 </td>
                 <template v-if="showOfficial">
                   <td class="border-l border-gray-100 px-3 py-2.5 text-right align-middle font-mono text-xs text-gray-500 dark:border-dark-700/60 dark:text-dark-400">
@@ -192,6 +192,17 @@ const { t } = useI18n()
 const accentStyle = computed(() => ({ '--plaza-accent': platformAccentColor(props.platform ?? '') }))
 
 const PER_MILLION = 1_000_000
+/**
+ * 实付价按「每 1 万 token」展示。
+ *
+ * 按 1M 展示时 DeepSeek 是 600/1800 积分，数字大到扎眼，和生图那边「几十积分一张」
+ * 完全不在一个量级上，容易让人以为文本贵得离谱。换成 1 万后是 6.00/18.00 积分，
+ * 与生图可比。**只改展示口径，实际扣费一分不动。**
+ *
+ * 官方参考价列仍按 $/1M：那是 LiteLLM 目录的行业惯例，换算成 1 万会变成
+ * $0.00003 这种没法读的数。两列表头各自标了单位，且默认只渲染实付列。
+ */
+const PER_TEN_THOUSAND = 10_000
 const MIN_DECIMALS = 2
 
 const effectiveRate = computed(() => props.userRateMultiplier ?? props.rateMultiplier)
@@ -315,10 +326,10 @@ function formatDays(days: number[] | undefined): string {
   return sorted.map(name).join('、')
 }
 
-/** 实付价 = 渠道单价 × 生效倍率，按积分 / 1M token 展示。 */
-function paidPerMillion(value: number | null | undefined): string {
+/** 实付价 = 渠道单价 × 生效倍率，按积分 / 1 万 token 展示。 */
+function paidPerTenThousand(value: number | null | undefined): string {
   if (value == null) return '-'
-  return formatScaled(value * effectiveRate.value, PER_MILLION, MIN_DECIMALS)
+  return formatScaled(value * effectiveRate.value, PER_TEN_THOUSAND, MIN_DECIMALS)
 }
 
 /** 按次 / 按图 / 按秒单价（乘生效倍率，不换算 1M）。 */
