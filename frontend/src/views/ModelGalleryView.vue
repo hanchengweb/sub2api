@@ -49,38 +49,50 @@
       {{ t('modelGallery.empty') }}
     </p>
 
-    <!-- 卡片墙 -->
-    <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      <article
-        v-for="card in visibleCards"
-        :key="card.name"
-        class="card flex flex-col gap-3 p-4 transition-shadow hover:shadow-card-hover"
-      >
-        <div class="flex items-start gap-2.5">
-          <ModelBrandMark :model="card.name" />
-          <div class="min-w-0 flex-1">
-            <h2 class="truncate text-sm font-semibold text-gray-900 dark:text-white" :title="card.name">
-              {{ card.name }}
-            </h2>
-            <p class="truncate text-xs text-gray-400">{{ card.vendor }}</p>
+    <!-- 卡片墙：CSS 多列做瀑布流。
+         用 columns 而不是 grid：grid 的每行会被最高的卡片撑齐，留一堆空白；
+         多列布局让卡片按各自高度依次填充，才是商品墙那种错落感。
+         break-inside-avoid 保证卡片不被拆到两列。 -->
+    <div v-else class="gallery-masonry">
+      <article v-for="card in visibleCards" :key="card.name" class="gallery-card group">
+        <!-- 视觉头：品牌色渐变 + 大号官方标。模型没有预览图，用品牌色块做识别面，
+             一眼能认出是哪家的货。 -->
+        <div class="gallery-hero" :style="heroStyle(card.name)">
+          <ModelBrandMark :model="card.name" size="lg" class="!rounded-xl shadow-sm" />
+          <span class="kind-badge absolute right-2 top-2" :class="kindBadgeClass(card.kind)">
+            {{ t(kindLabelKey(card.kind)) }}
+          </span>
+        </div>
+
+        <div class="p-3">
+          <h2
+            class="truncate text-sm font-semibold text-gray-900 dark:text-white"
+            :title="card.name"
+          >
+            {{ card.name }}
+          </h2>
+          <p class="mt-0.5 truncate text-xs text-gray-400">{{ card.vendor }}</p>
+
+          <!-- 价格：三类口径不同，各自说准 -->
+          <div class="mt-2 space-y-0.5 text-xs">
+            <template v-if="card.priceLines.length">
+              <div v-for="(line, i) in card.priceLines" :key="i" class="flex items-baseline justify-between gap-2">
+                <span class="text-gray-400">{{ line.label }}</span>
+                <span class="font-mono font-medium text-gray-900 dark:text-gray-100">{{ line.value }}</span>
+              </div>
+            </template>
+            <span v-else class="text-gray-400">{{ t('modelGallery.noPricing') }}</span>
           </div>
-          <span class="kind-badge" :class="kindBadgeClass(card.kind)">{{ t(kindLabelKey(card.kind)) }}</span>
-        </div>
 
-        <!-- 价格：三类的口径不同，各自说准 -->
-        <div class="min-h-[2.5rem] text-xs text-gray-600 dark:text-dark-300">
-          <template v-if="card.priceLines.length">
-            <div v-for="(line, i) in card.priceLines" :key="i" class="flex justify-between gap-2 leading-5">
-              <span class="text-gray-400">{{ line.label }}</span>
-              <span class="font-mono">{{ line.value }}</span>
-            </div>
-          </template>
-          <span v-else class="text-gray-400">{{ t('modelGallery.noPricing') }}</span>
+          <!-- 动作按钮不占满整行：整条绿色横杠在卡片墙里过于抢眼，
+               每张卡都来一条会盖过商品本身。 -->
+          <div class="mt-3 flex items-center justify-end">
+            <RouterLink :to="playgroundLink(card)" class="gallery-try">
+              {{ t('modelGallery.tryIt') }}
+              <Icon name="arrowRight" size="xs" />
+            </RouterLink>
+          </div>
         </div>
-
-        <RouterLink :to="playgroundLink(card)" class="btn btn-primary w-full py-1.5 text-xs">
-          {{ t('modelGallery.tryIt') }}
-        </RouterLink>
       </article>
     </div>
     </div>
@@ -89,6 +101,7 @@
 
 <script setup lang="ts">
 import AppLayout from '@/components/layout/AppLayout.vue'
+import Icon from '@/components/icons/Icon.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -146,6 +159,32 @@ function kindBadgeClass(k: ModelKind): string {
   if (k === 'video') return 'bg-purple-50 text-purple-600 dark:bg-purple-900/25 dark:text-purple-300'
   if (k === 'image') return 'bg-amber-50 text-amber-600 dark:bg-amber-900/25 dark:text-amber-300'
   return 'bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-300'
+}
+
+/**
+ * 卡片视觉头的底色。
+ *
+ * 模型没有预览图，用各家品牌色的柔和渐变当识别面——同一家的卡片颜色一致，
+ * 扫一眼就能按厂商归堆。用 color-mix 兑淡，直接上原色会过于刺眼且压住文字。
+ */
+const VENDOR_HERO: Record<string, string> = {
+  deepseek: '#4D6BFE',
+  openai: '#111827',
+  doubao: '#00C8FF',
+  xai: '#111827',
+  gemini: '#3186FF',
+  nanobanana: '#FBBC04',
+  flux: '#1F2937',
+  vidu: '#1D4ED8',
+  qwen: '#615CED',
+  generic: '#94A3B8'
+}
+
+function heroStyle(model: string): Record<string, string> {
+  const c = VENDOR_HERO[resolveModelVendor(model).key] ?? VENDOR_HERO.generic
+  return {
+    background: `linear-gradient(135deg, color-mix(in srgb, ${c} 16%, transparent), color-mix(in srgb, ${c} 5%, transparent))`
+  }
 }
 
 /** 点「去体验」直接带着模型名跳到在线使用页，省得用户再翻一遍下拉。 */
@@ -236,6 +275,39 @@ onMounted(async () => {
 .filter-chip-off {
   @apply text-gray-500 hover:bg-gray-100 dark:text-dark-400 dark:hover:bg-dark-800;
 }
+/* 瀑布流：按宽度分列，卡片依次填充，不像 grid 那样被同行最高的撑齐 */
+.gallery-masonry {
+  column-gap: 0.75rem;
+  columns: 1;
+}
+@media (min-width: 640px) {
+  .gallery-masonry { columns: 2; }
+}
+@media (min-width: 1024px) {
+  .gallery-masonry { columns: 3; }
+}
+@media (min-width: 1536px) {
+  .gallery-masonry { columns: 4; }
+}
+
+.gallery-card {
+  @apply mb-3 overflow-hidden rounded-2xl border border-gray-100 bg-white transition-all;
+  @apply hover:-translate-y-0.5 hover:shadow-card-hover;
+  @apply dark:border-dark-700/60 dark:bg-dark-800/50;
+  /* 卡片不能被拆到两列 */
+  break-inside: avoid;
+}
+
+.gallery-hero {
+  @apply relative flex h-24 items-center justify-center;
+}
+
+.gallery-try {
+  @apply inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium;
+  @apply text-primary-600 transition-colors hover:bg-primary-50;
+  @apply dark:text-primary-300 dark:hover:bg-primary-900/30;
+}
+
 .kind-badge {
   @apply shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium;
 }

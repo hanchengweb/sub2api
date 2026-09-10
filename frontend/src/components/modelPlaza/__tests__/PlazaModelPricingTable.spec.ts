@@ -551,7 +551,9 @@ describe('ModelBrandMark 厂商归属', () => {
       ['deepseek-v4-flash', 'DeepSeek'],
       ['gpt-image-2-vip', 'OpenAI'],
       ['t-grok-video-1.5', 'xAI Grok'],
-      ['doubao-seedream-5-0-pro', '豆包 Seedream（字节跳动）'],
+      // 现在用豆包自己的官方标（lobehub），不再拿母公司字节跳动的标顶替，
+      // 所以标签也不必再注明母公司
+      ['doubao-seedream-5-0-pro', '字节豆包 Doubao'],
       ['flux-2-pro', 'Black Forest Labs'],
       ['gemini-3-pro-image-official', 'Google Gemini'],
       ['viduq2-fast', '智谱清影 Vidu'],
