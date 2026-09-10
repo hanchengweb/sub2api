@@ -1,37 +1,26 @@
 <template>
   <div class="pricing-filters">
-    <label class="relative col-span-2 min-w-0 lg:col-span-1">
+    <label class="relative min-w-0 sm:col-span-2 lg:col-span-1">
       <span class="sr-only">{{ t('playground.searchModels') }}</span>
       <Icon name="search" size="sm" class="absolute left-3 top-3 text-gray-400" />
       <input :value="search" type="search" class="input h-10 pl-9" :placeholder="t('playground.searchModels')" @input="$emit('update:search', ($event.target as HTMLInputElement).value)" />
     </label>
-    <label class="filter-field">
-      <span>{{ t('modelPlaza.filters.platformLabel') }}</span>
-      <select :value="platform" @change="$emit('update:platform', ($event.target as HTMLSelectElement).value)">
-        <option value="all">{{ t('modelPlaza.filters.all') }}</option>
-        <option v-for="p in platforms" :key="p" :value="p" :disabled="!platformEnabled(p)">{{ p }}</option>
-      </select>
-    </label>
-    <label class="filter-field">
-      <span>{{ t('modelPlaza.filters.groupLabel') }}</span>
-      <select :value="groupId" @change="$emit('update:groupId', numericValue($event))">
-        <option value="all">{{ t('modelPlaza.filters.all') }}</option>
-        <option v-for="g in groups" :key="g.id" :value="g.id" :disabled="!groupEnabled(g)">{{ g.name }}</option>
-      </select>
-    </label>
-    <label class="filter-field">
-      <span>{{ t('modelPlaza.filters.rateLabel') }}</span>
-      <select :value="rate" @change="$emit('update:rate', numericValue($event))">
-        <option value="all">{{ t('modelPlaza.filters.all') }}</option>
-        <option v-for="r in rates" :key="r" :value="r" :disabled="!rateEnabled(r)">{{ r }}x</option>
-      </select>
-    </label>
+    <Select class="filter-field" :model-value="platform" :aria-label="t('modelPlaza.filters.platformLabel')" :searchable="false" :options="[{ value: 'all', label: t('modelPlaza.filters.all') }, ...platforms.map(p => ({ value: p, label: p, disabled: !platformEnabled(p) }))]" @update:model-value="$emit('update:platform', $event as string)">
+      <template #selected="{ option }"><span class="filter-label">{{ t('modelPlaza.filters.platformLabel') }}</span><span class="truncate">{{ option?.label }}</span></template>
+    </Select>
+    <Select class="filter-field" :model-value="groupId" :aria-label="t('modelPlaza.filters.groupLabel')" :options="[{ value: 'all', label: t('modelPlaza.filters.all') }, ...groups.map(g => ({ value: g.id, label: g.name, disabled: !groupEnabled(g) }))]" @update:model-value="$emit('update:groupId', $event as number | 'all')">
+      <template #selected="{ option }"><span class="filter-label">{{ t('modelPlaza.filters.groupLabel') }}</span><span class="truncate">{{ option?.label }}</span></template>
+    </Select>
+    <Select class="filter-field" :model-value="rate" :aria-label="t('modelPlaza.filters.rateLabel')" :searchable="false" :options="[{ value: 'all', label: t('modelPlaza.filters.all') }, ...rates.map(r => ({ value: r, label: `${r}x`, disabled: !rateEnabled(r) }))]" @update:model-value="$emit('update:rate', $event as number | 'all')">
+      <template #selected="{ option }"><span class="filter-label">{{ t('modelPlaza.filters.rateLabel') }}</span><span class="truncate">{{ option?.label }}</span></template>
+    </Select>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import Select from '@/components/common/Select.vue'
 
 const props = defineProps<{
   platforms: string[]
@@ -49,10 +38,6 @@ defineEmits<{
   'update:search': [value: string]
 }>()
 const { t } = useI18n()
-function numericValue(event: Event): number | 'all' {
-  const value = (event.target as HTMLSelectElement).value
-  return value === 'all' ? 'all' : Number(value)
-}
 function platformEnabled(p: string): boolean {
   return props.groups.some(g => g.platform === p && (props.groupId === 'all' || g.id === props.groupId) && (props.rate === 'all' || g.rate === props.rate))
 }
@@ -65,10 +50,12 @@ function rateEnabled(r: number): boolean {
 </script>
 
 <style scoped>
-.pricing-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.filter-field { @apply flex h-10 min-w-0 items-center gap-3 rounded-md border border-gray-200 bg-white px-3 text-xs dark:border-dark-700 dark:bg-dark-900; }
-.filter-field span { @apply shrink-0 text-gray-500; }
-.filter-field select { @apply min-w-0 flex-1 bg-transparent py-1 text-sm text-gray-800 dark:text-gray-200; }
+.pricing-filters { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.pricing-filters .input { @apply rounded-lg; }
+.filter-field { @apply min-w-0; }
+.filter-field :deep(.select-trigger) { @apply h-10 rounded-lg px-3 py-1; }
+.filter-field :deep(.select-value) { @apply flex min-w-0 items-center gap-3; }
+.filter-label { @apply shrink-0 text-xs text-gray-500; }
 @media (min-width: 640px) { .pricing-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1024px) { .pricing-filters { grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(0, 1fr)); } }
 </style>
