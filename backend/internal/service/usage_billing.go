@@ -173,7 +173,11 @@ type UsageBillingRepository interface {
 	CaptureBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	ReleaseBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	BindMediaTaskCharge(ctx context.Context, cmd *MediaTaskChargeCommand) error
-	TakeMediaTaskCharge(ctx context.Context, taskKey string) (float64, bool, error)
+	TakeMediaTaskCharge(ctx context.Context, taskKey string) (*MediaTaskChargeTaken, error)
+	// MarkUsageLogRefunded 把退款回写到对应的 usage_logs 行：冲平收入列，
+	// 并把退款额记进 refunded_credits（原值 = total_cost + refunded_credits）。
+	// 按 (request_id, api_key_id) 定位——那是 usage_logs 上的唯一索引。
+	MarkUsageLogRefunded(ctx context.Context, requestID string, apiKeyID int64, credits float64) error
 	// TakeMediaTaskChargeByTaskID 按上游 task_id 取出可退金额。
 	//
 	// Webhook 只带 task_id，而 task_key 是 hash(user_id, api_key_id, task_id)，
@@ -183,10 +187,13 @@ type UsageBillingRepository interface {
 	RecordWebhookEventOnce(ctx context.Context, provider, eventID, eventType, taskID string) (bool, error)
 }
 
-// MediaTaskChargeTaken 一笔被取出的扣费记录。需要 UserID 才知道退给谁。
+// MediaTaskChargeTaken 一笔被取出的扣费记录。需要 UserID 才知道退给谁，
+// 需要 RequestID 才找得到要回写的 usage_logs 行（那张表不存上游 task_id）。
 type MediaTaskChargeTaken struct {
-	UserID  int64
-	Credits float64
+	UserID    int64
+	APIKeyID  int64
+	Credits   float64
+	RequestID string
 }
 
 // MediaTaskChargeCommand 记录异步媒体任务（图片 / 视频）已扣掉的积分，
@@ -201,6 +208,9 @@ type MediaTaskChargeCommand struct {
 	APIKeyID int64
 	GroupID  *int64
 	Credits  float64
+	// RequestID 是回写 usage_logs 的关联键。退款发生在任务查询接口，那时只有
+	// 上游 task_id，而 usage_logs 不存 task_id——绑定时不记下来就再也对不上。
+	RequestID string
 }
 
 func (c *MediaTaskChargeCommand) Normalize() {
@@ -209,4 +219,5 @@ func (c *MediaTaskChargeCommand) Normalize() {
 	}
 	c.TaskKey = strings.TrimSpace(c.TaskKey)
 	c.TaskID = strings.TrimSpace(c.TaskID)
+	c.RequestID = strings.TrimSpace(c.RequestID)
 }

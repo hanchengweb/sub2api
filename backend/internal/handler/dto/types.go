@@ -533,6 +533,11 @@ type UsageLog struct {
 	// BillingMode 计费模式：token/image
 	BillingMode *string `json:"billing_mode,omitempty"`
 
+	// 异步媒体任务失败退款。非空表示这一行已退款、费用列已冲平，
+	// RefundedCredits 是退回的积分数（原始扣费额 = total_cost + 它）。
+	RefundedAt      *time.Time `json:"refunded_at,omitempty"`
+	RefundedCredits *float64   `json:"refunded_credits,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 
 	User         *User             `json:"user,omitempty"`

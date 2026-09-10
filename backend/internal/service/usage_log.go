@@ -192,6 +192,12 @@ type UsageLog struct {
 	VideoResolution      *string
 	VideoDurationSeconds *int
 
+	// 异步媒体任务失败退款。退款时这一行的收入列已被冲平（total_cost /
+	// actual_cost 减去退款额、account_stats_cost 归零），这两个字段只用于
+	// 界面展示「已退款」并保留审计线索：原始扣费额 = total_cost + RefundedCredits。
+	RefundedAt      *time.Time
+	RefundedCredits *float64
+
 	CreatedAt time.Time
 
 	User         *User

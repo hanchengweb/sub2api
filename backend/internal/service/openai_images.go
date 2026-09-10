@@ -704,7 +704,7 @@ func OpenAIImageTaskChargeHash(taskID string, userID, apiKeyID int64) string {
 //
 // 媒体走异步：网关在上游返回 200（任务 pending）时就已全额扣费，而任务可能在之后失败，
 // 上游对失败任务不计费。没有这条记录就无从知道该退多少，用户会为失败的任务付钱。
-func (s *OpenAIGatewayService) BindOpenAIImageTaskCharge(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64, credits float64) error {
+func (s *OpenAIGatewayService) BindOpenAIImageTaskCharge(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64, credits float64, requestID string) error {
 	if s == nil {
 		return fmt.Errorf("openai image charge store is unavailable")
 	}
@@ -727,6 +727,8 @@ func (s *OpenAIGatewayService) BindOpenAIImageTaskCharge(ctx context.Context, gr
 			APIKeyID: apiKeyID,
 			GroupID:  groupID,
 			Credits:  credits,
+			// 退款时要靠它找回 usage_logs 那一行（那张表不存上游 task_id）
+			RequestID: requestID,
 		})
 	}
 
@@ -747,44 +749,46 @@ func (s *OpenAIGatewayService) BindOpenAIImageTaskCharge(ctx context.Context, gr
 // 幂等是退款的核心：客户端会反复轮询同一个失败任务，只能有一次拿到金额。
 // 落库路径靠单条 UPDATE ... WHERE refunded_at IS NULL RETURNING 原子完成；
 // 缓存路径（过渡用）靠「取出即删」。
-func (s *OpenAIGatewayService) TakeOpenAIImageTaskCharge(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64) (float64, bool) {
+// 第二个返回值是该笔扣费对应的 request_id，用于回写 usage_logs；
+// 缓存兜底路径与升级前绑定的老记录拿不到它，返回空串，回写会被跳过。
+func (s *OpenAIGatewayService) TakeOpenAIImageTaskCharge(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64) (float64, string, bool) {
 	if s == nil {
-		return 0, false
+		return 0, "", false
 	}
 	taskKey := OpenAIImageTaskChargeHash(taskID, userID, apiKeyID)
 	if taskKey == "" {
-		return 0, false
+		return 0, "", false
 	}
 
 	if s.usageBillingRepo != nil {
-		credits, ok, err := s.usageBillingRepo.TakeMediaTaskCharge(ctx, taskKey)
+		taken, err := s.usageBillingRepo.TakeMediaTaskCharge(ctx, taskKey)
 		if err != nil {
 			logger.LegacyPrintf("service.openai_gateway",
 				"[OpenAI] take media task charge failed task=%s user=%d err=%v", taskID, userID, err)
 			// 查库出错就不退：宁可漏退一笔，也不能在状态未知时重复退款。
-			return 0, false
+			return 0, "", false
 		}
-		if ok {
-			return credits, true
+		if taken != nil && taken.Credits > 0 {
+			return taken.Credits, taken.RequestID, true
 		}
 		// 库里没有：可能是本次升级前已经绑到 Redis 的在途任务，继续试缓存。
 		// 这条过渡路径待 24h（旧 TTL）以后可删。
 	}
 
 	if s.cache == nil {
-		return 0, false
+		return 0, "", false
 	}
 	cacheKey := s.openAISessionCacheKey(taskKey)
 	gid := derefGroupID(groupID)
 	scaled, err := s.cache.GetSessionAccountID(ctx, gid, cacheKey)
 	if err != nil || scaled <= 0 {
-		return 0, false
+		return 0, "", false
 	}
 	if delErr := s.cache.DeleteSessionAccountID(ctx, gid, cacheKey); delErr != nil {
 		// 删不掉就不退：宁可漏退一笔，也不能因为并发轮询重复退款。
-		return 0, false
+		return 0, "", false
 	}
-	return float64(scaled) / openAIImageChargeScale, true
+	return float64(scaled) / openAIImageChargeScale, "", true
 }
 
 // RefundOpenAIImageTaskCharge 把失败任务的扣费原额退回用户余额，并使余额缓存失效。
@@ -793,7 +797,7 @@ func (s *OpenAIGatewayService) RefundOpenAIImageTaskCharge(ctx context.Context, 
 	if s == nil || s.userRepo == nil {
 		return 0, false
 	}
-	credits, ok := s.TakeOpenAIImageTaskCharge(ctx, groupID, taskID, userID, apiKeyID)
+	credits, requestID, ok := s.TakeOpenAIImageTaskCharge(ctx, groupID, taskID, userID, apiKeyID)
 	if !ok || credits <= 0 {
 		return 0, false
 	}
@@ -802,6 +806,7 @@ func (s *OpenAIGatewayService) RefundOpenAIImageTaskCharge(ctx context.Context, 
 			"[OpenAI] image task refund failed task=%s user=%d credits=%.6f err=%v", taskID, userID, credits, err)
 		return 0, false
 	}
+	s.markUsageLogRefunded(ctx, requestID, apiKeyID, credits, taskID, userID)
 	if s.billingCacheService != nil {
 		if err := s.billingCacheService.InvalidateUserBalance(ctx, userID); err != nil {
 			logger.LegacyPrintf("service.openai_gateway",
@@ -2019,6 +2024,7 @@ func (s *OpenAIGatewayService) RefundMediaTaskChargeByTaskID(ctx context.Context
 			taskID, taken.UserID, taken.Credits, err)
 		return 0, 0, false
 	}
+	s.markUsageLogRefunded(ctx, taken.RequestID, taken.APIKeyID, taken.Credits, taskID, taken.UserID)
 	if s.billingCacheService != nil {
 		if err := s.billingCacheService.InvalidateUserBalance(ctx, taken.UserID); err != nil {
 			logger.LegacyPrintf("service.openai_gateway",
@@ -2026,6 +2032,22 @@ func (s *OpenAIGatewayService) RefundMediaTaskChargeByTaskID(ctx context.Context
 		}
 	}
 	return taken.Credits, taken.UserID, true
+}
+
+// markUsageLogRefunded 把已完成的退款回写到 usage_logs，失败只记日志。
+//
+// **不能因为回写失败就让退款返回 false**：钱这时已经回到用户余额，
+// 而 media_task_charges 也已标记已退，回滚不了。回写不上只意味着这一行报表
+// 偏高，比「退了钱却告诉调用方没退、下次轮询再退一次」轻得多。
+func (s *OpenAIGatewayService) markUsageLogRefunded(ctx context.Context, requestID string, apiKeyID int64, credits float64, taskID string, userID int64) {
+	if s == nil || s.usageBillingRepo == nil || strings.TrimSpace(requestID) == "" || apiKeyID <= 0 || credits <= 0 {
+		return
+	}
+	if err := s.usageBillingRepo.MarkUsageLogRefunded(ctx, requestID, apiKeyID, credits); err != nil {
+		logger.LegacyPrintf("service.openai_gateway",
+			"[OpenAI] mark usage log refunded failed task=%s user=%d request=%s credits=%.6f err=%v",
+			taskID, userID, requestID, credits, err)
+	}
 }
 
 // RecordWebhookEventOnce 透出给 handler 做事件幂等判定。

@@ -668,6 +668,8 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		ImageSizeSource:           l.ImageSizeSource,
 		ImageSizeBreakdown:        l.ImageSizeBreakdown,
 		MediaType:                 l.MediaType,
+		RefundedAt:                l.RefundedAt,
+		RefundedCredits:           l.RefundedCredits,
 		UserAgent:                 l.UserAgent,
 		IPAddress:                 l.IPAddress,
 		SessionID:                 l.SessionID,

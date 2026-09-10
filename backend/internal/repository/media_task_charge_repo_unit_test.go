@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	bindMediaTaskChargeSQL = `(?s)INSERT INTO media_task_charges \(task_key, task_id, user_id, api_key_id, group_id, credits\)\s+VALUES \(\$1, NULLIF\(\$2, ''\), \$3, \$4, \$5, \$6\)\s+ON CONFLICT \(task_key\) DO UPDATE\s+SET credits = EXCLUDED\.credits, task_id = EXCLUDED\.task_id\s+WHERE media_task_charges\.refunded_at IS NULL`
-	takeMediaTaskChargeSQL = `(?s)UPDATE media_task_charges\s+SET refunded_at = NOW\(\)\s+WHERE task_key = \$1 AND refunded_at IS NULL\s+RETURNING credits`
+	bindMediaTaskChargeSQL  = `(?s)INSERT INTO media_task_charges \(task_key, task_id, user_id, api_key_id, group_id, credits, request_id\)\s+VALUES \(\$1, NULLIF\(\$2, ''\), \$3, \$4, \$5, \$6, NULLIF\(\$7, ''\)\)\s+ON CONFLICT \(task_key\) DO UPDATE\s+SET credits = EXCLUDED\.credits, task_id = EXCLUDED\.task_id, request_id = EXCLUDED\.request_id\s+WHERE media_task_charges\.refunded_at IS NULL`
+	takeMediaTaskChargeSQL  = `(?s)UPDATE media_task_charges\s+SET refunded_at = NOW\(\)\s+WHERE task_key = \$1 AND refunded_at IS NULL\s+RETURNING user_id, api_key_id, credits, COALESCE\(request_id, ''\)`
+	markUsageLogRefundedSQL = `(?s)UPDATE usage_logs\s+SET refunded_at = NOW\(\),\s+refunded_credits = \$3,\s+total_cost = GREATEST\(total_cost - \$3, 0\),\s+actual_cost = GREATEST\(actual_cost - \$3, 0\),\s+account_stats_cost = 0\s+WHERE request_id = \$1 AND api_key_id = \$2 AND refunded_at IS NULL`
 )
 
 func newMediaChargeRepo(t *testing.T) (*usageBillingRepository, sqlmock.Sqlmock, func()) {
@@ -32,12 +33,14 @@ func TestBindMediaTaskCharge_PersistsCharge(t *testing.T) {
 
 	gid := int64(4)
 	mock.ExpectExec(bindMediaTaskChargeSQL).
-		WithArgs("k1", "tsk_img_abc", int64(6), int64(9), int64(4), 39.5).
+		WithArgs("k1", "tsk_img_abc", int64(6), int64(9), int64(4), 39.5, "req-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// task_id 必须一并落库：Webhook 只带 task_id，不存就反查不到该退给谁。
+	// request_id 同样必须落库：退款时要靠它回写 usage_logs。
 	require.NoError(t, repo.BindMediaTaskCharge(context.Background(), &service.MediaTaskChargeCommand{
-		TaskKey: "k1", TaskID: "tsk_img_abc", UserID: 6, APIKeyID: 9, GroupID: &gid, Credits: 39.5,
+		TaskKey: "k1", TaskID: "tsk_img_abc", UserID: 6, APIKeyID: 9, GroupID: &gid,
+		Credits: 39.5, RequestID: "req-1",
 	}))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -75,12 +78,15 @@ func TestTakeMediaTaskCharge_ReturnsCredits(t *testing.T) {
 
 	mock.ExpectQuery(takeMediaTaskChargeSQL).
 		WithArgs("k1").
-		WillReturnRows(sqlmock.NewRows([]string{"credits"}).AddRow(39.5))
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "api_key_id", "credits", "request_id"}).
+			AddRow(int64(6), int64(9), 39.5, "req-1"))
 
-	credits, ok, err := repo.TakeMediaTaskCharge(context.Background(), "k1")
+	taken, err := repo.TakeMediaTaskCharge(context.Background(), "k1")
 	require.NoError(t, err)
-	require.True(t, ok)
-	require.InDelta(t, 39.5, credits, 1e-9)
+	require.NotNil(t, taken)
+	require.InDelta(t, 39.5, taken.Credits, 1e-9)
+	// request_id 要一路带出来，否则退款回写不到 usage_logs
+	require.Equal(t, "req-1", taken.RequestID)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -92,12 +98,11 @@ func TestTakeMediaTaskCharge_AlreadyRefundedYieldsNothing(t *testing.T) {
 
 	mock.ExpectQuery(takeMediaTaskChargeSQL).
 		WithArgs("k1").
-		WillReturnRows(sqlmock.NewRows([]string{"credits"}))
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "api_key_id", "credits", "request_id"}))
 
-	credits, ok, err := repo.TakeMediaTaskCharge(context.Background(), "k1")
+	taken, err := repo.TakeMediaTaskCharge(context.Background(), "k1")
 	require.NoError(t, err)
-	require.False(t, ok)
-	require.Zero(t, credits)
+	require.Nil(t, taken)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -110,9 +115,9 @@ func TestTakeMediaTaskCharge_PropagatesError(t *testing.T) {
 		WithArgs("k1").
 		WillReturnError(errors.New("boom"))
 
-	_, ok, err := repo.TakeMediaTaskCharge(context.Background(), "k1")
+	taken, err := repo.TakeMediaTaskCharge(context.Background(), "k1")
 	require.Error(t, err)
-	require.False(t, ok)
+	require.Nil(t, taken)
 }
 
 // 空 key 不查库，也不算错误——调用方传空表示这次没有可退记录。
@@ -120,15 +125,14 @@ func TestTakeMediaTaskCharge_EmptyKeyIsNoop(t *testing.T) {
 	repo, mock, done := newMediaChargeRepo(t)
 	defer done()
 
-	credits, ok, err := repo.TakeMediaTaskCharge(context.Background(), "  ")
+	taken, err := repo.TakeMediaTaskCharge(context.Background(), "  ")
 	require.NoError(t, err)
-	require.False(t, ok)
-	require.Zero(t, credits)
+	require.Nil(t, taken)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 const (
-	takeByTaskIDSQL  = `(?s)UPDATE media_task_charges\s+SET refunded_at = NOW\(\)\s+WHERE task_id = \$1 AND refunded_at IS NULL\s+RETURNING user_id, credits`
+	takeByTaskIDSQL  = `(?s)UPDATE media_task_charges\s+SET refunded_at = NOW\(\)\s+WHERE task_id = \$1 AND refunded_at IS NULL\s+RETURNING user_id, api_key_id, credits, COALESCE\(request_id, ''\)`
 	recordWebhookSQL = `(?s)INSERT INTO webhook_events \(provider, event_id, event_type, task_id\)\s+VALUES \(\$1, \$2, \$3, NULLIF\(\$4, ''\)\)\s+ON CONFLICT \(provider, event_id\) DO NOTHING`
 )
 
@@ -139,13 +143,15 @@ func TestTakeMediaTaskChargeByTaskID_ReturnsUserAndCredits(t *testing.T) {
 
 	mock.ExpectQuery(takeByTaskIDSQL).
 		WithArgs("tsk_vid_abc").
-		WillReturnRows(sqlmock.NewRows([]string{"user_id", "credits"}).AddRow(int64(6), 185.0))
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "api_key_id", "credits", "request_id"}).
+			AddRow(int64(6), int64(9), 185.0, "req-vid-1"))
 
 	taken, err := repo.TakeMediaTaskChargeByTaskID(context.Background(), "tsk_vid_abc")
 	require.NoError(t, err)
 	require.NotNil(t, taken)
 	require.Equal(t, int64(6), taken.UserID)
 	require.InDelta(t, 185.0, taken.Credits, 1e-9)
+	require.Equal(t, "req-vid-1", taken.RequestID)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -156,7 +162,7 @@ func TestTakeMediaTaskChargeByTaskID_AlreadyRefunded(t *testing.T) {
 
 	mock.ExpectQuery(takeByTaskIDSQL).
 		WithArgs("tsk_vid_abc").
-		WillReturnRows(sqlmock.NewRows([]string{"user_id", "credits"}))
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "api_key_id", "credits", "request_id"}))
 
 	taken, err := repo.TakeMediaTaskChargeByTaskID(context.Background(), "tsk_vid_abc")
 	require.NoError(t, err)
@@ -204,4 +210,31 @@ func TestRecordWebhookEventOnce_RejectsMissingKeys(t *testing.T) {
 	require.Error(t, err)
 	_, err = repo.RecordWebhookEventOnce(context.Background(), "toapis", "", "t", "")
 	require.Error(t, err)
+}
+
+// 退款必须回写 usage_logs，否则用户在使用日志里看到一笔自己没付的扣费，
+// 平台的收入/毛利报表也按全额虚高。2026-09-10 线上实测确认过这个缺口：
+// 三笔失败任务余额都退了，usage_logs 里却留着 39.5 + 43 + 43 的幻影收入。
+func TestMarkUsageLogRefunded_ZeroesRowAndRecordsRefund(t *testing.T) {
+	repo, mock, done := newMediaChargeRepo(t)
+	defer done()
+
+	mock.ExpectExec(markUsageLogRefundedSQL).
+		WithArgs("req-1", int64(9), 39.5).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, repo.MarkUsageLogRefunded(context.Background(), "req-1", 9, 39.5))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// request_id 为空（本列上线前绑定的在途任务）不查库、也不报错：
+// 钱已经退了，回写不上只是这一行报表不准，不该让退款流程失败。
+func TestMarkUsageLogRefunded_EmptyRequestIDIsNoop(t *testing.T) {
+	repo, mock, done := newMediaChargeRepo(t)
+	defer done()
+
+	require.NoError(t, repo.MarkUsageLogRefunded(context.Background(), "  ", 9, 39.5))
+	require.NoError(t, repo.MarkUsageLogRefunded(context.Background(), "req-1", 0, 39.5))
+	require.NoError(t, repo.MarkUsageLogRefunded(context.Background(), "req-1", 9, 0))
+	require.NoError(t, mock.ExpectationsWereMet(), "不应产生任何 SQL")
 }

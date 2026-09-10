@@ -179,6 +179,18 @@
                 data-testid="long-context-billing-marker"
                 class="inline-flex items-center rounded px-1 py-px text-[10px] font-semibold leading-tight bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-500/30"
               >x2</span>
+              <!--
+                异步媒体任务失败退款：费用列已被冲平成 0，没有这个标记的话，
+                用户只看到「0.000000 积分」却不知道为什么，会以为是漏记。
+                标题里带上退回的积分数，鼠标悬停即可核对。
+              -->
+              <span
+                v-if="row.refunded_at"
+                data-testid="refunded-marker"
+                :data-refunded-credits="(row.refunded_credits ?? 0).toFixed(2)"
+                :title="t('usage.refundedAmount', { credits: (row.refunded_credits ?? 0).toFixed(2) })"
+                class="inline-flex items-center rounded px-1 py-px text-[10px] font-semibold leading-tight bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200 dark:bg-slate-500/20 dark:text-slate-300 dark:ring-slate-500/30"
+              >{{ t('usage.refunded') }}</span>
               <!-- Cost Detail Tooltip -->
               <div
                 class="group relative"

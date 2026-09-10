@@ -335,6 +335,8 @@ export default {
     unitPrice: '单次价格',
     imageUnitPrice: '单张价格',
     imageTotalPrice: '图片总价',
+    refunded: '已退款',
+    refundedAmount: '任务失败，已退回 {credits} 积分',
     imageCount: '图片张数',
     imageBillingSize: '计费尺寸',
     imageInputSize: '输入尺寸',

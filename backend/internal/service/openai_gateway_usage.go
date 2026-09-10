@@ -298,7 +298,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if cost != nil && result.ImageCount > 0 && cost.ActualCost > 0 &&
 		cost.BillingMode != string(BillingModeToken) && apiKey != nil && user != nil {
 		if taskID := strings.TrimSpace(result.ResponseID); taskID != "" {
-			if err := s.BindOpenAIImageTaskCharge(ctx, apiKey.GroupID, taskID, user.ID, apiKey.ID, cost.ActualCost); err != nil {
+			if err := s.BindOpenAIImageTaskCharge(ctx, apiKey.GroupID, taskID, user.ID, apiKey.ID, cost.ActualCost, requestID); err != nil {
 				logger.LegacyPrintf("service.openai_gateway",
 					"[OpenAI] bind image task charge failed task=%s user=%d credits=%.6f err=%v",
 					taskID, user.ID, cost.ActualCost, err)

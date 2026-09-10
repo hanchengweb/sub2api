@@ -330,6 +330,8 @@ export default {
     unitPrice: 'Per-request price',
     imageUnitPrice: 'Per-image price',
     imageTotalPrice: 'Image total price',
+    refunded: 'Refunded',
+    refundedAmount: 'Task failed; {credits} credits refunded',
     imageCount: 'Image count',
     imageBillingSize: 'Billing size',
     imageInputSize: 'Input size',

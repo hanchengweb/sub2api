@@ -579,57 +579,101 @@ func (r *usageBillingRepository) BindMediaTaskCharge(ctx context.Context, cmd *s
 	}
 
 	const bindSQL = `
-		INSERT INTO media_task_charges (task_key, task_id, user_id, api_key_id, group_id, credits)
-		VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6)
+		INSERT INTO media_task_charges (task_key, task_id, user_id, api_key_id, group_id, credits, request_id)
+		VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, NULLIF($7, ''))
 		ON CONFLICT (task_key) DO UPDATE
-		SET credits = EXCLUDED.credits, task_id = EXCLUDED.task_id
+		SET credits = EXCLUDED.credits, task_id = EXCLUDED.task_id, request_id = EXCLUDED.request_id
 		WHERE media_task_charges.refunded_at IS NULL
 	`
 	var groupID any
 	if cmd.GroupID != nil && *cmd.GroupID > 0 {
 		groupID = *cmd.GroupID
 	}
-	_, err := r.db.ExecContext(ctx, bindSQL, cmd.TaskKey, cmd.TaskID, cmd.UserID, cmd.APIKeyID, groupID, cmd.Credits)
+	_, err := r.db.ExecContext(ctx, bindSQL,
+		cmd.TaskKey, cmd.TaskID, cmd.UserID, cmd.APIKeyID, groupID, cmd.Credits, cmd.RequestID)
 	return err
 }
 
-// TakeMediaTaskCharge 取出可退金额并原子标记为已退，返回 (积分, 是否取到)。
+// TakeMediaTaskCharge 取出可退金额并原子标记为已退。
 //
 // 幂等靠单条 UPDATE ... WHERE refunded_at IS NULL RETURNING 完成：客户端会反复轮询
 // 同一个失败任务，并发下也只有一条语句能命中未退的行，因此不会重复退款。
-// 取不到（未知任务或已退过）返回 false，调用方据此跳过。
-func (r *usageBillingRepository) TakeMediaTaskCharge(ctx context.Context, taskKey string) (float64, bool, error) {
+// 取不到（未知任务或已退过）返回 nil，调用方据此跳过。
+//
+// 一并返回 request_id：退款还要回写 usage_logs，而那张表不存上游 task_id，
+// 只有 request_id 对得上。老记录（本列上线前绑定的）该字段为空，回写会被跳过。
+func (r *usageBillingRepository) TakeMediaTaskCharge(ctx context.Context, taskKey string) (*service.MediaTaskChargeTaken, error) {
 	if r == nil || r.db == nil {
-		return 0, false, errors.New("usage billing repository db is nil")
+		return nil, errors.New("usage billing repository db is nil")
 	}
 	taskKey = strings.TrimSpace(taskKey)
 	if taskKey == "" {
-		return 0, false, nil
+		return nil, nil
 	}
 
 	const takeSQL = `
 		UPDATE media_task_charges
 		SET refunded_at = NOW()
 		WHERE task_key = $1 AND refunded_at IS NULL
-		RETURNING credits
+		RETURNING user_id, api_key_id, credits, COALESCE(request_id, '')
 	`
 	rows, err := r.db.QueryContext(ctx, takeSQL, taskKey)
 	if err != nil {
-		return 0, false, err
+		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 
 	if !rows.Next() {
-		return 0, false, rows.Err()
+		return nil, rows.Err()
 	}
-	var credits float64
-	if err := rows.Scan(&credits); err != nil {
-		return 0, false, err
+	var taken service.MediaTaskChargeTaken
+	if err := rows.Scan(&taken.UserID, &taken.APIKeyID, &taken.Credits, &taken.RequestID); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
-		return 0, false, err
+		return nil, err
 	}
-	return credits, credits > 0, nil
+	if taken.Credits <= 0 {
+		return nil, nil
+	}
+	return &taken, nil
+}
+
+// MarkUsageLogRefunded 把退款回写到对应的 usage_logs 行。
+//
+// 直接冲平这一行的收入列，而不是保留原值让报表去减：全仓有 25 处以上
+// SUM(total_cost) 聚合，逐个改必然漏掉几处，漏掉的会继续虚报。在写入侧冲平，
+// 所有既有查询自动正确。审计不受损——原始扣费额 = total_cost + refunded_credits。
+//
+// account_stats_cost 一并归零：上游对失败任务不计费（2026-09-10 实测两笔失败
+// 任务，上游 used_balance 分文未动），不归零毛利报表会在这些行上显示负毛利。
+//
+// 定位用 (request_id, api_key_id)——那正是 usage_logs 上的唯一索引，
+// 只按 request_id 理论上可能命中多行。
+//
+// refunded_at IS NULL 兜住重复回写：退款本身已在 media_task_charges 上幂等，
+// 这里再加一道，免得任何重试路径把这一行减成负数。
+// request_id 为空（本列上线前的在途任务）时直接跳过，不报错——钱已经退了，
+// 回写不上只是这一行报表不准，不该让退款流程失败。
+func (r *usageBillingRepository) MarkUsageLogRefunded(ctx context.Context, requestID string, apiKeyID int64, credits float64) error {
+	if r == nil || r.db == nil {
+		return errors.New("usage billing repository db is nil")
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || apiKeyID <= 0 || credits <= 0 {
+		return nil
+	}
+	const markSQL = `
+		UPDATE usage_logs
+		SET refunded_at = NOW(),
+		    refunded_credits = $3,
+		    total_cost = GREATEST(total_cost - $3, 0),
+		    actual_cost = GREATEST(actual_cost - $3, 0),
+		    account_stats_cost = 0
+		WHERE request_id = $1 AND api_key_id = $2 AND refunded_at IS NULL
+	`
+	_, err := r.db.ExecContext(ctx, markSQL, requestID, apiKeyID, credits)
+	return err
 }
 
 // TakeMediaTaskChargeByTaskID 按上游 task_id 原子「取出并标记已退」。
@@ -650,7 +694,7 @@ func (r *usageBillingRepository) TakeMediaTaskChargeByTaskID(ctx context.Context
 		UPDATE media_task_charges
 		SET refunded_at = NOW()
 		WHERE task_id = $1 AND refunded_at IS NULL
-		RETURNING user_id, credits
+		RETURNING user_id, api_key_id, credits, COALESCE(request_id, '')
 	`
 	rows, err := r.db.QueryContext(ctx, takeSQL, taskID)
 	if err != nil {
@@ -662,7 +706,7 @@ func (r *usageBillingRepository) TakeMediaTaskChargeByTaskID(ctx context.Context
 		return nil, rows.Err()
 	}
 	var taken service.MediaTaskChargeTaken
-	if err := rows.Scan(&taken.UserID, &taken.Credits); err != nil {
+	if err := rows.Scan(&taken.UserID, &taken.APIKeyID, &taken.Credits, &taken.RequestID); err != nil {
 		return nil, err
 	}
 	if err := rows.Err(); err != nil {

@@ -517,8 +517,12 @@ func (r *fakeBatchImageBillingRepo) BindMediaTaskCharge(_ context.Context, _ *Me
 	return nil
 }
 
-func (r *fakeBatchImageBillingRepo) TakeMediaTaskCharge(_ context.Context, _ string) (float64, bool, error) {
-	return 0, false, nil
+func (r *fakeBatchImageBillingRepo) TakeMediaTaskCharge(_ context.Context, _ string) (*MediaTaskChargeTaken, error) {
+	return nil, nil
+}
+
+func (r *fakeBatchImageBillingRepo) MarkUsageLogRefunded(_ context.Context, _ string, _ int64, _ float64) error {
+	return nil
 }
 
 func (r *fakeBatchImageBillingRepo) TakeMediaTaskChargeByTaskID(_ context.Context, _ string) (*MediaTaskChargeTaken, error) {

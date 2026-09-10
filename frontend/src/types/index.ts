@@ -1554,6 +1554,12 @@ export interface UsageLog {
   actual_cost: number
   rate_multiplier: number
   long_context_billing_applied: boolean
+  /**
+   * 异步媒体任务失败退款。非空表示这一行已退款、费用列已冲平成 0；
+   * refunded_credits 是退回的积分（原始扣费额 = total_cost + 它）。
+   */
+  refunded_at?: string | null
+  refunded_credits?: number | null
   billing_type: number
 
   request_type?: UsageRequestType

@@ -153,6 +153,45 @@ describe('admin UsageTable tooltip', () => {
     expect(wrapper.get('[data-testid="long-context-billing-marker"]').text()).toBe('x2')
   })
 
+  // 异步生图/生视频任务失败会退款，退款时那一行的费用被冲平成 0。
+  // 没有这个标记，用户只看到「0.000000 积分」，会以为是漏记而不是退款。
+  it('marks refunded rows so a zeroed cost is not mistaken for a missing charge', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          {
+            ...baseImageRow,
+            request_id: 'req-refunded',
+            actual_cost: 0,
+            total_cost: 0,
+            refunded_at: '2026-09-10T19:23:41+08:00',
+            refunded_credits: 32.35,
+          },
+          {
+            ...baseImageRow,
+            request_id: 'req-charged',
+          },
+        ],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const markers = wrapper.findAll('[data-testid="refunded-marker"]')
+    expect(markers).toHaveLength(1)
+    // 退了多少要能看到，否则「已退款」三个字没法核对。
+    // 断言 data 属性而不是 title：title 走 i18n，测试里被 stub 成返回 key。
+    expect(markers[0].attributes('data-refunded-credits')).toBe('32.35')
+  })
+
   it('shows service tier and billing breakdown in cost tooltip', async () => {
     const row = {
       request_id: 'req-admin-1',
