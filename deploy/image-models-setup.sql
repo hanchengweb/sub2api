@@ -1,6 +1,11 @@
 -- 生图模型全量配置：27 个模型 / 47 条价目
 -- 售价 = 上游成本 + 29 积分（每张）。成本取 toAPI 价目表。
 -- 由 deploy/image-price-plan.json 生成，勿手改；改价请改那个文件后重新生成。
+-- 无档位维度的模型，价格写进 channel_model_pricing.per_request_price，
+-- **不要**造一个标签叫「默认」的档位：计费链路只按
+-- 「清晰度·质量」→「清晰度」→ per_request_price 三级查找，不认识「默认」，
+-- 会一路落到 NULL、扣费 0。线上实测 qwen-image-3.0 扣 0 才发现，23 个模型都中招。
+-- 修复补丁见 deploy/fix-default-tier.sql。
 BEGIN;
 
 -- Black Forest Labs / flux-2-flex
