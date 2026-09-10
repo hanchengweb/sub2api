@@ -62,6 +62,17 @@ func ClassifyImageBillingTier(size string) (string, bool) {
 }
 
 func NormalizeImageBillingTierOrDefault(size string) string {
+	// 已经是「清晰度·质量」的完整档位标签就原样返回。
+	//
+	// 计费链路上这个函数会被调用两次：一次把请求参数归一成档位，另一次在结算前
+	// 拿 result.ImageSize 再归一一遍。第二次拿到的已经是算好的标签，而带质量后缀的
+	// "1K·高" 走 ClassifyImageBillingTier 解析不出来，会被打回默认 2K——
+	// 于是不管请求什么清晰度什么质量，最终都按 2K 收费。线上实测就是这么发现的。
+	if base := BaseImageBillingTier(size); base != size {
+		if _, ok := ClassifyImageBillingTier(base); ok {
+			return size
+		}
+	}
 	if tier, ok := ClassifyImageBillingTier(size); ok {
 		return tier
 	}

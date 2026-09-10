@@ -143,3 +143,25 @@ func TestOpenAIImagesRequestUsesResolutionAndQuality(t *testing.T) {
 		t.Fatalf("两条链路档位不一致：openai=%q grok=%q", parsed.SizeTier, grok.SizeTier)
 	}
 }
+
+// 回归：结算前会把 result.ImageSize 再归一一次，带质量后缀的标签必须原样保留。
+// 否则 "1K·高" 解析不出来会被打回默认 2K——不管请求什么清晰度什么质量，
+// 最终都按 2K 收费。线上实测就是这么发现的。
+func TestNormalizeImageBillingTierKeepsQualifiedLabel(t *testing.T) {
+	for _, label := range []string{"1K·低", "2K·中", "4K·高"} {
+		if got := NormalizeImageBillingTierOrDefault(label); got != label {
+			t.Fatalf("NormalizeImageBillingTierOrDefault(%q) = %q，完整档位标签必须原样保留", label, got)
+		}
+	}
+	// 非档位的脏值仍按默认处理
+	if got := NormalizeImageBillingTierOrDefault("1:1"); got != ImageBillingSize2K {
+		t.Fatalf("宽高比不是档位，应落默认 2K，got %q", got)
+	}
+	if got := NormalizeImageBillingTierOrDefault("啥·高"); got != ImageBillingSize2K {
+		t.Fatalf("前半段不是合法档位时不该原样返回，got %q", got)
+	}
+	// 纯档位仍然归一
+	if got := NormalizeImageBillingTierOrDefault("1024x1024"); got != ImageBillingSize1K {
+		t.Fatalf("got %q, want 1K", got)
+	}
+}
