@@ -45,6 +45,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.pricing-layout { @apply bg-white dark:bg-dark-950; }
+.pricing-layout { @apply bg-gray-50 dark:bg-dark-950; }
 .pricing-layout :deep(.bg-mesh-gradient) { display: none; }
 </style>

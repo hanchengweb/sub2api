@@ -53,7 +53,7 @@
         @update:rate="selectedRate = $event"
         @update:search="searchQuery = $event"
       />
-      <div class="pricing-tabs flex flex-wrap items-center gap-1 border-b border-gray-200 dark:border-dark-700">
+      <div class="pricing-tabs flex flex-wrap items-center gap-2">
         <button v-for="item in kinds" :key="item.value" class="pricing-tab" :class="{ 'is-active': kind === item.value }" :aria-pressed="kind === item.value" @click="kind = item.value">{{ t(item.label) }}<span class="pricing-tab-count">{{ kindCounts[item.value] }}</span></button>
         <span class="ml-auto hidden text-xs text-gray-500 sm:inline" aria-live="polite">{{ t('modelPlaza.table.modelCount', { n: visibleCount }) }}</span>
         <button v-if="searchActive || kind || selectedPlatform !== 'all' || selectedGroupId !== 'all' || selectedRate !== 'all'" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100" :aria-label="t('modelPlaza.filters.all')" :title="t('modelPlaza.filters.all')" @click="resetFilters"><Icon name="refresh" size="sm" /></button>
@@ -197,14 +197,14 @@ const filteredGroups = computed(() => {
 </script>
 
 <style scoped>
-.pricing-workspace { max-width: 1200px; margin-inline: auto; }
-.pricing-document-header { @apply border-t-4 border-primary-700 pb-3 pt-7 dark:border-primary-500; }
+.pricing-workspace { max-width: 1400px; margin-inline: auto; }
+.pricing-document-header { @apply pb-2 pt-1; }
 .pricing-header-link { @apply inline-flex h-9 items-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-300 dark:hover:border-primary-700 dark:hover:bg-primary-950; }
 .pricing-header-link :deep(svg) { @apply text-primary-600 dark:text-primary-400; }
 .pricing-tab-count { @apply ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-500 dark:bg-dark-800 dark:text-gray-400; }
-.pricing-tab { @apply relative min-h-12 border-b-2 border-transparent px-4 text-sm font-medium text-gray-500 transition-colors hover:text-gray-900 focus-visible:outline-primary-500 dark:text-gray-400 dark:hover:text-gray-100; }
-.pricing-tab.is-active { @apply rounded-t-md border-primary-600 bg-primary-50 text-primary-800 dark:border-primary-400 dark:bg-primary-950/60 dark:text-primary-200; }
-.pricing-tab.is-active .pricing-tab-count { @apply bg-primary-600 text-white dark:bg-primary-800 dark:text-primary-100; }
+.pricing-tab { @apply relative min-h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-600 transition-colors hover:border-primary-300 hover:text-primary-700 focus-visible:outline-primary-500 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-400 dark:hover:text-gray-100; }
+.pricing-tab.is-active { @apply border-primary-700 bg-primary-700 text-white dark:border-primary-700 dark:bg-primary-700 dark:text-white; }
+.pricing-tab.is-active .pricing-tab-count { @apply bg-white/20 text-white; }
 @media (max-width: 639px) {
   .pricing-tab { padding-inline: 8px; font-size: 12px; }
   .pricing-tab-count { margin-left: 4px; padding-inline: 4px; font-size: 10px; }

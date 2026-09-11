@@ -7,19 +7,19 @@
         <span class="ml-auto text-xs text-gray-500">{{ t('modelPlaza.table.modelCount', { n: sec.models.length }) }}</span>
       </div>
       <p v-if="sec.timeNote" class="mb-4 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ sec.timeNote }}</p>
-      <div class="pz-models" :class="{ 'pz-models-wide': showOfficial && sec.kind === 'text' }">
+      <div class="pz-models">
         <article v-for="m in sec.models" :key="m.name" class="pz-model">
           <header class="pz-model-header">
-            <ModelBrandMark :model="m.name" size="lg" />
+            <ModelBrandMark :model="m.name" size="md" />
             <div class="min-w-0 flex-1">
               <h3 data-testid="model-name" class="break-words text-sm font-semibold text-gray-900 dark:text-gray-100">{{ m.name }}</h3>
               <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                 <span>{{ resolveModelVendor(m.name).label }}</span>
               </div>
-              <div class="pz-model-links">
+            </div>
+            <div class="pz-model-links">
                 <button type="button" class="pz-model-action" :title="t('common.copy')" :aria-label="`${t('common.copy')} ${m.name}`" @click="copyToClipboard(m.name)"><Icon name="copy" size="sm" /></button>
                 <a :href="`/playground?model=${encodeURIComponent(m.name)}&mode=${sec.kind === 'text' ? 'chat' : sec.kind}`" class="pz-try" :aria-label="`${t('modelGallery.tryIt')} ${m.name}`">{{ t('modelGallery.tryIt') }}<Icon name="arrowRight" size="sm" /></a>
-              </div>
             </div>
           </header>
           <div class="pz-table-frame">
@@ -361,20 +361,21 @@ function trimZero(n: number): string {
 </script>
 
 <style scoped>
-.pz-section-heading { @apply flex flex-wrap items-center gap-3 border-b-2 border-primary-700 pb-4 pt-2 dark:border-primary-500; }
-.pz-title { @apply text-lg font-semibold text-primary-800 dark:text-primary-200; }
+.pz-section-heading { @apply mb-4 flex flex-wrap items-center gap-3; }
+.pz-title { @apply text-base font-semibold text-gray-900 dark:text-gray-100; }
 .pz-section-unit { @apply text-xs text-gray-500 dark:text-gray-400; }
-.pz-models { display: grid; grid-template-columns: minmax(0, 1fr); }
-.pz-model { @apply grid min-w-0 border-b border-gray-200 dark:border-dark-700; grid-template-columns: minmax(0, 34%) minmax(0, 66%); }
-.pz-model-header { @apply flex items-start gap-3 py-7 pr-6; }
+.pz-models { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.pz-model { @apply min-w-0 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900; }
+.pz-model-header { @apply flex items-center gap-3 border-b border-gray-200 bg-primary-50/40 px-5 py-4 dark:border-dark-700 dark:bg-primary-950/25; }
 .pz-model-header h3 { font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
-.pz-model-links { @apply mt-3 flex items-center gap-3; }
+.pz-model-links { @apply flex shrink-0 items-center gap-3; }
 .pz-model-action { @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-800 focus-visible:outline-primary-500 dark:hover:bg-dark-800 dark:hover:text-gray-100; }
-.pz-try { @apply inline-flex h-8 shrink-0 items-center gap-2 rounded px-1 text-xs font-medium text-primary-700 transition-colors hover:bg-primary-50 focus-visible:outline-primary-500 dark:text-primary-300 dark:hover:bg-primary-950; }
-.pz-table-frame { min-width: 0; overflow-x: auto; padding-block: 24px; }
+.pz-try { @apply inline-flex h-8 shrink-0 items-center gap-2 rounded-md border border-primary-200 bg-white px-3 text-xs font-medium text-primary-700 transition-colors hover:border-primary-700 hover:bg-primary-700 hover:text-white focus-visible:outline-primary-500 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-300 dark:hover:bg-primary-800 dark:hover:text-white; }
+.pz-table-frame { min-width: 0; overflow-x: auto; }
 .pz-table-frame table { width: 100%; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; }
 .pz-table-frame th { @apply border-b border-gray-200 bg-gray-50/80 px-5 py-3 text-right text-xs font-medium text-gray-500 dark:border-dark-700 dark:bg-dark-800/40 dark:text-gray-400; }
-.pz-table-frame td { @apply border-b border-gray-100 px-5 py-4 text-right text-sm dark:border-dark-800; overflow-wrap: anywhere; }
+.pz-table-frame td { @apply border-b border-gray-100 px-5 py-5 text-right text-sm dark:border-dark-800; overflow-wrap: anywhere; }
+.pz-table-frame tbody tr:nth-child(even) { @apply bg-gray-50/40 dark:bg-dark-800/15; }
 .pz-table-frame tbody tr:last-child td { border-bottom: 0; }
 .pz-media-table th:first-child, .pz-media-table td:first-child { text-align: left; }
 .pz-media-table tbody tr:hover { @apply bg-primary-50/50 dark:bg-primary-950/30; }
@@ -383,13 +384,10 @@ function trimZero(n: number): string {
 .pz-media-table th:last-child { width: 24%; }
 .pz-table-frame .pz-price { @apply text-base font-semibold text-primary-800 dark:text-primary-200; }
 .pz-table-frame .pz-unit { @apply text-xs text-gray-500 dark:text-gray-400; }
-@media (max-width: 1199px) { .pz-model { grid-template-columns: minmax(0, 38%) minmax(0, 62%); } }
 @media (max-width: 639px) {
-  .pz-model { grid-template-columns: minmax(0, 1fr); }
-  .pz-model-header { gap: 12px; padding: 20px 0 8px; }
+  .pz-model-header { gap: 8px; padding: 16px 12px; }
   .pz-model-header h3 { font-size: 14px; }
-  .pz-model-links { margin-top: 6px; }
-  .pz-table-frame { padding-block: 8px 20px; }
+  .pz-model-links { gap: 4px; }
   .pz-table-frame th, .pz-table-frame td { padding-inline: 10px; }
   .pz-table-frame .pz-cell { font-size: 12px; overflow-wrap: anywhere; }
   .pz-try { padding-inline: 4px; }
