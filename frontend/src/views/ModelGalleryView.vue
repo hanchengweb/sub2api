@@ -185,9 +185,13 @@ const VENDOR_HERO: Record<string, string> = {
 
 const failedImages = ref(new Set<string>())
 
+// 放在 /model-gallery/ 而不是 /images/：网关把 /images/ 整个前缀吃掉了
+// （shouldBypassEmbeddedFrontend 里为 /images/generations、/images/tasks 这些
+// OpenAI 兼容的根级别名做的旁路），静态图放那儿一律落到 Gin 默认 404。
+// 与当初 /models 被网关路由盖掉、改用 /model-gallery 是同一类碰撞。
 function heroImage(model: string): string {
   const file = VENDOR_HERO[resolveModelVendor(model).key]
-  return file ? `/images/model-gallery/${file}` : ''
+  return file ? `/model-gallery/${file}` : ''
 }
 
 /** 点「去体验」直接带着模型名跳到在线使用页，省得用户再翻一遍下拉。 */

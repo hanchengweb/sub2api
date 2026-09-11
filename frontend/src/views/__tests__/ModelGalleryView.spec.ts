@@ -22,7 +22,11 @@ describe('model gallery imagery', () => {
     await flushPromises()
     expect(wrapper.findAll('.gallery-card')).toHaveLength(2)
     const image = wrapper.get('.gallery-image')
-    expect(image.attributes('src')).toBe('/images/model-gallery/openai.webp')
+    expect(image.attributes('src')).toBe('/model-gallery/openai.webp')
+    // 不能放在 /images/ 下：网关把整个 /images/ 前缀旁路给了 OpenAI 兼容端点
+    // （/images/generations、/images/tasks），静态图放那儿线上一律 404。
+    // 2026-09-11 实测踩过一次，这条断言是防它再溜回去。
+    expect(image.attributes('src')).not.toMatch(/^\/images\//)
     const card = wrapper.findAll('.gallery-card').find(item => item.text().includes('gpt-image'))!
     expect(JSON.parse(card.get('a').attributes('data-target'))).toEqual({
       path: '/playground', query: { model: 'gpt-image-2.5-flare', mode: 'image' }
