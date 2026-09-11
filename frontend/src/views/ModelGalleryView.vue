@@ -79,6 +79,16 @@
           >
             {{ card.name }}
           </h2>
+          <!-- 上游真实版本号。ID 是对外契约不能改，但用户光看 ID 判断不出用的哪一版：
+               deepseek-v4-flash 实际打到的是官方 DeepSeek-V4.1-Flash。 -->
+          <p
+            v-if="resolveModelVersion(card.name)"
+            data-testid="model-version"
+            class="mt-0.5 truncate text-[11px] text-gray-400 dark:text-gray-500"
+            :title="resolveModelVersion(card.name)"
+          >
+            {{ resolveModelVersion(card.name) }}
+          </p>
           <p class="mt-0.5 truncate text-xs text-gray-400">{{ card.vendor }}</p>
 
           <!-- 价格：三类口径不同，各自说准 -->
@@ -118,6 +128,7 @@ import { RouterLink } from 'vue-router'
 import ModelBrandMark from '@/components/modelPlaza/ModelBrandMark.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { getModelPlaza, type PlazaModel } from '@/api/modelPlaza'
+import { resolveModelVersion } from '@/utils/modelDisplayName'
 import { resolveModelVendor, resolveModelKind, type ModelKind } from '@/utils/modelVendor'
 import { formatCredits } from '@/utils/format'
 
