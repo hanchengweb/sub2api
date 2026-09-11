@@ -40,65 +40,70 @@
       <section class="flex min-h-0 min-w-0 flex-1 flex-col">
 
         <!-- 消息流 -->
-        <div ref="scrollArea" class="pg-messages min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5">
+        <div ref="scrollArea" class="pg-messages min-h-0 flex-1 overflow-y-auto px-4 py-5">
           <div v-if="!activeMessages.length" class="flex h-full flex-col items-center justify-center text-center">
             <ModelBrandMark :model="selectedModel" size="lg" class="mb-4" />
             <h2 class="max-w-full break-words text-xl font-semibold text-gray-900 dark:text-white">{{ selectedModel || t('playground.title') }}</h2>
             <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">{{ t(mode === 'chat' ? 'playground.chatPrompt' : mode === 'image' ? 'playground.imagePrompt' : 'playground.videoPrompt') }}</p>
           </div>
 
-          <div
-            v-for="msg in activeMessages"
-            :key="msg.id"
-            class="flex"
-            :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
-          >
+          <!-- 消息裹在 pg-column 里：不限宽的话宽屏下每行铺满整个工作区，
+               用户气泡贴最右、回复贴最左，中间空出一大片，看着不像同一轮对话。
+               滚动条仍在外层容器上，所以贴着窗口边缘，不会跟着内容缩进来。 -->
+          <div class="pg-column space-y-5">
             <div
-              class="min-w-0 text-sm leading-relaxed"
-              :class="msg.role === 'user'
-                ? 'max-w-[85%] rounded-lg bg-primary-50 px-4 py-3 text-gray-900 dark:bg-primary-900/30 dark:text-white'
-                : 'w-full text-gray-800 dark:text-dark-100'"
+              v-for="msg in activeMessages"
+              :key="msg.id"
+              class="flex"
+              :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
             >
-              <p v-if="msg.content" class="whitespace-pre-wrap break-words">{{ msg.content }}</p>
-
-              <div v-if="msg.mediaUrl || msg.mediaUrls?.length" class="pg-results">
-                <MediaResult v-for="(url, index) in msg.mediaUrls?.length ? msg.mediaUrls : [msg.mediaUrl!]" :key="url" :src="url" :kind="msg.mediaKind" :name="`${msg.taskId || msg.id}-${index + 1}`" />
-              </div>
-
-              <!-- 生成进度：只在「有任务、还没出结果、也没报错」时显示 -->
-              <div v-if="msg.taskId && !msg.mediaUrl && !msg.error" class="mt-1 w-48">
-                <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
-                  <span>{{ msg.mediaKind === 'video' ? t('playground.generatingVideo') : t('playground.generatingImage') }}</span>
-                  <span class="font-mono">{{ msg.progress ?? 0 }}%</span>
-                </div>
-                <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
-                  <div
-                    class="h-full rounded-full bg-primary-500 transition-[width] duration-500"
-                    :style="{ width: `${msg.progress ?? 0}%` }"
-                  />
-                </div>
-              </div>
-
-              <p v-if="msg.error" class="mt-1 text-xs text-red-500">{{ msg.error }}</p>
-              <RouterLink
-                v-if="msg.needsTopUp"
-                to="/redeem"
-                class="mt-1 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-300"
+              <div
+                class="min-w-0 text-sm leading-relaxed"
+                :class="msg.role === 'user'
+                  ? 'max-w-[85%] rounded-lg bg-primary-50 px-4 py-3 text-gray-900 dark:bg-primary-900/30 dark:text-white'
+                  : 'w-full text-gray-800 dark:text-dark-100'"
               >
-                <Icon name="gift" size="xs" />{{ t('playground.goRedeem') }}
-              </RouterLink>
-            </div>
-          </div>
+                <p v-if="msg.content" class="whitespace-pre-wrap break-words">{{ msg.content }}</p>
 
-          <div v-if="busy" class="flex items-center gap-2 text-xs text-gray-400">
-            <LoadingSpinner size="sm" />
-            <span>{{ busyHint }}</span>
+                <div v-if="msg.mediaUrl || msg.mediaUrls?.length" class="pg-results">
+                  <MediaResult v-for="(url, index) in msg.mediaUrls?.length ? msg.mediaUrls : [msg.mediaUrl!]" :key="url" :src="url" :kind="msg.mediaKind" :name="`${msg.taskId || msg.id}-${index + 1}`" />
+                </div>
+
+                <!-- 生成进度：只在「有任务、还没出结果、也没报错」时显示 -->
+                <div v-if="msg.taskId && !msg.mediaUrl && !msg.error" class="mt-1 w-48">
+                  <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
+                    <span>{{ msg.mediaKind === 'video' ? t('playground.generatingVideo') : t('playground.generatingImage') }}</span>
+                    <span class="font-mono">{{ msg.progress ?? 0 }}%</span>
+                  </div>
+                  <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
+                    <div
+                      class="h-full rounded-full bg-primary-500 transition-[width] duration-500"
+                      :style="{ width: `${msg.progress ?? 0}%` }"
+                    />
+                  </div>
+                </div>
+
+                <p v-if="msg.error" class="mt-1 text-xs text-red-500">{{ msg.error }}</p>
+                <RouterLink
+                  v-if="msg.needsTopUp"
+                  to="/redeem"
+                  class="mt-1 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-300"
+                >
+                  <Icon name="gift" size="xs" />{{ t('playground.goRedeem') }}
+                </RouterLink>
+              </div>
+            </div>
+
+            <div v-if="busy" class="flex items-center gap-2 text-xs text-gray-400">
+              <LoadingSpinner size="sm" />
+              <span>{{ busyHint }}</span>
+            </div>
           </div>
         </div>
 
         <!-- 输入区 -->
         <footer class="shrink-0 border-t border-gray-100 p-3 dark:border-dark-700">
-          <div class="rounded-lg border border-gray-200 p-2 dark:border-dark-600">
+          <div class="pg-column rounded-lg border border-gray-200 p-2 dark:border-dark-600">
             <div v-if="costHint" class="mb-2 px-2 text-right text-xs text-gray-500 dark:text-gray-300">{{ costHint }}</div>
             <textarea
               v-model="draft"
@@ -878,6 +883,10 @@ onBeforeUnmount(() => {
 .pg-icon { @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-dark-700; }
 .pg-mode { @apply inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-gray-500 disabled:opacity-50; }
 .pg-mode-active { @apply bg-white text-primary-700 shadow-sm dark:bg-dark-700 dark:text-primary-300; }
+/* 对话列的可读宽度。消息行是 justify-end / justify-start 的 flex，不限宽的话
+   宽屏（工作区可达 1500px 以上）下用户气泡贴最右、回复贴最左，中间空出一大片，
+   看着不像同一轮对话。输入区共用这个宽度，上下两块边缘才对得齐。 */
+.pg-column { width: 100%; max-width: 56rem; margin-inline: auto; }
 .pg-results { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: 12px; margin-top: 8px; }
 @media (min-width: 1024px) { .pg-history-toggle { display: none; } }
 @media (max-width: 1023px) {
