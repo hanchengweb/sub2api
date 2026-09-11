@@ -21,6 +21,14 @@ describe('media result lifecycle', () => {
     await flushPromises()
     expect(fetchMediaBlob).toHaveBeenCalledTimes(2)
     expect(wrapper.get('a[download]').attributes()).toMatchObject({ href: 'blob:result', download: 'result-1.png' })
+    const image = wrapper.get('button img')
+    for (const [width, height, expected] of [[1024, 1024, 440], [1600, 900, 520], [900, 1600, 247.5], [100, 2000, 200]]) {
+      Object.defineProperty(image.element, 'naturalWidth', { configurable: true, value: width })
+      Object.defineProperty(image.element, 'naturalHeight', { configurable: true, value: height })
+      await image.trigger('load')
+      expect((wrapper.get('figure').element as HTMLElement).style.width).toBe(`${expected}px`)
+      expect(wrapper.get('figcaption').text()).toContain(`${width} × ${height}`)
+    }
     const signal = vi.mocked(fetchMediaBlob).mock.calls[1][1]!
     wrapper.unmount()
     expect(signal.aborted).toBe(true)

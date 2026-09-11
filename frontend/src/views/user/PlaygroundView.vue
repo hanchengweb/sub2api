@@ -878,7 +878,7 @@ onBeforeUnmount(() => {
 .pg-icon { @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-dark-700; }
 .pg-mode { @apply inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-gray-500 disabled:opacity-50; }
 .pg-mode-active { @apply bg-white text-primary-700 shadow-sm dark:bg-dark-700 dark:text-primary-300; }
-.pg-results { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; margin-top: 8px; }
+.pg-results { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: 12px; margin-top: 8px; }
 @media (min-width: 1024px) { .pg-history-toggle { display: none; } }
 @media (max-width: 1023px) {
   .pg-history { position: absolute; inset: 0 auto 0 0; z-index: 30; box-shadow: 8px 0 16px rgb(0 0 0 / 8%); }
