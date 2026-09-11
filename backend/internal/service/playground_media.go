@@ -76,6 +76,12 @@ type PlaygroundMediaService struct {
 	repo    PlaygroundMediaRepository
 	dataDir string
 	client  *http.Client
+	// allowedHosts 默认取包级白名单；测试里替换成 httptest 的地址，
+	// 否则没法在不放开生产白名单的前提下验证下载与落盘。
+	allowedHosts map[string]struct{}
+	// allowInsecure 只有测试会打开：httptest 起的是 http 服务。
+	// 生产恒为 false——明文 http 取不到任何上游结果，也不该去取。
+	allowInsecure bool
 }
 
 func NewPlaygroundMediaService(repo PlaygroundMediaRepository, dataDir string) *PlaygroundMediaService {
@@ -83,9 +89,10 @@ func NewPlaygroundMediaService(repo PlaygroundMediaRepository, dataDir string) *
 		dataDir = "data"
 	}
 	return &PlaygroundMediaService{
-		repo:    repo,
-		dataDir: dataDir,
-		client:  &http.Client{Timeout: 180 * time.Second},
+		repo:         repo,
+		dataDir:      dataDir,
+		client:       &http.Client{Timeout: 180 * time.Second},
+		allowedHosts: playgroundMediaAllowedHosts,
 	}
 }
 
@@ -123,10 +130,10 @@ func (s *PlaygroundMediaService) Persist(ctx context.Context, userID int64, sour
 	}
 
 	target, err := url.Parse(sourceURL)
-	if err != nil || target.Scheme != "https" {
+	if err != nil || (target.Scheme != "https" && !(s.allowInsecure && target.Scheme == "http")) {
 		return nil, ErrPlaygroundMediaHostNotAllowed
 	}
-	if _, ok := playgroundMediaAllowedHosts[strings.ToLower(target.Hostname())]; !ok {
+	if _, ok := s.allowedHosts[strings.ToLower(target.Hostname())]; !ok {
 		return nil, ErrPlaygroundMediaHostNotAllowed
 	}
 
@@ -246,4 +253,11 @@ func (s *PlaygroundMediaService) ensureFreeSpace() error {
 		return ErrPlaygroundMediaDiskFull
 	}
 	return nil
+}
+
+// useTestTransport 让测试把白名单换成 httptest 的地址并放行 http。
+// 放在生产代码里而不是 export：只有同包的测试用得到，外部改不了。
+func (s *PlaygroundMediaService) useTestTransport(hosts map[string]struct{}) {
+	s.allowedHosts = hosts
+	s.allowInsecure = true
 }
