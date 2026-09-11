@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -267,7 +268,93 @@ func createIntervalExec(ctx context.Context, exec dbExec, iv *service.PricingInt
 	).Scan(&iv.ID, &iv.CreatedAt, &iv.UpdatedAt)
 }
 
+// preservedPricingColumns 是「后台表单不编辑、但保存时不能丢」的那几列。
+//
+// 保存走的是整表删除 + 重新插入，而 createModelPricingExec 的 INSERT 里
+// 没有这几列——于是每次在后台点一下「更新」，它们就被写成 NULL。
+// 2026-09-11 线上就这么丢过一次：DeepSeek 的峰谷定价（time_pricing）被清空，
+// 用户在空闲时段按峰值被多收一倍，而界面上根本看不出发生了什么。
+//
+// 按「模型集合」而不是行 id 做快照：id 在删除后就没了，而模型集合是这条
+// 定价的实际身份。同一个渠道里两条定价不会有完全相同的模型集合。
+const preservedPricingColumns = `time_pricing, fast_multiplier, flex_multiplier, cache_write_1h_price`
+
+type preservedPricing struct {
+	timePricing      []byte
+	fastMultiplier   sql.NullFloat64
+	flexMultiplier   sql.NullFloat64
+	cacheWrite1hPric sql.NullFloat64
+}
+
+func snapshotPreservedPricing(ctx context.Context, exec dbExec, channelID int64) (map[string]preservedPricing, error) {
+	rows, err := exec.QueryContext(ctx,
+		`SELECT models::text, `+preservedPricingColumns+
+			` FROM channel_model_pricing WHERE channel_id = $1`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[string]preservedPricing{}
+	for rows.Next() {
+		var key string
+		var p preservedPricing
+		if err := rows.Scan(&key, &p.timePricing, &p.fastMultiplier,
+			&p.flexMultiplier, &p.cacheWrite1hPric); err != nil {
+			return nil, err
+		}
+		// 全空的行不必记：还原时会白跑一次 UPDATE。
+		if p.timePricing == nil && !p.fastMultiplier.Valid &&
+			!p.flexMultiplier.Valid && !p.cacheWrite1hPric.Valid {
+			continue
+		}
+		out[normalizeModelsKey(key)] = p
+	}
+	return out, rows.Err()
+}
+
+// normalizeModelsKey 把 models 的 JSON 文本归一成与顺序无关的键。
+// 后台保存时模型顺序可能变（["a","b"] → ["b","a"]），按原文比会对不上。
+func normalizeModelsKey(raw string) string {
+	var models []string
+	if err := json.Unmarshal([]byte(raw), &models); err != nil {
+		return raw
+	}
+	sort.Strings(models)
+	return strings.Join(models, ",")
+}
+
+func restorePreservedPricing(ctx context.Context, exec dbExec, pricing *service.ChannelModelPricing, saved map[string]preservedPricing) error {
+	if len(saved) == 0 {
+		return nil
+	}
+	modelsJSON, err := json.Marshal(pricing.Models)
+	if err != nil {
+		return nil
+	}
+	p, ok := saved[normalizeModelsKey(string(modelsJSON))]
+	if !ok {
+		return nil
+	}
+	var timePricing any
+	if p.timePricing != nil {
+		timePricing = string(p.timePricing)
+	}
+	_, err = exec.ExecContext(ctx,
+		`UPDATE channel_model_pricing
+		 SET time_pricing = $2::jsonb, fast_multiplier = $3,
+		     flex_multiplier = $4, cache_write_1h_price = $5
+		 WHERE id = $1`,
+		pricing.ID, timePricing, p.fastMultiplier, p.flexMultiplier, p.cacheWrite1hPric)
+	return err
+}
+
 func replaceModelPricingTx(ctx context.Context, exec dbExec, channelID int64, pricingList []service.ChannelModelPricing) error {
+	// 先快照那几列，删除后按模型集合还原——否则后台每保存一次就丢一次。
+	saved, err := snapshotPreservedPricing(ctx, exec, channelID)
+	if err != nil {
+		return fmt.Errorf("snapshot preserved pricing: %w", err)
+	}
 	if _, err := exec.ExecContext(ctx, `DELETE FROM channel_model_pricing WHERE channel_id = $1`, channelID); err != nil {
 		return fmt.Errorf("delete old model pricing: %w", err)
 	}
@@ -275,6 +362,9 @@ func replaceModelPricingTx(ctx context.Context, exec dbExec, channelID int64, pr
 		pricingList[i].ChannelID = channelID
 		if err := createModelPricingExec(ctx, exec, &pricingList[i]); err != nil {
 			return fmt.Errorf("insert model pricing: %w", err)
+		}
+		if err := restorePreservedPricing(ctx, exec, &pricingList[i], saved); err != nil {
+			return fmt.Errorf("restore preserved pricing: %w", err)
 		}
 	}
 	return nil

@@ -255,3 +255,22 @@ export function getPlatformTextClass(platform: string): string {
     default: return ''
   }
 }
+
+/**
+ * 积分 → 人民币的只读提示。
+ *
+ * 输入框里存的是积分（1 元 = 100 积分），但上游价目表是人民币口径——
+ * 「1.33」看不出是多少钱，「≈¥0.0133」一眼就能跟上游对账。
+ *
+ * 只做展示不改输入：让用户按人民币填、保存时再乘 100 的话，任何一次换算
+ * 没走到就是 100 倍的偏差，而这种错不报错、只会静默收错钱。
+ * 现在是边填边显示，填错一个数量级当场就看得出来。
+ */
+export function yuanHint(credits: number | string | null | undefined): string {
+  const n = typeof credits === 'string' ? Number(credits) : credits
+  if (n == null || !Number.isFinite(n) || n === 0) return ''
+  const yuan = n / 100
+  // 不足一元的按 3 位有效数字：上游单价常在 ¥0.01 量级，
+  // 固定两位小数会把 0.0133 显示成 0.01，跟价目表对不上。
+  return `≈¥${yuan < 1 ? Number(yuan.toPrecision(3)) : yuan.toFixed(2)}`
+}
