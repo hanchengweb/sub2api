@@ -21,6 +21,9 @@ func RegisterPlaygroundRoutes(v1 *gin.RouterGroup, h *handler.PlaygroundHandler,
 		pg.POST("/chat/completions", h.ChatCompletions)
 		pg.POST("/images/generations", h.ImageGenerations)
 		pg.GET("/images/generations/:task_id", h.ImageStatus)
+		// 参考图上传（图生视频）：网关的 /v1/uploads/images 认 API key，
+		// 网页端只有 JWT，必须经这层代理注入密钥
+		pg.POST("/uploads/images", h.UploadReferenceImage)
 		pg.POST("/videos/generations", h.VideoGenerations)
 		pg.GET("/videos/:request_id", h.VideoStatus)
 	}

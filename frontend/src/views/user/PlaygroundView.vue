@@ -114,6 +114,32 @@
               @keydown.enter.exact="onEnter"
             />
 
+            <!-- 参考图（图生视频）。上游只收公网 URL、且只收一张，所以选完立刻上传换地址，
+                 而不是等到发送时再传——发送时才传的话，用户要为上传多等一次。 -->
+            <div v-if="mode === 'video'" class="flex flex-wrap items-center gap-2 px-1 pb-2">
+              <input ref="refImageInput" type="file" class="hidden" :accept="REFERENCE_IMAGE_TYPES.join(',')" @change="onPickReferenceImage" />
+              <button
+                v-if="!referenceImageUrl"
+                type="button"
+                data-testid="ref-image-pick"
+                class="pg-ref-add"
+                :disabled="busy || refImageUploading"
+                @click="refImageInput?.click()"
+              >
+                <LoadingSpinner v-if="refImageUploading" size="sm" />
+                <Icon v-else name="upload" size="sm" />
+                {{ refImageUploading ? t('playground.refImageUploading') : t('playground.refImageAdd') }}
+              </button>
+              <div v-else data-testid="ref-image-chip" class="pg-ref-chip">
+                <img :src="referenceImagePreview" :alt="t('playground.refImageAlt')" class="h-8 w-8 shrink-0 rounded object-cover" />
+                <span class="min-w-0 flex-1 truncate">{{ referenceImageName }}</span>
+                <button type="button" data-testid="ref-image-remove" class="pg-icon !h-6 !w-6" :aria-label="t('playground.refImageRemove')" :title="t('playground.refImageRemove')" @click="clearReferenceImage">
+                  <Icon name="x" size="xs" />
+                </button>
+              </div>
+              <span v-if="refImageError" class="text-xs text-red-500">{{ refImageError }}</span>
+            </div>
+
             <div v-if="mode !== 'chat'" class="flex flex-wrap items-center gap-2 px-1 pb-3">
               <Select v-if="mode === 'video'" v-model="videoDuration" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramDuration')" :options="durationOptions.map(value => ({ value, label: t('playground.seconds', { n: value }) }))">
                 <template #selected="{ option }"><span class="param-label">{{ t('playground.paramDuration') }}</span> {{ option?.label }}</template>
@@ -229,6 +255,9 @@ import {
   isTerminalStatus,
   isFailedStatus,
   isInsufficientBalance,
+  uploadReferenceImage,
+  REFERENCE_IMAGE_MAX_BYTES,
+  REFERENCE_IMAGE_TYPES,
   type ChatMessage,
   type MediaTaskResult
 } from '@/api/playground'
@@ -335,6 +364,77 @@ const aspectRatio = ref<string>('1:1')
 const resolution = ref<string>('1k')
 const imageCount = ref(1)
 const videoDuration = ref(8)
+
+/**
+ * 图生视频的参考图。
+ *
+ * 存两个值：referenceImagePreview 是本地 objectURL，只用来显示缩略图；
+ * referenceImageUrl 是上传后的公网地址，真正发给上游的是它。
+ * 上游明确要求「不要直接传 base64，先调上传接口拿公网 URL」，两者不能混用。
+ *
+ * 选完图就立刻上传，而不是等到点发送——发送时才传的话，用户要为上传多等一次，
+ * 而且上传失败会混在生成失败里，分不清是哪一步出的问题。
+ */
+const refImageInput = ref<HTMLInputElement | null>(null)
+const referenceImageUrl = ref('')
+const referenceImagePreview = ref('')
+const referenceImageName = ref('')
+const refImageUploading = ref(false)
+const refImageError = ref('')
+
+function releaseReferencePreview() {
+  if (referenceImagePreview.value) URL.revokeObjectURL(referenceImagePreview.value)
+  referenceImagePreview.value = ''
+}
+
+function clearReferenceImage() {
+  releaseReferencePreview()
+  referenceImageUrl.value = ''
+  referenceImageName.value = ''
+  refImageError.value = ''
+  if (refImageInput.value) refImageInput.value.value = ''
+}
+
+async function onPickReferenceImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // 取完就清空 input：否则再选同一个文件不会触发 change，用户以为点了没反应
+  input.value = ''
+  if (!file) return
+
+  // 本地先拦一道，省得把注定失败的请求发上去。网关侧仍会再校验一次——
+  // 前端校验只是体验，不是防线。
+  if (!REFERENCE_IMAGE_TYPES.includes(file.type)) {
+    refImageError.value = t('playground.refImageBadType')
+    return
+  }
+  if (file.size > REFERENCE_IMAGE_MAX_BYTES) {
+    refImageError.value = t('playground.refImageTooLarge')
+    return
+  }
+
+  refImageError.value = ''
+  refImageUploading.value = true
+  const preview = URL.createObjectURL(file)
+  try {
+    const url = await uploadReferenceImage(file)
+    releaseReferencePreview()
+    referenceImagePreview.value = preview
+    referenceImageUrl.value = url
+    referenceImageName.value = file.name
+  } catch (err) {
+    URL.revokeObjectURL(preview)
+    refImageError.value = err instanceof Error ? err.message : t('playground.refImageFailed')
+  } finally {
+    refImageUploading.value = false
+  }
+}
+
+// 切走视频模式就丢掉参考图：留着它会在切回来时变成一张用户早已忘记的图，
+// 而图生视频和文生视频的计费与产出完全不同，静默带上去风险太大。
+watch(mode, value => {
+  if (value !== 'video') clearReferenceImage()
+})
 
 /**
  * 模型名 → 广场定价 + 该分组的生效倍率，用于费用预估。
@@ -639,7 +739,9 @@ async function runMedia(conv: PlaygroundConversation, prompt: string) {
   const task = isVideo
     ? await createVideoTask(conv.model, prompt, {
         resolution: resolution.value,
-        duration: videoDuration.value
+        duration: videoDuration.value,
+        // 有参考图就是图生视频，没有就是文生视频；上游字段名固定叫 image
+        image: referenceImageUrl.value || undefined
       })
     : await createImageTask(conv.model, prompt, {
         size: aspectRatio.value,
@@ -862,6 +964,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  releaseReferencePreview()
   document.removeEventListener('click', onDocumentClick)
   disposed = true
   abortController?.abort()
@@ -887,6 +990,8 @@ onBeforeUnmount(() => {
    宽屏（工作区可达 1500px 以上）下用户气泡贴最右、回复贴最左，中间空出一大片，
    看着不像同一轮对话。输入区共用这个宽度，上下两块边缘才对得齐。 */
 .pg-column { width: 100%; max-width: 56rem; margin-inline: auto; }
+.pg-ref-add { @apply inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:border-primary-400 hover:text-primary-600 disabled:opacity-50 dark:border-dark-600 dark:text-gray-300; }
+.pg-ref-chip { @apply inline-flex max-w-xs items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 py-1 pl-1 pr-1.5 text-xs text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200; }
 .pg-results { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: 12px; margin-top: 8px; }
 @media (min-width: 1024px) { .pg-history-toggle { display: none; } }
 @media (max-width: 1023px) {

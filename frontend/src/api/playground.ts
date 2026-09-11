@@ -185,17 +185,63 @@ export async function getImageTask(
   return (await response.json()) as MediaTaskResult
 }
 
-/** 提交生视频任务（异步，返回 task id）。 */
+/** 参考图上传上限，与网关侧 GrokMediaImageUploadMaxBytes 保持一致。 */
+export const REFERENCE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+export const REFERENCE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+
+/**
+ * 上传图生视频用的参考图，返回可公网访问的地址。
+ *
+ * 上游明确要求「不要直接传 base64，先调上传接口拿公网 URL」，所以这里必须先落一次盘
+ * 再把地址塞进生视频请求，不能把图片内容直接塞进 prompt 旁边。
+ *
+ * 走 /playground/uploads/images 而不是直连网关：网页端只有登录态 JWT，
+ * 网关那个接口认的是 API key。字段名固定 file——网关按这个名字取，改了会报
+ * 「exactly one file field is required」。
+ *
+ * 不设 Content-Type：交给浏览器自己带 multipart 的 boundary，手写会漏掉它。
+ */
+export async function uploadReferenceImage(
+  file: File,
+  options?: { signal?: AbortSignal }
+): Promise<string> {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(buildApiUrl('/playground/uploads/images'), {
+    method: 'POST',
+    headers: { Authorization: authHeaders().Authorization },
+    body: form,
+    signal: options?.signal
+  })
+  if (!response.ok) throw await toError(response)
+  const payload = (await response.json()) as { data?: { url?: string }; url?: string }
+  const url = payload.data?.url || payload.url || ''
+  if (!url) throw new Error('上传成功但没有返回图片地址')
+  return url
+}
+
+/**
+ * 提交生视频任务（异步，返回 task id）。
+ *
+ * image 是图生视频的首图地址（上游字段名就叫 image，只收公网 URL、只收一张）。
+ * 不传就是文生视频——文档写 image 必填，但实测不带也能出片，所以这里做成可选。
+ */
 export async function createVideoTask(
   model: string,
   prompt: string,
-  opts: { resolution?: string; duration?: number },
+  opts: { resolution?: string; duration?: number; image?: string },
   options?: { signal?: AbortSignal }
 ): Promise<MediaTaskResult> {
   const response = await fetch(buildApiUrl('/playground/videos/generations'), {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ model, prompt, resolution: opts.resolution, duration: opts.duration }),
+    body: JSON.stringify({
+      model,
+      prompt,
+      resolution: opts.resolution,
+      duration: opts.duration,
+      ...(opts.image ? { image: opts.image } : {})
+    }),
     signal: options?.signal
   })
   if (!response.ok) throw await toError(response)

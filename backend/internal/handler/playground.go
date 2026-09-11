@@ -21,6 +21,14 @@ import (
 // 4MB 足以容纳参考图的 base64，同时挡住异常大的请求。
 const playgroundMaxBody = 4 << 20
 
+// playgroundUploadMaxBody 参考图上传的请求体上限。
+//
+// 必须比 playgroundMaxBody 大：网关那侧允许 10MB
+// （service.GrokMediaImageUploadMaxBytes），代理这侧若仍按 4MB 截断，
+// 超过 4MB 的图会被**悄悄截成半张**再转发上去——上游只会报「不是合法图片」，
+// 现场根本看不出是代理砍的。多留 64KB 给 multipart 的边界与字段头。
+const playgroundUploadMaxBody = (10 << 20) + 64<<10
+
 // PlaygroundHandler 为「在线使用」页提供网关代理。
 //
 // 存在的理由：网页端拿不到明文 API key（只在创建时显示一次），把 key 放进浏览器
@@ -109,6 +117,12 @@ func (h *PlaygroundHandler) ensureTrialKey(c *gin.Context, userID int64) (*servi
 // 流式响应由网关 handler 直接写进同一个 ResponseWriter，也就是真实的客户端连接，
 // 不需要额外的管道转发，首字延迟也不会多一跳。
 func (h *PlaygroundHandler) proxyToGateway(c *gin.Context, gatewayPath string) {
+	h.proxyToGatewayLimited(c, gatewayPath, playgroundMaxBody)
+}
+
+// proxyToGatewayLimited 同 proxyToGateway，但允许按路由放宽请求体上限。
+// 只有参考图上传需要它——别的路由都只传参数，4MB 绰绰有余。
+func (h *PlaygroundHandler) proxyToGatewayLimited(c *gin.Context, gatewayPath string, maxBody int64) {
 	reqLog := requestLogger(c, "handler.playground")
 
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
@@ -129,7 +143,7 @@ func (h *PlaygroundHandler) proxyToGateway(c *gin.Context, gatewayPath string) {
 	}
 
 	// 请求体要重新可读：网关链路上的中间件会再次读取它。
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, playgroundMaxBody))
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBody))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "invalid body"}})
 		return
@@ -229,6 +243,18 @@ func (h *PlaygroundHandler) Media(c *gin.Context) {
 // t-grok-video-1.5）。这里返回的就是密钥实际能调的那一份。
 func (h *PlaygroundHandler) Models(c *gin.Context) {
 	h.proxyToGateway(c, "/v1/models")
+}
+
+// UploadReferenceImage 上传参考图（图生视频用），转发到网关的 /v1/uploads/images。
+//
+// 为什么必须走代理而不是让网页端直连网关：网页端只有登录态 JWT，拿不到明文
+// API key（只在创建时显示一次）。网关那个接口认的是 API key，所以得由代理
+// 注入密钥。这也是上传能力早就做好、在线使用页却一直用不上的原因。
+//
+// multipart 请求体原样透传：Content-Type 连同 boundary 都不改动，
+// 字段名与大小校验全部交给网关侧的 GrokImageUpload，不在这里重复一套。
+func (h *PlaygroundHandler) UploadReferenceImage(c *gin.Context) {
+	h.proxyToGatewayLimited(c, "/v1/uploads/images", playgroundUploadMaxBody)
 }
 
 // ChatCompletions 在线对话（支持流式）。
