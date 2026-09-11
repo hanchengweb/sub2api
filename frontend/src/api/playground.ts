@@ -276,6 +276,8 @@ export interface MediaTaskResult extends MediaTask {
  * 非 http(s) 的（如 base64 data URI）原样返回，不必绕一圈。
  */
 export function proxiedMediaUrl(url: string): string {
+  // 已经是本站转存地址就直接用，别再套一层中转
+  if (url.startsWith('/api/')) return url
   if (!url || !/^https?:\/\//i.test(url)) return url
   return buildApiUrl(`/playground/media?url=${encodeURIComponent(url)}`)
 }
@@ -283,7 +285,9 @@ export function proxiedMediaUrl(url: string): string {
 /** Media elements cannot send JWT headers; only authenticated fetches reach this endpoint. */
 export async function fetchMediaBlob(url: string, signal?: AbortSignal): Promise<Blob> {
   const inline = /^data:(image\/(png|jpeg|webp|gif|avif)|video\/(mp4|webm));base64,/i.test(url)
-  if (!inline && !/^https?:\/\//i.test(url)) throw new Error('Unsupported media URL')
+  // 本站转存地址是以 /api/ 开头的相对路径，不走 http(s) 那条判断
+  const local = url.startsWith('/api/')
+  if (!inline && !local && !/^https?:\/\//i.test(url)) throw new Error('Unsupported media URL')
   const response = await fetch(inline ? url : proxiedMediaUrl(url), {
     headers: inline ? undefined : { Authorization: authHeaders().Authorization },
     signal
@@ -294,6 +298,39 @@ export async function fetchMediaBlob(url: string, signal?: AbortSignal): Promise
     throw new Error('Invalid media response')
   }
   return blob
+}
+
+/**
+ * 把上游生成结果转存到本站，返回可长期访问的地址。
+ *
+ * 必须做这一步：上游结果 **24 小时后过期**（实测 created_at 16:00:32 →
+ * expires_at 次日 16:00:49）。会话里存的是地址不是图片本身，过了一天
+ * 连同一台电脑同一浏览器都打不开，用户会以为是我们把图弄丢了。
+ *
+ * 失败不抛错，原样退回上游地址：转存不成（磁盘紧张、类型不认识）时，
+ * 用户这一刻仍然该看得见刚生成的图——只是它 24 小时后会失效。
+ */
+export async function persistMedia(
+  urls: string[],
+  kind: 'image' | 'video',
+  taskId: string,
+  options?: { signal?: AbortSignal }
+): Promise<string[]> {
+  if (!urls.length) return urls
+  try {
+    const response = await fetch(buildApiUrl('/playground/media/persist'), {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ urls, kind, task_id: taskId }),
+      signal: options?.signal
+    })
+    if (!response.ok) return urls
+    const payload = (await response.json()) as { data?: Array<{ source_url?: string; url?: string }> }
+    const mapped = new Map((payload.data ?? []).map(item => [item.source_url, item.url]))
+    return urls.map(url => mapped.get(url) || url)
+  } catch {
+    return urls
+  }
 }
 
 /** 取任务 id。上游用 id 还是 task_id 不统一，两个都认。 */

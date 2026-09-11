@@ -255,6 +255,7 @@ import {
   isTerminalStatus,
   isFailedStatus,
   isInsufficientBalance,
+  persistMedia,
   uploadReferenceImage,
   REFERENCE_IMAGE_MAX_BYTES,
   REFERENCE_IMAGE_TYPES,
@@ -730,6 +731,36 @@ async function runChat(conv: PlaygroundConversation) {
   persist()
 }
 
+/**
+ * 结果到手就转存到本站，把会话里存的地址换成永久地址。
+ *
+ * 上游结果 24 小时后过期，而会话存的是**地址**不是图片本身——不转存的话，
+ * 隔天重新打开这条会话只会看到一排碎图，用户会以为是我们把图弄丢了。
+ *
+ * 先把上游地址写进会话再异步替换：转存要把整个文件下载一遍，让用户干等
+ * 这一步没道理；万一转存失败，退回的就是上游地址，这一刻照样看得见。
+ */
+async function adoptMedia(
+  conv: PlaygroundConversation,
+  reply: PlaygroundMessage,
+  urls: string[],
+  kind: 'image' | 'video'
+) {
+  reply.mediaUrls = urls
+  reply.mediaUrl = urls[0]
+  conv.updatedAt = Date.now()
+  persist()
+  scrollToBottom()
+
+  const stored = await persistMedia(urls, kind, reply.taskId || '')
+  if (stored.some((url, i) => url !== urls[i])) {
+    reply.mediaUrls = stored
+    reply.mediaUrl = stored[0]
+    conv.updatedAt = Date.now()
+    persist()
+  }
+}
+
 async function runMedia(conv: PlaygroundConversation, prompt: string) {
   const isVideo = mode.value === 'video'
   busyHint.value = isVideo ? t('playground.generatingVideo') : t('playground.generatingImage')
@@ -762,11 +793,7 @@ async function runMedia(conv: PlaygroundConversation, prompt: string) {
   // 同步渠道一次就把结果带回来了，不必再轮询。
   const direct = mediaUrlsOf(task)
   if (direct.length) {
-    reply.mediaUrls = direct
-    reply.mediaUrl = direct[0]
-    conv.updatedAt = Date.now()
-    persist()
-    scrollToBottom()
+    await adoptMedia(conv, reply, direct, isVideo ? 'video' : 'image')
     return
   }
 
@@ -815,11 +842,7 @@ async function pollTask(
     const urls = mediaUrlsOf(result)
     // 拿到地址就算完成——有的渠道结果就绪时不再回传 status。
     if (urls.length) {
-      reply.mediaUrls = urls
-      reply.mediaUrl = urls[0]
-      conv.updatedAt = Date.now()
-      persist()
-      scrollToBottom()
+      await adoptMedia(conv, reply, urls, isVideo ? 'video' : 'image')
       return
     }
     if (!isTerminalStatus(result.status)) continue

@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/repository"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/server/routes"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -36,6 +38,7 @@ func SetupRouter(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 	redisClient *redis.Client,
+	sqlDB *sql.DB,
 ) *gin.Engine {
 	middleware2.SetIngressRejectRecorder(opsService)
 	// 缓存 iframe 页面的 origin 列表，用于动态注入 CSP frame-src
@@ -90,7 +93,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, sqlDB)
 
 	return r
 }
@@ -112,6 +115,7 @@ func registerRoutes(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 	redisClient *redis.Client,
+	sqlDB *sql.DB,
 ) {
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
@@ -130,7 +134,12 @@ func registerRoutes(
 	// 在线使用代理。必须在网关路由注册之后：它靠 engine 内部重派发到 /v1/*。
 	// 在这里就地构造而不放进 Handlers：它需要 *gin.Engine，而 Handlers 在 wire 里
 	// 构造时引擎还不存在。
-	routes.RegisterPlaygroundRoutes(v1, handler.NewPlaygroundHandler(r, apiKeyService, settingService), jwtAuth)
+	// 生成结果转存到 cfg.Pricing.DataDir（容器里是 /app/data，已 bind 到宿主机盘）。
+	// 上游结果 24 小时过期，不落本地盘的话历史会话隔天就只剩碎图。
+	playgroundMedia := service.NewPlaygroundMediaService(
+		repository.NewPlaygroundMediaRepository(sqlDB), cfg.Pricing.DataDir)
+	routes.RegisterPlaygroundRoutes(v1,
+		handler.NewPlaygroundHandler(r, apiKeyService, settingService, playgroundMedia), jwtAuth)
 
 	handler.RegisterPageRoutes(v1, cfg.Pricing.DataDir, gin.HandlerFunc(jwtAuth), gin.HandlerFunc(adminAuth), settingService)
 }

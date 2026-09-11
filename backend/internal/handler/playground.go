@@ -2,9 +2,11 @@ package handler
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +22,10 @@ import (
 // playgroundMaxBody 在线使用页的请求体上限。对话/生图参数都很小，
 // 4MB 足以容纳参考图的 base64，同时挡住异常大的请求。
 const playgroundMaxBody = 4 << 20
+
+// playgroundPersistMaxItems 一次转存请求最多处理几个地址。
+// 生图一次最多 4 张，留一倍余量；再多就是异常调用。
+const playgroundPersistMaxItems = 8
 
 // playgroundUploadMaxBody 参考图上传的请求体上限。
 //
@@ -42,17 +48,20 @@ type PlaygroundHandler struct {
 	engine         *gin.Engine
 	apiKeyService  *service.APIKeyService
 	settingService *service.SettingService
+	mediaService   *service.PlaygroundMediaService
 }
 
 func NewPlaygroundHandler(
 	engine *gin.Engine,
 	apiKeyService *service.APIKeyService,
 	settingService *service.SettingService,
+	mediaService *service.PlaygroundMediaService,
 ) *PlaygroundHandler {
 	return &PlaygroundHandler{
 		engine:         engine,
 		apiKeyService:  apiKeyService,
 		settingService: settingService,
+		mediaService:   mediaService,
 	}
 }
 
@@ -234,6 +243,98 @@ func (h *PlaygroundHandler) Media(c *gin.Context) {
 	c.Header("Cache-Control", "private, max-age=86400")
 	c.Status(http.StatusOK)
 	_, _ = io.Copy(c.Writer, io.LimitReader(resp.Body, mediaProxyMaxBytes))
+}
+
+// PersistMedia 把一批上游生成结果转存到本地盘，返回本站的永久地址。
+//
+// 为什么需要：上游结果 24 小时后过期。前端把地址存进会话也没用——
+// 过一天那个地址就 404 了，用户会以为是我们把图弄丢了。
+//
+// 由前端在任务完成时调用，而不是在网关里自动做：网关那条路径是
+// engine.HandleContext 直接把响应写给客户端的，中途插不进转存这一步。
+//
+// 逐条独立处理：一张图转存失败不该让整批都拿不到结果，失败的那条回退
+// 到原地址（还能撑 24 小时），前端照常显示。
+func (h *PlaygroundHandler) PersistMedia(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized"}})
+		return
+	}
+	if h.mediaService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "media persistence is unavailable"}})
+		return
+	}
+
+	var req struct {
+		Urls   []string `json:"urls"`
+		Kind   string   `json:"kind"`
+		TaskID string   `json:"task_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "invalid body"}})
+		return
+	}
+	if len(req.Urls) == 0 || len(req.Urls) > playgroundPersistMaxItems {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "urls must contain 1 to 8 items"}})
+		return
+	}
+
+	reqLog := requestLogger(c, "handler.playground")
+	items := make([]gin.H, 0, len(req.Urls))
+	for _, src := range req.Urls {
+		media, err := h.mediaService.Persist(c.Request.Context(), subject.UserID, src, req.Kind, req.TaskID)
+		if err != nil {
+			// 只记日志不中断：磁盘紧张、上游已过期、类型不认识都可能走到这里，
+			// 用户这一刻仍然该看得见他刚生成的图。
+			reqLog.Warn("playground.media_persist_failed",
+				zap.Int64("user_id", subject.UserID),
+				zap.String("task_id", req.TaskID),
+				zap.Error(err))
+			items = append(items, gin.H{"source_url": src, "url": src, "persisted": false})
+			continue
+		}
+		items = append(items, gin.H{
+			"source_url": src,
+			"url":        fmt.Sprintf("/api/v1/playground/media/%d", media.ID),
+			"persisted":  true,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"data": items})
+}
+
+// StoredMedia 回放一条已转存的生成结果。
+//
+// 归属校验在 SQL 的 WHERE 里做（GetOwned 带 user_id），不是查出来再比——
+// 越权这种事不能指望调用方记得校验。别人的 id 一律当不存在。
+func (h *PlaygroundHandler) StoredMedia(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized"}})
+		return
+	}
+	if h.mediaService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "media persistence is unavailable"}})
+		return
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "invalid media id"}})
+		return
+	}
+	media, file, err := h.mediaService.Open(c.Request.Context(), subject.UserID, id)
+	if err != nil || media == nil || file == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"message": "media not found"}})
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	c.Header("Content-Type", media.MimeType)
+	// 转存结果永不变更，让浏览器长期缓存；private 是因为它按登录态鉴权，
+	// 不能被共享缓存留下来给别人。
+	c.Header("Cache-Control", "private, max-age=31536000, immutable")
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, file)
 }
 
 // Models 列出该用户可调的模型。

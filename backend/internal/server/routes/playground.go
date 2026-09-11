@@ -18,6 +18,9 @@ func RegisterPlaygroundRoutes(v1 *gin.RouterGroup, h *handler.PlaygroundHandler,
 		pg.GET("/models", h.Models)
 		// 媒体中转：上游图床在部分网络下不可达，由服务器代取（域名白名单防 SSRF）
 		pg.GET("/media", h.Media)
+		// 生成结果转存：上游结果 24 小时过期，落到本地盘才不会隔天全丢
+		pg.POST("/media/persist", h.PersistMedia)
+		pg.GET("/media/:id", h.StoredMedia)
 		pg.POST("/chat/completions", h.ChatCompletions)
 		pg.POST("/images/generations", h.ImageGenerations)
 		pg.GET("/images/generations/:task_id", h.ImageStatus)
