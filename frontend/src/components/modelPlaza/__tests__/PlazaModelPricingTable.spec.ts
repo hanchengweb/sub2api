@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { mount } from '@vue/test-utils'
 import PlazaModelPricingTable from '../PlazaModelPricingTable.vue'
 import type { PlazaModel } from '@/api/modelPlaza'
+
+beforeEach(() => { setActivePinia(createPinia()) })
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -122,8 +125,8 @@ describe('PlazaModelPricingTable', () => {
 
     const wrapper = mountTable([cheap, noOfficial, expensive], 1)
     const names = wrapper
-      .findAll('tbody tr')
-      .map((tr) => tr.find('[data-testid="model-name"]').text())
+      .findAll('[data-testid="model-name"]')
+      .map((name) => name.text())
     expect(names).toEqual(['model-expensive', 'model-cheap', 'model-no-official'])
   })
 
@@ -132,8 +135,8 @@ describe('PlazaModelPricingTable', () => {
     const text = wrapper.text()
     expect(text).toContain('modelPlaza.section.text')
     expect(text).toContain('modelPlaza.table.officialPrice')
-    // 模型 + 实付 4 列(缓存拆写/读) + 官方 3 列
-    expect(wrapper.findAll('tbody td')).toHaveLength(8)
+    // 模型名位于面板标题，实付 4 列与官方 3 列保持完整。
+    expect(wrapper.findAll('tbody td')).toHaveLength(7)
   })
 
   it('官方价包含 1h 缓存写入价;official_pricing 为 null 时官方三列显示 -', () => {
@@ -143,10 +146,10 @@ describe('PlazaModelPricingTable', () => {
 
     const withoutOfficial = mountTable([tokenModel({ official_pricing: null })], 1)
     const cells = withoutOfficial.findAll('tbody td')
-    // 实付列是 模型/输入/输出/缓存写/缓存读 = 索引 0..4，官方三列从 5 起
+    // 实付 4 列，官方三列从 4 起。
+    expect(cells[4].text().trim()).toBe('-')
     expect(cells[5].text().trim()).toBe('-')
     expect(cells[6].text().trim()).toBe('-')
-    expect(cells[7].text().trim()).toBe('-')
   })
 
   it('per_request 模型按单次价 × 倍率展示,官方价列显示 -', () => {
@@ -284,7 +287,7 @@ describe('PlazaModelPricingTable 官方价列默认隐藏', () => {
     const wrapper = mountDefault([tokenModel()])
     expect(wrapper.text()).toContain('modelPlaza.section.text')
     expect(wrapper.text()).not.toContain('modelPlaza.table.officialPrice')
-    expect(wrapper.findAll('tbody td')).toHaveLength(5)
+    expect(wrapper.findAll('tbody td')).toHaveLength(4)
   })
 
   it('默认形态下不出现美元符号,实付价一律以积分计', () => {
@@ -299,7 +302,7 @@ describe('PlazaModelPricingTable 官方价列默认隐藏', () => {
       props: { models: [tokenModel()], rateMultiplier: 1, showOfficialPricing: true }
     })
     expect(wrapper.text()).toContain('modelPlaza.table.officialPrice')
-    expect(wrapper.findAll('tbody td')).toHaveLength(8)
+    expect(wrapper.findAll('tbody td')).toHaveLength(7)
     expect(wrapper.text()).toContain('$3.00')
   })
 })
@@ -358,12 +361,12 @@ describe('PlazaModelPricingTable 分区', () => {
    * 回归:模型名单元格必须有左内边距。原来只有 pr-4，文字贴着表格左边缘，
    * 外层又是 overflow-x-auto，首字母会被切掉。
    */
-  it('模型名单元格有左内边距,不会贴着表格边缘被切', () => {
+  it('模型名位于独立的面板标题中,不会被价格表横向滚动裁切', () => {
     const wrapper = mount(PlazaModelPricingTable, {
       props: { models: [tokenModel()], rateMultiplier: 1 }
     })
-    const firstCell = wrapper.find('tbody td')
-    expect(firstCell.classes()).toContain('px-3')
+    expect(wrapper.find('.pz-model-header [data-testid="model-name"]').text()).toBe('claude-sonnet')
+    expect(wrapper.find('.pz-table-frame [data-testid="model-name"]').exists()).toBe(false)
   })
 
   it('每个模型前面带厂商标识', () => {

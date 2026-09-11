@@ -549,6 +549,7 @@ export default {
   },
 
   modelPlaza: {
+    workbench: '价格工作台',
     title: '模型定价',
     description: '按分组浏览可用模型与价格',
     loading: '加载中...',
@@ -589,6 +590,8 @@ export default {
       unitPerSecond: '积分 / 秒'
     },
     table: {
+      specification: '规格档位',
+      billingUnit: '计费单位',
       cacheWriteFull: '缓存写入',
       cacheReadFull: '缓存读取',
       unitPrice: '单价',

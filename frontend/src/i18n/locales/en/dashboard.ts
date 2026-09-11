@@ -544,6 +544,7 @@ export default {
   },
 
   modelPlaza: {
+    workbench: 'Pricing workspace',
     title: 'Model Pricing',
     description: 'Browse available models and pricing by group',
     loading: 'Loading...',
@@ -584,6 +585,8 @@ export default {
       unitPerSecond: 'credits / second'
     },
     table: {
+      specification: 'Specification',
+      billingUnit: 'Billing unit',
       cacheWriteFull: 'Cache write',
       cacheReadFull: 'Cache read',
       unitPrice: 'Unit price',

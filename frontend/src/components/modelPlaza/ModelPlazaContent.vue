@@ -1,10 +1,12 @@
 <template>
   <div class="pricing-workspace space-y-6">
-    <!-- 页头(独立形态下展示标题;后台形态 AppHeader 已有页面标题) -->
-    <div v-if="!embedded">
-      <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-3xl">{{ t('modelPlaza.title') }}</h1>
-      <p class="mt-1.5 text-sm text-gray-500 dark:text-dark-400">{{ t('modelPlaza.description') }}</p>
-    </div>
+    <header class="pricing-document-header flex flex-wrap items-center justify-between gap-4">
+      <h1 class="text-3xl font-semibold text-gray-900 dark:text-white">{{ t('modelPlaza.title') }}</h1>
+      <div class="flex items-center gap-2">
+        <RouterLink v-if="isAuthenticated" to="/usage" class="pricing-header-link"><Icon name="chart" size="sm" />{{ t('nav.usage') }}</RouterLink>
+        <RouterLink to="/model-gallery" class="pricing-header-link"><Icon name="grid" size="sm" />{{ t('nav.modelGallery') }}</RouterLink>
+      </div>
+    </header>
 
     <!-- 全局价格说明(管理员配置,Markdown) -->
     <div
@@ -52,8 +54,8 @@
         @update:search="searchQuery = $event"
       />
       <div class="pricing-tabs flex flex-wrap items-center gap-1 border-b border-gray-200 dark:border-dark-700">
-        <button v-for="item in kinds" :key="item.value" class="pricing-tab" :class="{ 'is-active': kind === item.value }" :aria-pressed="kind === item.value" @click="kind = item.value">{{ t(item.label) }}</button>
-        <span class="ml-auto text-xs text-gray-500" aria-live="polite">{{ t('modelPlaza.table.modelCount', { n: visibleCount }) }}</span>
+        <button v-for="item in kinds" :key="item.value" class="pricing-tab" :class="{ 'is-active': kind === item.value }" :aria-pressed="kind === item.value" @click="kind = item.value">{{ t(item.label) }}<span class="pricing-tab-count">{{ kindCounts[item.value] }}</span></button>
+        <span class="ml-auto hidden text-xs text-gray-500 sm:inline" aria-live="polite">{{ t('modelPlaza.table.modelCount', { n: visibleCount }) }}</span>
         <button v-if="searchActive || kind || selectedPlatform !== 'all' || selectedGroupId !== 'all' || selectedRate !== 'all'" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100" :aria-label="t('modelPlaza.filters.all')" :title="t('modelPlaza.filters.all')" @click="resetFilters"><Icon name="refresh" size="sm" /></button>
       </div>
 
@@ -74,6 +76,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import Icon from '@/components/icons/Icon.vue'
@@ -109,6 +112,16 @@ const kinds = [
   { value: 'video' as const, label: 'modelGallery.kindVideo' }
 ]
 const visibleCount = computed(() => filteredGroups.value.reduce((sum, group) => sum + group.models.length, 0))
+const kindCounts = computed(() => {
+  const counts = { '': 0, text: 0, image: 0, video: 0 }
+  for (const group of props.response?.groups ?? []) {
+    for (const model of group.models) {
+      counts['']++
+      counts[resolveModelKind(model.name, model.pricing?.billing_mode)]++
+    }
+  }
+  return counts
+})
 function resetFilters() {
   searchQuery.value = ''
   kind.value = ''
@@ -184,10 +197,18 @@ const filteredGroups = computed(() => {
 </script>
 
 <style scoped>
-.pricing-workspace { max-width: 1440px; margin-inline: auto; }
+.pricing-workspace { max-width: 1200px; margin-inline: auto; }
+.pricing-document-header { @apply border-t-4 border-primary-700 pb-3 pt-7 dark:border-primary-500; }
+.pricing-header-link { @apply inline-flex h-9 items-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-300 dark:hover:border-primary-700 dark:hover:bg-primary-950; }
+.pricing-header-link :deep(svg) { @apply text-primary-600 dark:text-primary-400; }
+.pricing-tab-count { @apply ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-500 dark:bg-dark-800 dark:text-gray-400; }
 .pricing-tab { @apply relative min-h-12 border-b-2 border-transparent px-4 text-sm font-medium text-gray-500 transition-colors hover:text-gray-900 focus-visible:outline-primary-500 dark:text-gray-400 dark:hover:text-gray-100; }
-.pricing-tab.is-active { @apply border-gray-900 text-gray-900 dark:border-white dark:text-white; }
-@media (max-width: 639px) { .pricing-tab { padding-inline: 10px; font-size: 13px; } }
+.pricing-tab.is-active { @apply rounded-t-md border-primary-600 bg-primary-50 text-primary-800 dark:border-primary-400 dark:bg-primary-950/60 dark:text-primary-200; }
+.pricing-tab.is-active .pricing-tab-count { @apply bg-primary-600 text-white dark:bg-primary-800 dark:text-primary-100; }
+@media (max-width: 639px) {
+  .pricing-tab { padding-inline: 8px; font-size: 12px; }
+  .pricing-tab-count { margin-left: 4px; padding-inline: 4px; font-size: 10px; }
+}
 .plaza-description {
   line-height: 1.7;
   overflow-wrap: anywhere;
