@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="w-full">
+    <div ref="pageTop" tabindex="-1" class="w-full scroll-mt-20 outline-none">
     <header class="mb-5">
       <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ t('modelGallery.title') }}</h1>
       <p class="mt-1 text-sm text-gray-500 dark:text-dark-400">{{ t('modelGallery.description') }}</p>
@@ -54,7 +54,7 @@
          多列布局让卡片按各自高度依次填充，才是商品墙那种错落感。
          break-inside-avoid 保证卡片不被拆到两列。 -->
     <div v-else class="gallery-masonry">
-      <article v-for="card in visibleCards" :key="card.name" class="gallery-card group">
+      <article v-for="card in pagedCards" :key="card.name" class="gallery-card group">
         <div class="gallery-hero">
           <img
             v-if="heroImage(card.name) && !failedImages.has(heroImage(card.name))"
@@ -103,6 +103,7 @@
         </div>
       </article>
     </div>
+    <Pagination v-if="!loading && !loadError && visibleCards.length > PAGE_SIZE" class="model-pagination mt-6 rounded-lg" :total="visibleCards.length" :page="page" :page-size="PAGE_SIZE" :show-page-size-selector="false" @update:page="changePage" />
     </div>
   </AppLayout>
 </template>
@@ -110,11 +111,12 @@
 <script setup lang="ts">
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
 import ModelBrandMark from '@/components/modelPlaza/ModelBrandMark.vue'
+import Pagination from '@/components/common/Pagination.vue'
 import { getModelPlaza, type PlazaModel } from '@/api/modelPlaza'
 import { resolveModelVendor, resolveModelKind, type ModelKind } from '@/utils/modelVendor'
 import { formatCredits } from '@/utils/format'
@@ -138,6 +140,9 @@ const loading = ref(true)
 const loadError = ref('')
 const kind = ref<ModelKind | ''>('')
 const vendor = ref('')
+const PAGE_SIZE = 12
+const page = ref(1)
+const pageTop = ref<HTMLElement | null>(null)
 
 const kindFilters = [
   { value: '' as const, labelKey: 'modelGallery.all' },
@@ -153,6 +158,15 @@ const visibleCards = computed(() =>
     (c) => (kind.value === '' || c.kind === kind.value) && (vendor.value === '' || c.vendor === vendor.value)
   )
 )
+const pagedCards = computed(() => visibleCards.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE))
+watch(visibleCards, () => { page.value = 1 })
+
+async function changePage(value: number) {
+  page.value = value
+  await nextTick()
+  pageTop.value?.focus({ preventScroll: true })
+  pageTop.value?.scrollIntoView({ block: 'start', behavior: 'instant' })
+}
 
 function countByKind(k: ModelKind | ''): number {
   if (k === '') return cards.value.length
@@ -273,6 +287,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.model-pagination :deep(> div:last-child) { flex-wrap: wrap; gap: 12px; }
 .filter-chip {
   @apply rounded-lg px-2.5 py-1 text-xs transition-colors;
 }

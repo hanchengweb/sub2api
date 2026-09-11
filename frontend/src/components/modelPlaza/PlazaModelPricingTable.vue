@@ -126,6 +126,7 @@ import Icon from '@/components/icons/Icon.vue'
 import PeakOffPeakPrice from './PeakOffPeakPrice.vue'
 import { resolveModelVendor } from '@/utils/modelVendor'
 import { useClipboard } from '@/composables/useClipboard'
+import { plazaSection, comparePlazaModels } from '@/utils/modelPlazaOrdering'
 import { BILLING_MODE_TOKEN, BILLING_MODE_IMAGE, type BillingMode } from '@/constants/channel'
 import type { PlazaModel } from '@/api/modelPlaza'
 import type { UserPricingInterval } from '@/api/channels'
@@ -202,31 +203,13 @@ function billingMode(m: PlazaModel): BillingMode {
   return (m.pricing?.billing_mode || BILLING_MODE_TOKEN) as BillingMode
 }
 
-/**
- * 分区归类。
- *
- * 视频按模型名判，不按 billing_mode：线上视频模型的 billing_mode 配的是 image
- * （走的是图片接口那条闸门），只看计费模式会把它混进生图区。
- */
-function sectionOf(m: PlazaModel): SectionKind {
-  if (/video/i.test(m.name)) return 'video'
-  return billingMode(m) === BILLING_MODE_TOKEN ? 'text' : 'image'
-}
-
 /** 只渲染有模型的分区，空分区不占版面。 */
 const sections = computed<Section[]>(() => {
   const buckets: Record<SectionKind, PlazaModel[]> = { text: [], image: [], video: [] }
-  for (const m of props.models) buckets[sectionOf(m)].push(m)
+  for (const m of props.models) buckets[plazaSection(m)].push(m)
   // 区内排序沿用旧行为：官方输出价从高到低，无官方价的排最后，同价按名称升序。
   for (const k of Object.keys(buckets) as SectionKind[]) {
-    buckets[k].sort((a, b) => {
-      const pa = a.official_pricing?.output_price ?? null
-      const pb = b.official_pricing?.output_price ?? null
-      if (pa != null && pb != null && pa !== pb) return pb - pa
-      if (pa != null && pb == null) return -1
-      if (pa == null && pb != null) return 1
-      return a.name.localeCompare(b.name)
-    })
+    buckets[k].sort(comparePlazaModels)
   }
 
   const defs: Array<Omit<Section, 'models' | 'timeNote'>> = [

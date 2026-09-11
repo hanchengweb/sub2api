@@ -1,5 +1,5 @@
 <template>
-  <figure class="media-result" :aria-busy="loading">
+  <figure class="media-result" :style="{ width: `${isVideo ? 520 : imageWidth}px` }" :aria-busy="loading">
     <div v-if="loading" class="media-status" role="status">
       <LoadingSpinner size="sm" />
       <span>{{ t('playground.loadingMedia') }}</span>
@@ -47,6 +47,7 @@ const loading = ref(false)
 const error = ref('')
 const mime = ref('')
 const dimensions = ref('')
+const imageWidth = ref(440)
 const preview = ref<HTMLDialogElement | null>(null)
 let request: AbortController | undefined
 const isVideo = computed(() => mime.value.startsWith('video/') || props.kind === 'video')
@@ -82,6 +83,9 @@ async function load() {
 function readDimensions(event: Event) {
   const img = event.target as HTMLImageElement
   dimensions.value = `${img.naturalWidth} × ${img.naturalHeight}`
+  if (img.naturalWidth && img.naturalHeight) {
+    imageWidth.value = Math.min(520, Math.max(200, 440 * img.naturalWidth / img.naturalHeight))
+  }
 }
 function decodeFailed() { error.value = t('playground.mediaLoadFailed') }
 watch(() => props.src, load, { immediate: true })
@@ -89,8 +93,9 @@ onBeforeUnmount(() => { request?.abort(); release() })
 </script>
 
 <style scoped>
-.media-result { @apply m-0 min-w-0 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900; }
-.result-image { display: block; width: 100%; max-height: 440px; object-fit: contain; background: #f1f3f5; }
+.media-result { @apply m-0 min-w-0 max-w-full overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900; }
+.result-image { display: block; width: 100%; height: auto; max-height: 440px; object-fit: contain; }
+video.result-image { max-height: 440px; object-fit: contain; background: #111827; }
 .media-status { @apply flex min-h-48 flex-col items-center justify-center gap-3 p-4 text-center text-sm text-gray-500; }
 .media-tool { @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100 focus-visible:outline-primary-500 dark:text-gray-300 dark:hover:bg-dark-700; }
 .media-dialog { width: min(1100px, 94vw); max-height: 94dvh; padding: 0; border: 0; border-radius: 8px; }

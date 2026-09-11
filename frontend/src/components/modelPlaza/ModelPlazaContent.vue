@@ -1,5 +1,5 @@
 <template>
-  <div class="pricing-workspace space-y-6">
+  <div ref="pageTop" tabindex="-1" class="pricing-workspace scroll-mt-20 space-y-6 outline-none">
     <header class="pricing-document-header flex flex-wrap items-center justify-between gap-4">
       <h1 class="text-3xl font-semibold text-gray-900 dark:text-white">{{ t('modelPlaza.title') }}</h1>
       <div class="flex items-center gap-2">
@@ -60,8 +60,8 @@
       </div>
 
       <!-- 分组分节的模型清单(默认按生效倍率升序) -->
-      <div v-if="filteredGroups.length > 0" class="space-y-10">
-        <PlazaGroupSection v-for="g in filteredGroups" :key="g.id" :group="g" />
+      <div v-if="visibleCount > 0" class="space-y-10">
+        <PlazaGroupSection v-for="g in pagedGroups" :key="g.id" :group="g" />
       </div>
       <div
         v-else
@@ -69,12 +69,13 @@
       >
         {{ searchActive ? t('modelPlaza.noSearchResult') : t('modelPlaza.empty') }}
       </div>
+      <Pagination v-if="visibleCount > PAGE_SIZE" class="model-pagination rounded-lg" :total="visibleCount" :page="page" :page-size="PAGE_SIZE" :show-page-size-selector="false" @update:page="changePage" />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { marked } from 'marked'
@@ -82,6 +83,8 @@ import DOMPurify from 'dompurify'
 import Icon from '@/components/icons/Icon.vue'
 import PlazaFilterBar from './PlazaFilterBar.vue'
 import PlazaGroupSection from './PlazaGroupSection.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import { comparePlazaModels } from '@/utils/modelPlazaOrdering'
 import type { ModelPlazaGroup, ModelPlazaResponse } from '@/api/modelPlaza'
 import { useAuthStore } from '@/stores/auth'
 import { resolveModelKind, resolveModelVendor, type ModelKind } from '@/utils/modelVendor'
@@ -100,6 +103,9 @@ const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
 const selectedPlatform = ref<string>('all')
+const PAGE_SIZE = 6
+const page = ref(1)
+const pageTop = ref<HTMLElement | null>(null)
 const selectedGroupId = ref<number | 'all'>('all')
 const selectedRate = ref<number | 'all'>('all')
 const searchQuery = ref(props.initialSearch ?? '')
@@ -194,9 +200,31 @@ const filteredGroups = computed(() => {
     (a, b) => effectiveRate(a) - effectiveRate(b) || a.name.localeCompare(b.name)
   )
 })
+
+// Slice models across groups without splitting a model's pricing tiers.
+const pagedGroups = computed(() => {
+  let offset = 0
+  const start = (page.value - 1) * PAGE_SIZE
+  const end = start + PAGE_SIZE
+  return filteredGroups.value.flatMap(group => {
+    const models = [...group.models].sort(comparePlazaModels)
+      .slice(Math.max(0, start - offset), Math.max(0, end - offset))
+    offset += group.models.length
+    return models.length ? [{ ...group, models }] : []
+  })
+})
+watch(filteredGroups, () => { page.value = 1 })
+
+async function changePage(value: number) {
+  page.value = value
+  await nextTick()
+  pageTop.value?.focus({ preventScroll: true })
+  pageTop.value?.scrollIntoView({ block: 'start', behavior: 'instant' })
+}
 </script>
 
 <style scoped>
+.model-pagination :deep(> div:last-child) { flex-wrap: wrap; gap: 12px; }
 .pricing-workspace { max-width: 1400px; margin-inline: auto; }
 .pricing-document-header { @apply pb-2 pt-1; }
 .pricing-header-link { @apply inline-flex h-9 items-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-300 dark:hover:border-primary-700 dark:hover:bg-primary-950; }
