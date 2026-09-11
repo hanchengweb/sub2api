@@ -21,6 +21,10 @@ func RegisterPlaygroundRoutes(v1 *gin.RouterGroup, h *handler.PlaygroundHandler,
 		// 生成结果转存：上游结果 24 小时过期，落到本地盘才不会隔天全丢
 		pg.POST("/media/persist", h.PersistMedia)
 		pg.GET("/media/:id", h.StoredMedia)
+		// 会话同步：只存浏览器的话换设备什么都看不到
+		pg.GET("/conversations", h.ListConversations)
+		pg.PUT("/conversations/:id", h.SaveConversation)
+		pg.DELETE("/conversations/:id", h.DeleteConversation)
 		pg.POST("/chat/completions", h.ChatCompletions)
 		pg.POST("/images/generations", h.ImageGenerations)
 		pg.GET("/images/generations/:task_id", h.ImageStatus)

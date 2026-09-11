@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,6 +50,7 @@ type PlaygroundHandler struct {
 	apiKeyService  *service.APIKeyService
 	settingService *service.SettingService
 	mediaService   *service.PlaygroundMediaService
+	convService    *service.PlaygroundConversationService
 }
 
 func NewPlaygroundHandler(
@@ -56,12 +58,14 @@ func NewPlaygroundHandler(
 	apiKeyService *service.APIKeyService,
 	settingService *service.SettingService,
 	mediaService *service.PlaygroundMediaService,
+	convService *service.PlaygroundConversationService,
 ) *PlaygroundHandler {
 	return &PlaygroundHandler{
 		engine:         engine,
 		apiKeyService:  apiKeyService,
 		settingService: settingService,
 		mediaService:   mediaService,
+		convService:    convService,
 	}
 }
 
@@ -335,6 +339,83 @@ func (h *PlaygroundHandler) StoredMedia(c *gin.Context) {
 	c.Header("Cache-Control", "private, max-age=31536000, immutable")
 	c.Status(http.StatusOK)
 	_, _ = io.Copy(c.Writer, file)
+}
+
+// ListConversations 返回该用户的全部会话（含消息）。
+//
+// 会话搬到服务端之前只存浏览器 localStorage：换台电脑连列表都是空的，
+// 196 那次把图片落了盘也照样看不到。
+func (h *PlaygroundHandler) ListConversations(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized"}})
+		return
+	}
+	if h.convService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "conversation sync is unavailable"}})
+		return
+	}
+	convs, err := h.convService.List(c.Request.Context(), subject.UserID)
+	if err != nil {
+		requestLogger(c, "handler.playground").Warn("playground.conversations_list_failed",
+			zap.Int64("user_id", subject.UserID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "failed to load conversations"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": convs})
+}
+
+// SaveConversation 整条覆盖写入一个会话。
+//
+// 覆盖而不是逐条增量：流式对话每秒要改好几次内容，逐条 diff 的复杂度远超收益。
+// 会话 id 由前端生成，所以一律按 (user_id, id) 隔离——只按 id 写会让人改到别人的会话。
+func (h *PlaygroundHandler) SaveConversation(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized"}})
+		return
+	}
+	if h.convService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "conversation sync is unavailable"}})
+		return
+	}
+	var conv service.PlaygroundConversation
+	if err := c.ShouldBindJSON(&conv); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "invalid body"}})
+		return
+	}
+	// 路径里的 id 说了算，body 里的只是附带——两者不一致时以路径为准，
+	// 否则可以拿一个自己的 id 去写另一条会话的内容。
+	conv.ID = strings.TrimSpace(c.Param("id"))
+	if err := h.convService.Save(c.Request.Context(), subject.UserID, &conv); err != nil {
+		if errors.Is(err, service.ErrPlaygroundConversationInvalid) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "invalid conversation"}})
+			return
+		}
+		requestLogger(c, "handler.playground").Warn("playground.conversation_save_failed",
+			zap.Int64("user_id", subject.UserID), zap.String("conversation_id", conv.ID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "failed to save conversation"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": conv.ID}})
+}
+
+// DeleteConversation 删除一个会话及其消息。
+func (h *PlaygroundHandler) DeleteConversation(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized"}})
+		return
+	}
+	if h.convService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "conversation sync is unavailable"}})
+		return
+	}
+	if err := h.convService.Delete(c.Request.Context(), subject.UserID, c.Param("id")); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "failed to delete conversation"}})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // Models 列出该用户可调的模型。

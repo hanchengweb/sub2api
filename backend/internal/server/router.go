@@ -138,8 +138,10 @@ func registerRoutes(
 	// 上游结果 24 小时过期，不落本地盘的话历史会话隔天就只剩碎图。
 	playgroundMedia := service.NewPlaygroundMediaService(
 		repository.NewPlaygroundMediaRepository(sqlDB), cfg.Pricing.DataDir)
+	playgroundConvs := service.NewPlaygroundConversationService(
+		repository.NewPlaygroundConversationRepository(sqlDB))
 	routes.RegisterPlaygroundRoutes(v1,
-		handler.NewPlaygroundHandler(r, apiKeyService, settingService, playgroundMedia), jwtAuth)
+		handler.NewPlaygroundHandler(r, apiKeyService, settingService, playgroundMedia, playgroundConvs), jwtAuth)
 
 	handler.RegisterPageRoutes(v1, cfg.Pricing.DataDir, gin.HandlerFunc(jwtAuth), gin.HandlerFunc(adminAuth), settingService)
 }

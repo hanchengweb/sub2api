@@ -256,6 +256,9 @@ import {
   isFailedStatus,
   isInsufficientBalance,
   persistMedia,
+  fetchConversations,
+  pushConversation,
+  removeConversation as removeRemoteConversation,
   uploadReferenceImage,
   REFERENCE_IMAGE_MAX_BYTES,
   REFERENCE_IMAGE_TYPES,
@@ -582,8 +585,75 @@ function modeIcon(m: PlaygroundMode): ModeIconName {
   return modes.find((x) => x.value === m)?.icon ?? 'chat'
 }
 
+/**
+ * 本地立刻存，服务端防抖推。
+ *
+ * 本地是同步的：刷新页面不能丢当前对话，所以 localStorage 一次不落。
+ * 服务端走 600ms 防抖：流式对话每秒要改好几次内容，每次都发一遍 PUT
+ * 等于把整条会话反复上传，既浪费也可能乱序。
+ */
 function persist() {
   saveConversations(conversations.value)
+  schedulePush(activeConversation.value)
+}
+
+const pushTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function schedulePush(conv: PlaygroundConversation | null | undefined) {
+  if (!conv) return
+  const existing = pushTimers.get(conv.id)
+  if (existing) clearTimeout(existing)
+  pushTimers.set(conv.id, setTimeout(() => {
+    pushTimers.delete(conv.id)
+    void pushConversation(toSynced(conv))
+  }, 600))
+}
+
+/** 把本地会话转成接口形状。字段名不同是因为后端用蛇形命名。 */
+function toSynced(conv: PlaygroundConversation) {
+  return {
+    id: conv.id,
+    title: conv.title,
+    mode: conv.mode,
+    model: conv.model,
+    updated_at: conv.updatedAt,
+    messages: conv.messages.map(m => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      // 统一成数组：老会话只有 mediaUrl 单值，不转的话服务端存不到它
+      media_urls: m.mediaUrls?.length ? m.mediaUrls : (m.mediaUrl ? [m.mediaUrl] : []),
+      media_kind: m.mediaKind ?? null,
+      task_id: m.taskId ?? null,
+      error: m.error ?? null,
+      needs_top_up: Boolean(m.needsTopUp),
+      created_at: m.createdAt
+    }))
+  }
+}
+
+/** 接口形状转回本地会话。 */
+function fromSynced(raw: Awaited<ReturnType<typeof fetchConversations>> extends (infer T)[] | null ? T : never): PlaygroundConversation {
+  const urls = (m: { media_urls?: string[] | null }) => m.media_urls ?? []
+  return {
+    id: raw.id,
+    title: raw.title,
+    mode: (raw.mode === 'image' || raw.mode === 'video' ? raw.mode : 'chat') as PlaygroundMode,
+    model: raw.model,
+    updatedAt: raw.updated_at,
+    messages: (raw.messages ?? []).map(m => ({
+      id: m.id,
+      role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: m.content,
+      mediaUrls: urls(m),
+      mediaUrl: urls(m)[0],
+      mediaKind: (m.media_kind ?? undefined) as 'image' | 'video' | undefined,
+      taskId: m.task_id ?? undefined,
+      error: m.error ?? undefined,
+      needsTopUp: Boolean(m.needs_top_up),
+      createdAt: m.created_at ?? Date.now()
+    }))
+  }
 }
 
 function scrollToBottom() {
@@ -621,7 +691,14 @@ function selectConversation(id: string) {
 function removeConversation(id: string) {
   conversations.value = conversations.value.filter((c) => c.id !== id)
   if (activeId.value === id) activeId.value = conversations.value[0]?.id ?? ''
-  persist()
+  saveConversations(conversations.value)
+  // 服务端也要删：只删本地的话，换台设备它还在，下次同步又被拉回来
+  const pending = pushTimers.get(id)
+  if (pending) {
+    clearTimeout(pending)
+    pushTimers.delete(id)
+  }
+  void removeRemoteConversation(id)
 }
 
 function switchMode(next: PlaygroundMode) {
@@ -974,7 +1051,16 @@ onMounted(async () => {
   else if (wantedMode === 'chat' || wantedMode === 'image' || wantedMode === 'video') {
     mode.value = wantedMode
   }
+  // 先用本地缓存把界面撑起来，再用服务端数据覆盖——服务端是真源，
+  // 但拉取要一次往返，这期间让用户盯着空白列表没必要。
   conversations.value = loadConversations()
+  const remote = await fetchConversations()
+  if (remote) {
+    // null 才是「拉不到」，空数组是「这个账号确实没有会话」——
+    // 混为一谈的话，新设备首次登录会把空列表当成同步失败而显示旧缓存。
+    conversations.value = remote.map(fromSynced)
+    saveConversations(conversations.value)
+  }
   activeId.value = conversations.value[0]?.id ?? ''
   if (activeConversation.value && !wantedMode) mode.value = activeConversation.value.mode
   await loadModels()
@@ -987,6 +1073,13 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  // 防抖窗口里离开页面会丢掉最后一次改动，这里补发一次
+  for (const [id, timer] of pushTimers) {
+    clearTimeout(timer)
+    const conv = conversations.value.find(c => c.id === id)
+    if (conv) void pushConversation(toSynced(conv))
+  }
+  pushTimers.clear()
   releaseReferencePreview()
   document.removeEventListener('click', onDocumentClick)
   disposed = true

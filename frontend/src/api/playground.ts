@@ -390,3 +390,74 @@ export function isFailedStatus(status: string | undefined): boolean {
   const s = (status ?? '').toLowerCase()
   return ['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(s)
 }
+
+/**
+ * 服务端会话同步。
+ *
+ * 会话此前只存浏览器 localStorage：换台电脑或重新登录后连列表都是空的，
+ * 生成结果已经落盘也照样看不到。这几个接口把会话搬到服务端。
+ *
+ * 三个函数都不抛错、失败静默退回：同步断了用户还能照常对话（本地缓存仍在），
+ * 而把「后台同步失败」弹到对话流里只会打断他正在做的事。
+ */
+export interface SyncedMessage {
+  id: string
+  role: string
+  content: string
+  media_urls?: string[] | null
+  media_kind?: string | null
+  task_id?: string | null
+  error?: string | null
+  needs_top_up?: boolean
+  created_at?: number
+}
+
+export interface SyncedConversation {
+  id: string
+  title: string
+  mode: string
+  model: string
+  updated_at: number
+  messages: SyncedMessage[]
+}
+
+export async function fetchConversations(options?: { signal?: AbortSignal }): Promise<SyncedConversation[] | null> {
+  try {
+    const response = await fetch(buildApiUrl('/playground/conversations'), {
+      headers: authHeaders(),
+      signal: options?.signal
+    })
+    if (!response.ok) return null
+    const payload = (await response.json()) as { data?: SyncedConversation[] }
+    return payload.data ?? []
+  } catch {
+    // null 表示「拿不到服务端数据」，与「服务端确实没有会话」（空数组）区分开：
+    // 前者要退回本地缓存，后者说明这是个新设备/新账号，本来就该是空的。
+    return null
+  }
+}
+
+export async function pushConversation(conv: SyncedConversation): Promise<boolean> {
+  try {
+    const response = await fetch(buildApiUrl(`/playground/conversations/${encodeURIComponent(conv.id)}`), {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(conv)
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+export async function removeConversation(id: string): Promise<boolean> {
+  try {
+    const response = await fetch(buildApiUrl(`/playground/conversations/${encodeURIComponent(id)}`), {
+      method: 'DELETE',
+      headers: authHeaders()
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
