@@ -364,11 +364,29 @@
     {
       "model": "doubao-seedream-5-0-pro",
       "vendor": "字节豆包 Doubao",
-      "tier": null,
+      "tier": "1K",
       "quality": null,
       "unit_cny_per_image": 0.3,
       "cost_credits": 30.0,
       "price_credits": 59.0
+    },
+    {
+      "model": "doubao-seedream-5-0-pro",
+      "vendor": "字节豆包 Doubao",
+      "tier": "2K",
+      "quality": null,
+      "unit_cny_per_image": 0.6,
+      "cost_credits": 60.0,
+      "price_credits": 89.0
+    },
+    {
+      "model": "doubao-seedream-5-0-pro",
+      "vendor": "字节豆包 Doubao",
+      "tier": "4K",
+      "quality": null,
+      "unit_cny_per_image": 0.6,
+      "cost_credits": 60.0,
+      "price_credits": 89.0
     },
     {
       "model": "vidu-image",
