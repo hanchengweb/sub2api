@@ -144,8 +144,10 @@ func registerRoutes(
 			repository.NewAgencyApplicationRepository(sqlDB))),
 		jwtAuth, adminAuth)
 
+	// 会话删除 / 裁剪后回收没人再引用的转存文件——会话没了，那些图片视频
+	// 再也没有入口能看到，留着就是永久占盘。
 	playgroundConvs := service.NewPlaygroundConversationService(
-		repository.NewPlaygroundConversationRepository(sqlDB))
+		repository.NewPlaygroundConversationRepository(sqlDB), playgroundMedia)
 	routes.RegisterPlaygroundRoutes(v1,
 		handler.NewPlaygroundHandler(r, apiKeyService, settingService, playgroundMedia, playgroundConvs), jwtAuth)
 

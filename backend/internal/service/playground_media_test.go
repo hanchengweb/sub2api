@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -19,6 +20,11 @@ type fakePlaygroundMediaRepo struct {
 	rows    []*PlaygroundMedia
 	nextID  int64
 	inserts int
+	// referenced 模拟「还被某条会话消息引用着」的记录 id。
+	// 真实实现是从 playground_messages.media_urls 反查，这里只关心
+	// 服务层拿到待删列表之后有没有把文件真删掉。
+	referenced map[int64]bool
+	lastMinAge time.Duration
 }
 
 func (r *fakePlaygroundMediaRepo) FindBySource(_ context.Context, userID int64, src string) (*PlaygroundMedia, error) {
@@ -45,6 +51,21 @@ func (r *fakePlaygroundMediaRepo) GetOwned(_ context.Context, userID, id int64) 
 		}
 	}
 	return nil, nil
+}
+
+func (r *fakePlaygroundMediaRepo) DeleteUnreferenced(_ context.Context, userID int64, minAge time.Duration) ([]string, error) {
+	r.lastMinAge = minAge
+	kept := make([]*PlaygroundMedia, 0, len(r.rows))
+	var paths []string
+	for _, m := range r.rows {
+		if m.UserID == userID && !r.referenced[m.ID] {
+			paths = append(paths, m.StoredPath)
+			continue
+		}
+		kept = append(kept, m)
+	}
+	r.rows = kept
+	return paths, nil
 }
 
 func newTestMediaService(t *testing.T, handler http.HandlerFunc) (*PlaygroundMediaService, *fakePlaygroundMediaRepo, *httptest.Server) {
@@ -195,4 +216,42 @@ func listFiles(t *testing.T, root string) []string {
 		return nil
 	}))
 	return out
+}
+
+// 会话被删之后，它引用的转存文件必须连库带盘一起消失——
+// 否则「永久保留」会变成「永久泄漏」：没有任何入口能再看到这些字节。
+func TestReclaimUnreferencedRemovesStoredFiles(t *testing.T) {
+	svc, repo, srv := newTestMediaService(t, pngHandler([]byte("fake-png-bytes")))
+	ctx := context.Background()
+
+	keep, err := svc.Persist(ctx, 7, srv.URL+"/keep.png", "image", "tsk_keep")
+	require.NoError(t, err)
+	drop, err := svc.Persist(ctx, 7, srv.URL+"/drop.png", "image", "tsk_drop")
+	require.NoError(t, err)
+
+	keepPath := filepath.Join(svc.dataDir, filepath.FromSlash(keep.StoredPath))
+	dropPath := filepath.Join(svc.dataDir, filepath.FromSlash(drop.StoredPath))
+	require.FileExists(t, keepPath)
+	require.FileExists(t, dropPath)
+
+	repo.referenced = map[int64]bool{keep.ID: true}
+
+	n, err := svc.ReclaimUnreferenced(ctx, 7)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+
+	require.FileExists(t, keepPath, "还被会话引用的文件不能删")
+	_, statErr := os.Stat(dropPath)
+	require.True(t, os.IsNotExist(statErr), "没人引用的文件应该已经从盘上删掉")
+
+	// 宽限期必须传下去：转存发生在结果刚拿到那一刻，会话要等前端防抖才推上来，
+	// 少了这道门槛会把用户刚生成、还没同步的图删掉。
+	require.Equal(t, PlaygroundMediaReclaimGrace, repo.lastMinAge)
+}
+
+func TestReclaimUnreferencedSkipsInvalidUser(t *testing.T) {
+	svc, _, _ := newTestMediaService(t, pngHandler([]byte("png")))
+	n, err := svc.ReclaimUnreferenced(context.Background(), 0)
+	require.NoError(t, err)
+	require.Zero(t, n)
 }

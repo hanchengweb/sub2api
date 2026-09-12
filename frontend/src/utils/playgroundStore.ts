@@ -52,6 +52,44 @@ export function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+/**
+ * 合并本地缓存与服务端会话，并指出哪些只有本地有。
+ *
+ * 服务端是真源，但不能直接拿它覆盖本地：会话同步上线之前，所有历史都只在
+ * localStorage 里，服务端一条都没有——直接覆盖等于把用户上线前的会话全删了。
+ * 所以取并集；同 id 以 updatedAt 新的一方为准（另一台设备刚改过 vs 这台离线
+ * 改过，谁新听谁的）。
+ *
+ * localOnly 只回落在上限之内的那些：超出上限的会话本地本来就存不住，
+ * 补推上去只会被服务端的裁剪再删一遍。
+ */
+export function mergeConversations(
+  local: PlaygroundConversation[],
+  remote: PlaygroundConversation[]
+): { merged: PlaygroundConversation[]; localOnly: PlaygroundConversation[] } {
+  const byId = new Map<string, PlaygroundConversation>()
+  for (const conv of remote) byId.set(conv.id, conv)
+
+  const localOnlyIds = new Set<string>()
+  for (const conv of local) {
+    const existing = byId.get(conv.id)
+    if (!existing) {
+      byId.set(conv.id, conv)
+      localOnlyIds.add(conv.id)
+      continue
+    }
+    if (conv.updatedAt > existing.updatedAt) {
+      byId.set(conv.id, conv)
+      localOnlyIds.add(conv.id)
+    }
+  }
+
+  const merged = [...byId.values()]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, MAX_CONVERSATIONS)
+  return { merged, localOnly: merged.filter((c) => localOnlyIds.has(c.id)) }
+}
+
 export function loadConversations(): PlaygroundConversation[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)

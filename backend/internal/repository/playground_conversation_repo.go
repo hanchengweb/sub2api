@@ -177,10 +177,10 @@ func (r *playgroundConversationRepository) Delete(ctx context.Context, userID in
 	return err
 }
 
-// TrimOldest 只保留最近 keep 条会话。
-func (r *playgroundConversationRepository) TrimOldest(ctx context.Context, userID int64, keep int) error {
+// TrimOldest 只保留最近 keep 条会话，返回删掉的条数。
+func (r *playgroundConversationRepository) TrimOldest(ctx context.Context, userID int64, keep int) (int, error) {
 	if r == nil || r.db == nil {
-		return errors.New("playground conversation repository db is nil")
+		return 0, errors.New("playground conversation repository db is nil")
 	}
 	const pickSQL = `
 		SELECT id FROM playground_conversations
@@ -189,34 +189,36 @@ func (r *playgroundConversationRepository) TrimOldest(ctx context.Context, userI
 		OFFSET $2`
 	rows, err := r.db.QueryContext(ctx, pickSQL, userID, keep)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var stale []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			_ = rows.Close()
-			return err
+			return 0, err
 		}
 		stale = append(stale, id)
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return err
+		return 0, err
 	}
 	_ = rows.Close()
 	if len(stale) == 0 {
-		return nil
+		return 0, nil
 	}
 	if _, err := r.db.ExecContext(ctx,
 		`DELETE FROM playground_messages WHERE user_id = $1 AND conversation_id = ANY($2)`,
 		userID, pq.Array(stale)); err != nil {
-		return err
+		return 0, err
 	}
-	_, err = r.db.ExecContext(ctx,
+	if _, err := r.db.ExecContext(ctx,
 		`DELETE FROM playground_conversations WHERE user_id = $1 AND id = ANY($2)`,
-		userID, pq.Array(stale))
-	return err
+		userID, pq.Array(stale)); err != nil {
+		return 0, err
+	}
+	return len(stale), nil
 }
 
 func nullIfEmpty(s string) any {

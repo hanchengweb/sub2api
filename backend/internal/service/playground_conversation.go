@@ -52,8 +52,19 @@ type PlaygroundConversationRepository interface {
 	Upsert(ctx context.Context, userID int64, conv *PlaygroundConversation) error
 	// Delete 删除一个会话及其消息。
 	Delete(ctx context.Context, userID int64, id string) error
-	// TrimOldest 只保留最近 keep 条会话，其余删除。
-	TrimOldest(ctx context.Context, userID int64, keep int) error
+	// TrimOldest 只保留最近 keep 条会话，其余删除，返回删掉的条数。
+	//
+	// 返回条数不是给日志看的：删掉会话意味着它引用的转存文件可能已经没人
+	// 引用了，调用方靠这个数字决定要不要去回收，而不是每次保存都扫一遍。
+	TrimOldest(ctx context.Context, userID int64, keep int) (int, error)
+}
+
+// PlaygroundMediaReclaimer 回收已无会话引用的转存结果。
+//
+// 定成接口而不是直接依赖 *PlaygroundMediaService：会话存储不该因为
+// 媒体转存没配起来就不能用。为 nil 时所有回收调用直接跳过。
+type PlaygroundMediaReclaimer interface {
+	ReclaimUnreferenced(ctx context.Context, userID int64) (int, error)
 }
 
 // PlaygroundConversationService 会话的服务端存储。
@@ -62,10 +73,23 @@ type PlaygroundConversationRepository interface {
 // 连会话列表都是空的——生成结果已经落盘了也看不到。
 type PlaygroundConversationService struct {
 	repo PlaygroundConversationRepository
+	// reclaimer 可以为 nil：媒体转存没配起来时，会话该照常能存能删。
+	reclaimer PlaygroundMediaReclaimer
 }
 
-func NewPlaygroundConversationService(repo PlaygroundConversationRepository) *PlaygroundConversationService {
-	return &PlaygroundConversationService{repo: repo}
+func NewPlaygroundConversationService(repo PlaygroundConversationRepository, reclaimer PlaygroundMediaReclaimer) *PlaygroundConversationService {
+	return &PlaygroundConversationService{repo: repo, reclaimer: reclaimer}
+}
+
+// reclaimMedia 回收因会话消失而没人再引用的转存文件。
+//
+// 一律吞掉错误：回收是清理，不是用户这次操作的目的。删会话删成功了却因为
+// 清不掉几个文件而报错，用户只会以为没删掉，然后再点一次。
+func (s *PlaygroundConversationService) reclaimMedia(ctx context.Context, userID int64) {
+	if s == nil || s.reclaimer == nil {
+		return
+	}
+	_, _ = s.reclaimer.ReclaimUnreferenced(ctx, userID)
 }
 
 func (s *PlaygroundConversationService) List(ctx context.Context, userID int64) ([]PlaygroundConversation, error) {
@@ -93,7 +117,12 @@ func (s *PlaygroundConversationService) Save(ctx context.Context, userID int64, 
 	}
 	// 裁剪失败不影响本次保存：用户要的是「这条存下了」，
 	// 多留几条老会话只是占点空间，不该让保存报错。
-	_ = s.repo.TrimOldest(ctx, userID, PlaygroundMaxConversations)
+	trimmed, err := s.repo.TrimOldest(ctx, userID, PlaygroundMaxConversations)
+	if err == nil && trimmed > 0 {
+		// 只有真裁掉了才回收。保存是高频动作（流式对话每秒好几次），
+		// 每次都去扫一遍转存表纯属浪费。
+		s.reclaimMedia(ctx, userID)
+	}
 	return nil
 }
 
@@ -105,7 +134,12 @@ func (s *PlaygroundConversationService) Delete(ctx context.Context, userID int64
 	if userID <= 0 || id == "" {
 		return ErrPlaygroundConversationInvalid
 	}
-	return s.repo.Delete(ctx, userID, id)
+	if err := s.repo.Delete(ctx, userID, id); err != nil {
+		return err
+	}
+	// 会话没了，它引用的图片和视频再也没有入口能看到，继续占着盘就是永久泄漏。
+	s.reclaimMedia(ctx, userID)
+	return nil
 }
 
 // normalizeConversation 校验并裁剪到可入库的形状。

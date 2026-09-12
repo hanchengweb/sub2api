@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -95,4 +96,69 @@ func (r *playgroundMediaRepository) GetOwned(ctx context.Context, userID, id int
 		return nil, nil
 	}
 	return media, err
+}
+
+// DeleteUnreferenced 删除该用户已无任何会话消息引用的转存记录。
+//
+// 「有没有被引用」只能从消息里的 media_urls 反查：转存时还不知道这张图
+// 最终落在哪条会话上，所以表里没有 conversation_id。存进消息的地址形如
+// /api/v1/playground/media/<id>，按整串后缀匹配——不能用 LIKE '%<id>%'，
+// 那样 id=12 会把 id=123 的引用也算成自己的，删掉还在用的图。
+//
+// minAge 是必需的：转存发生在结果刚拿到那一刻，会话要等前端防抖之后才推上来，
+// 这期间「没人引用」是正常状态。没有这道门槛就会删掉用户刚生成的图。
+func (r *playgroundMediaRepository) DeleteUnreferenced(ctx context.Context, userID int64, minAge time.Duration) ([]string, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("playground media repository db is nil")
+	}
+	if userID <= 0 {
+		return nil, nil
+	}
+	minutes := int(minAge / time.Minute)
+	if minutes < 0 {
+		minutes = 0
+	}
+	// 先把「还被引用的 id」一次性收拢成一个集合，再做反连接。
+	// 不写成 NOT EXISTS(... LIKE ...) 的相关子查询：那样每条候选记录都要
+	// 重扫一遍该用户的全部消息，会话满载时是百万次比较。
+	//
+	// 地址形如 /api/v1/playground/media/<id>，按结尾整段取数字。
+	// 限 18 位是防 ::bigint 溢出报错——库里不会有这种值，但这条 SQL 读的是
+	// 消息内容，而消息内容前端写什么都可能。
+	// media_urls 理论上恒为数组，仍套一层 CASE：真出现一行标量，
+	// jsonb_array_elements_text 会让整条清理查询直接报错。
+	const q = `
+		WITH referenced AS (
+			SELECT DISTINCT
+				substring(u.url from '/playground/media/([0-9]{1,18})$')::bigint AS id
+			FROM playground_messages pm
+			CROSS JOIN LATERAL jsonb_array_elements_text(
+				CASE WHEN jsonb_typeof(pm.media_urls) = 'array'
+					THEN pm.media_urls ELSE '[]'::jsonb END
+			) AS u(url)
+			WHERE pm.user_id = $1
+			  AND u.url ~ '/playground/media/[0-9]{1,18}$'
+		)
+		DELETE FROM playground_media m
+		WHERE m.user_id = $1
+		  AND m.created_at < NOW() - make_interval(mins => $2)
+		  AND NOT EXISTS (SELECT 1 FROM referenced r WHERE r.id = m.id)
+		RETURNING stored_path`
+	rows, err := r.db.QueryContext(ctx, q, userID, minutes)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(p) != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, rows.Err()
 }

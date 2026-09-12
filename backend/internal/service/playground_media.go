@@ -66,6 +66,9 @@ type PlaygroundMediaRepository interface {
 	Insert(ctx context.Context, media *PlaygroundMedia) (*PlaygroundMedia, error)
 	// GetOwned 取该用户自己的一条记录；不属于他就返回 nil。
 	GetOwned(ctx context.Context, userID, id int64) (*PlaygroundMedia, error)
+	// DeleteUnreferenced 删除该用户已无任何会话消息引用、且早于 minAge 的记录，
+	// 返回被删记录的 stored_path 供调用方清理磁盘上的文件。
+	DeleteUnreferenced(ctx context.Context, userID int64, minAge time.Duration) ([]string, error)
 }
 
 // PlaygroundMediaService 把上游生成结果转存到本地盘。
@@ -237,6 +240,43 @@ func (s *PlaygroundMediaService) Open(ctx context.Context, userID, id int64) (*P
 		return nil, nil, err
 	}
 	return media, file, nil
+}
+
+// PlaygroundMediaReclaimGrace 转存记录至少存活这么久才可能被回收。
+//
+// 不是保守，是必需：转存发生在生成结果刚拿到的那一刻，而会话要等前端
+// 防抖之后才推到服务端。这中间的记录「暂时没人引用」是正常状态，
+// 立刻回收会把用户刚生成、还没来得及同步的图删掉。
+const PlaygroundMediaReclaimGrace = time.Hour
+
+// ReclaimUnreferenced 回收该用户已无会话引用的转存结果（删库 + 删文件）。
+//
+// 触发时机是会话被删除或被裁剪之后：会话没了，它引用的图片和视频再也无法
+// 被任何人看到，继续占着盘只是永久泄漏。返回实际回收的条数。
+//
+// 删文件失败不算失败：库里的行已经删掉，文件顶多成为一个谁都引用不到的
+// 残留字节；为此让整个删除会话的请求报错，用户只会觉得「删不掉」。
+func (s *PlaygroundMediaService) ReclaimUnreferenced(ctx context.Context, userID int64) (int, error) {
+	if s == nil || s.repo == nil {
+		return 0, errors.New("playground media service is unavailable")
+	}
+	if userID <= 0 {
+		return 0, nil
+	}
+	paths, err := s.repo.DeleteUnreferenced(ctx, userID, PlaygroundMediaReclaimGrace)
+	if err != nil {
+		return 0, err
+	}
+	for _, rel := range paths {
+		// 与 Open 同样的清洗：库里的值理论上都是我们自己写的，
+		// 但这里是删文件，更不能留「理论上」。
+		clean := filepath.Clean("/" + filepath.FromSlash(rel))
+		if clean == "/" || clean == string(filepath.Separator) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(s.dataDir, clean))
+	}
+	return len(paths), nil
 }
 
 // ensureFreeSpace 可用空间低于阈值时拒绝转存。

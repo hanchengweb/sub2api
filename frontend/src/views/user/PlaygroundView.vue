@@ -268,6 +268,7 @@ import {
 import {
   loadConversations,
   saveConversations,
+  mergeConversations,
   deriveTitle,
   newId,
   type PlaygroundConversation,
@@ -1058,8 +1059,14 @@ onMounted(async () => {
   if (remote) {
     // null 才是「拉不到」，空数组是「这个账号确实没有会话」——
     // 混为一谈的话，新设备首次登录会把空列表当成同步失败而显示旧缓存。
-    conversations.value = remote.map(fromSynced)
+    //
+    // 但也不能直接用服务端列表覆盖本地：同步上线之前的历史全在 localStorage 里，
+    // 服务端一条都没有，覆盖等于把用户上线前的会话全删了。取并集，并把
+    // 只有本地有的补推上去——这台机器的历史从此也能在别的设备看到。
+    const { merged, localOnly } = mergeConversations(conversations.value, remote.map(fromSynced))
+    conversations.value = merged
     saveConversations(conversations.value)
+    for (const conv of localOnly) void pushConversation(toSynced(conv))
   }
   activeId.value = conversations.value[0]?.id ?? ''
   if (activeConversation.value && !wantedMode) mode.value = activeConversation.value.mode
