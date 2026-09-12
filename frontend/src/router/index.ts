@@ -310,6 +310,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/become-agent',
+    name: 'Agency',
+    component: () => import('@/views/user/AgencyView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Become a Partner',
+      titleKey: 'nav.agency'
+    }
+  },
+  {
     path: '/available-channels',
     name: 'UserAvailableChannels',
     component: () => import('@/views/user/AvailableChannelsView.vue'),
