@@ -368,25 +368,28 @@
       "quality": null,
       "unit_cny_per_image": 0.3,
       "cost_credits": 30.0,
-      "price_credits": 59.0
+      "price_credits": 59.0,
+      "note": null
     },
     {
       "model": "doubao-seedream-5-0-pro",
       "vendor": "字节豆包 Doubao",
       "tier": "2K",
       "quality": null,
-      "unit_cny_per_image": 0.6,
-      "cost_credits": 60.0,
-      "price_credits": 89.0
+      "unit_cny_per_image": 0.3,
+      "cost_credits": 30.0,
+      "price_credits": 89.0,
+      "note": "上游不分档（¥0.30），这一档是本站按清晰度主动加价，不走「成本 + 29」规则"
     },
     {
       "model": "doubao-seedream-5-0-pro",
       "vendor": "字节豆包 Doubao",
       "tier": "4K",
       "quality": null,
-      "unit_cny_per_image": 0.6,
-      "cost_credits": 60.0,
-      "price_credits": 89.0
+      "unit_cny_per_image": 0.3,
+      "cost_credits": 30.0,
+      "price_credits": 89.0,
+      "note": "上游不分档（¥0.30），这一档是本站按清晰度主动加价，不走「成本 + 29」规则"
     },
     {
       "model": "vidu-image",

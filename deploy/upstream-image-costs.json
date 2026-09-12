@@ -10,7 +10,7 @@
     "gpt-image-2-vip 4K 高质量上游要 ¥1.32，我们却按 ¥0.3268 收，每张倒贴约 1 元。",
     "2026-09-10 增补 gpt-image-2.5-flare / -sunburst（普通版）：官方文档与控制台定价页均为 $0.015/0.020/0.025 每张（1K/2K/4K），与 gpt-image-2 同价；固定 high 质量，不分质量档。",
     "2026-09-10 增补 gpt-image-2.5-flare-vip / -sunburst-vip：上游按 token 后付费、官方未公布每张价，成本由「生成一张图前后 /v1/user/balance 的 used_balance 差额」实测得出。校验：低·1K 实测 $0.004792，官方文档同参数示例算得 $0.004812，吻合。4K 取 max(4K实测, 2K实测)——成本随最长边走、上游输出 token 有上限，两次 4K 实测都略低于 2K。",
-    "2026-09-12 更正 doubao-seedream-5-0-pro：原记录「不分清晰度、¥0.30 一张」不对，2K 及以上售价应为 89 积分（韩诚指出，与历史遗留行 v-doubao-seedream-5-0-pro 的档位一致）。成本 ¥0.60 是按「售价 − 29 积分加成」倒推的推断值，不是上游账单实测——宁可记高：记低会让毛利虚高。同类风险：现网另有 21 个按次计费的图像模型同样没有清晰度档位，4K 出图仍按 1K 收费，差额由本站承担；拿到上游档位价后需逐个补齐。"
+    "2026-09-12 doubao-seedream-5-0-pro：上游价目表（韩诚提供截图）为 ¥0.30 一口价，1K/2K/4K 不分档 —— 表头写明「分档模型已按 1K/2K/4K 逐档列出」，它只列了一行。本站售价按清晰度加价：1K 59 / 2K 89 / 4K 89 积分。2K 及以上不是成本更高，是我们主动加价，所以这两档不满足「成本 + 29 积分」的默认加成规则。（当天早些时候我按 89 − 29 把成本倒推成 ¥0.60 写进了库和这份文件，已按截图改回 ¥0.30。）"
   ],
   "source": "toAPI console pricing table",
   "captured_at": "2026-09-10",
@@ -299,23 +299,9 @@
     {
       "model": "doubao-seedream-5-0-pro",
       "vendor": "字节豆包 Doubao",
-      "tier": "1K",
+      "tier": null,
       "quality": null,
       "unit_cny_per_image": 0.3
-    },
-    {
-      "model": "doubao-seedream-5-0-pro",
-      "vendor": "字节豆包 Doubao",
-      "tier": "2K",
-      "quality": null,
-      "unit_cny_per_image": 0.6
-    },
-    {
-      "model": "doubao-seedream-5-0-pro",
-      "vendor": "字节豆包 Doubao",
-      "tier": "4K",
-      "quality": null,
-      "unit_cny_per_image": 0.6
     },
     {
       "model": "vidu-image",
