@@ -114,3 +114,53 @@ it('待处理达上限时提示「已有申请在处理中」，而不是「填�
   expect(err).not.toContain('失败')
   wrapper.unmount()
 })
+
+it('提交成功后给一行回执，并把这个方向的提交按钮按住', async () => {
+  // 提交前没有，提交后才有：后端返回之前就报「成功」是骗人的
+  api.listMine.mockResolvedValueOnce([]).mockResolvedValueOnce([
+    { id: 1, direction: 'channel', status: 'pending', created_at: '2026-09-11T00:00:00Z' }
+  ])
+  const wrapper = render()
+  await flushPromises()
+  expect(wrapper.find('.agency-notice').exists()).toBe(false)
+
+  await wrapper.get('#agency-name').setValue('测试伙伴')
+  await wrapper.get('#agency-email').setValue('partner@example.invalid')
+  await wrapper.get('#agency-scenario').setValue('渠道合作')
+  await wrapper.get('form').trigger('submit')
+  await flushPromises()
+
+  const notice = wrapper.get('.agency-notice')
+  expect(notice.text()).toContain('提交成功')
+  expect(notice.text()).toContain('请勿重复提交')
+  expect(wrapper.get('button.agency-primary').attributes('disabled')).toBeDefined()
+  wrapper.unmount()
+})
+
+it('已有待处理申请时进页面就按住提交，换个方向又能提', async () => {
+  api.listMine.mockResolvedValue([
+    { id: 1, direction: 'channel', status: 'pending', created_at: '2026-09-11T00:00:00Z' }
+  ])
+  const wrapper = render()
+  await flushPromises()
+
+  expect(wrapper.get('.agency-notice').text()).toContain('请勿重复提交')
+  expect(wrapper.get('button.agency-primary').attributes('disabled')).toBeDefined()
+
+  // 同一个人就不同方向分别申请是正常诉求，不该被算成重复
+  await wrapper.get('input[value="integration"]').setValue()
+  expect(wrapper.get('button.agency-primary').attributes('disabled')).toBeUndefined()
+  expect(wrapper.find('.agency-notice').exists()).toBe(false)
+  wrapper.unmount()
+})
+
+it('已处理完的申请不该继续按住提交按钮', async () => {
+  api.listMine.mockResolvedValue([
+    { id: 1, direction: 'channel', status: 'rejected', created_at: '2026-09-11T00:00:00Z' }
+  ])
+  const wrapper = render()
+  await flushPromises()
+
+  expect(wrapper.get('button.agency-primary').attributes('disabled')).toBeUndefined()
+  wrapper.unmount()
+})

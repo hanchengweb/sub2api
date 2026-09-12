@@ -42,27 +42,18 @@
             <textarea id="agency-scenario" v-model="form.scenario" name="scenario" required maxlength="1000" rows="3" :placeholder="t(`agency.directions.${selected}.placeholder`)" />
           </div>
           <div class="agency-actions">
-            <button type="submit" class="agency-primary" :disabled="submitting">
+            <button type="submit" class="agency-primary" :disabled="submitting || pendingInDirection">
               <LoadingSpinner v-if="submitting" size="sm" />
               <Icon v-else name="check" size="sm" aria-hidden="true" />{{ submitting ? t('agency.submitting') : t('agency.submit') }}
             </button>
             <button type="button" class="agency-secondary" @click="generateBrief"><Icon name="document" size="sm" aria-hidden="true" />{{ t('agency.generate') }}</button>
             <button type="button" class="agency-secondary" @click="openDialog('contact')"><Icon name="chat" size="sm" aria-hidden="true" />{{ t('agency.contact') }}</button>
           </div>
+          <!-- 提交完什么都看不到的话，用户只会反复再点一次。一行回执就够，
+               不用在按钮底下堆一张申请列表。 -->
           <p v-if="submitError" class="agency-submit-error" role="alert">{{ submitError }}</p>
-
-          <!-- 提交完什么都看不到的话，用户只会反复再提交一遍 -->
-          <div v-if="myApplications.length" class="agency-history">
-            <h3>{{ t('agency.myApplications') }}</h3>
-            <ul>
-              <li v-for="app in myApplications" :key="app.id" data-testid="agency-application">
-                <span class="agency-history-dir">{{ t(`agency.directions.${app.direction}.title`) }}</span>
-                <span class="agency-history-status" :class="`is-${app.status}`">{{ t(`agency.status.${app.status}`) }}</span>
-                <span class="agency-history-time">{{ formatDate(app.created_at) }}</span>
-                <p v-if="app.admin_note" class="agency-history-note">{{ app.admin_note }}</p>
-              </li>
-            </ul>
-          </div>
+          <p v-else-if="justSubmitted" class="agency-notice is-success" role="status">{{ t('agency.submitted') }}</p>
+          <p v-else-if="pendingInDirection" class="agency-notice" role="status">{{ t('agency.pending') }}</p>
         </form>
       </div>
 
@@ -115,12 +106,18 @@ const contactInfo = computed(() => appStore.contactInfo.trim())
 
 const submitting = ref(false)
 const submitError = ref('')
+const justSubmitted = ref(false)
 const myApplications = ref<AgencyApplication[]>([])
 
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString()
-}
+/**
+ * 当前方向下有没有还在处理的申请。
+ *
+ * 按方向而不是按人判断：同一个人就不同方向分别申请是正常的，
+ * 同一个方向连提两条才是重复提交。
+ */
+const pendingInDirection = computed(() =>
+  myApplications.value.some(app => app.direction === selected.value && app.status === 'pending')
+)
 
 /** 表单必填项校验，提交与生成说明共用。 */
 function validateForm(): boolean {
@@ -143,6 +140,7 @@ async function submitApplication() {
   if (submitting.value || !validateForm()) return
   submitting.value = true
   submitError.value = ''
+  justSubmitted.value = false
   try {
     await submitAgencyApplication({
       direction: selected.value,
@@ -152,6 +150,7 @@ async function submitApplication() {
       scenario: form.scenario.trim()
     })
     form.scenario = ''
+    justSubmitted.value = true
     await loadMyApplications()
   } catch (err) {
     // 待处理已达上限要单独说清楚，否则用户以为是自己填错了
@@ -211,42 +210,34 @@ async function copyText() {
 <style scoped>
 :deep(.bg-mesh-gradient) { display: none; }
 .agency-submit-error { margin: 10px 0 0; font-size: 13px; color: #dc2626; }
-.agency-history { margin-top: 26px; padding-top: 18px; border-top: 1px solid #dce4e8; }
-.agency-history h3 { margin: 0 0 12px; font-size: 15px; font-weight: 650; }
-.agency-history ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
-.agency-history li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
-.agency-history-dir { font-weight: 600; }
-.agency-history-status { padding: 1px 8px; border-radius: 999px; font-size: 12px; background: #e2e8f0; color: #475569; }
-.agency-history-status.is-accepted { background: #d1fae5; color: #047857; }
-.agency-history-status.is-rejected { background: #fee2e2; color: #b91c1c; }
-.agency-history-status.is-contacted { background: #dbeafe; color: #1d4ed8; }
-.agency-history-time { color: #94a3b8; }
-.agency-history-note { flex-basis: 100%; margin: 2px 0 0; color: #64748b; }
+.agency-notice { margin: 10px 0 0; font-size: 13px; line-height: 1.6; color: #64748b; }
+.agency-notice.is-success { color: #0f766e; font-weight: 600; }
+.agency-primary:disabled { opacity: .55; cursor: not-allowed; }
 .agency-page { max-width: 1440px; margin: 0 auto; color: #0f172a; }
-.agency-hero { position: relative; display: flex; align-items: center; min-height: 310px; padding: 28px 0 42px; border-bottom: 1px solid #dce4e8; }
-.agency-hero h1 { position: relative; z-index: 1; margin: 0; font-size: clamp(30px, 3.8vw, 58px); line-height: 1.42; font-weight: 750; letter-spacing: -.04em; }
+.agency-hero { position: relative; display: flex; align-items: center; min-height: clamp(150px, 19vh, 220px); padding: 10px 0 14px; border-bottom: 1px solid #dce4e8; }
+.agency-hero h1 { position: relative; z-index: 1; margin: 0; font-size: clamp(26px, 2.7vw, 42px); line-height: 1.3; font-weight: 750; letter-spacing: -.04em; }
 .agency-hero h1 span { color: #0f766e; }
-.agency-bridge { position: absolute; right: -16px; width: 61%; height: auto; mix-blend-mode: multiply; }
-.agency-workspace { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; padding: 36px 0 28px; }
+.agency-bridge { position: absolute; right: -16px; top: 50%; transform: translateY(-50%); height: calc(100% - 20px); width: auto; max-width: 56%; mix-blend-mode: multiply; }
+.agency-workspace { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; padding: 22px 0 20px; }
 .agency-directions { min-width: 0; margin: 0; padding: 0; border: 0; }
-.agency-directions legend, .agency-form h2 { margin: 0 0 26px; padding: 0; font-size: 19px; line-height: 1.5; font-weight: 650; }
-.agency-choice { position: relative; display: flex; align-items: center; min-height: 104px; gap: 18px; margin-bottom: 18px; padding: 20px; border: 1px solid #e0e6ea; border-radius: 12px; background: #fff; cursor: pointer; transition: border-color .15s, background-color .15s; }
+.agency-directions legend, .agency-form h2 { margin: 0 0 14px; padding: 0; font-size: 19px; line-height: 1.5; font-weight: 650; }
+.agency-choice { position: relative; display: flex; align-items: center; min-height: 84px; gap: 16px; margin-bottom: 12px; padding: 14px 16px; border: 1px solid #e0e6ea; border-radius: 12px; background: #fff; cursor: pointer; transition: border-color .15s, background-color .15s; }
 .agency-choice:hover { border-color: #82bab5; }
 .agency-choice.selected { border-color: #0f766e; background: #f1fbf9; }
 .agency-choice:focus-within { outline: 3px solid #99f6e4; outline-offset: 3px; }
 .agency-choice input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.agency-choice-icon { display: grid; place-items: center; width: 58px; height: 58px; flex-shrink: 0; border-radius: 50%; color: #0f766e; background: #e6f7f4; }
-.agency-choice-copy { min-width: 0; display: grid; gap: 7px; }
+.agency-choice-icon { display: grid; place-items: center; width: 48px; height: 48px; flex-shrink: 0; border-radius: 50%; color: #0f766e; background: #e6f7f4; }
+.agency-choice-copy { min-width: 0; display: grid; gap: 5px; }
 .agency-choice-copy strong { font-size: 17px; font-weight: 650; }
 .agency-choice-copy > span { color: #64748b; font-size: 14px; line-height: 1.65; }
 .agency-choice-check { flex-shrink: 0; margin-left: auto; color: #0f766e; }
 .agency-form { min-width: 0; border-left: 1px solid #e0e6ea; padding-left: 48px; }
-.agency-form h2 { margin-bottom: 24px; }
-.agency-field { display: grid; gap: 8px; margin-bottom: 19px; }
+.agency-form h2 { margin-bottom: 14px; }
+.agency-field { display: grid; gap: 6px; margin-bottom: 13px; }
 .agency-field label { font-size: 14px; font-weight: 500; }
 .agency-field label span { color: #64748b; font-weight: 400; }
 .agency-field input, .agency-field textarea { width: 100%; min-width: 0; padding: 11px 13px; border: 1px solid #dce3e8; border-radius: 8px; outline: none; background: #fff; font: inherit; font-size: 14px; line-height: 1.5; transition: border-color .15s, box-shadow .15s; }
-.agency-field textarea { resize: vertical; min-height: 98px; }
+.agency-field textarea { resize: vertical; min-height: 82px; }
 .agency-field input::placeholder, .agency-field textarea::placeholder { color: #94a3b8; }
 .agency-field input:focus, .agency-field textarea:focus { border-color: #0d9488; box-shadow: 0 0 0 3px #ccfbf1; }
 .agency-actions, .agency-dialog-actions { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -276,8 +267,11 @@ async function copyText() {
 .dark .agency-choice-copy > span, .dark .agency-field label span, .dark .agency-dialog-hint { color: #94a3b8; }
 .dark .agency-secondary, .dark .agency-copy-status, .dark .agency-choice-check { color: #5eead4; }
 .dark .agency-field input:focus, .dark .agency-field textarea:focus { border-color: #2dd4bf; box-shadow: 0 0 0 3px #134e4a; }
-@media (min-width: 1600px) { .agency-hero { min-height: 330px; } }
+
 @media (max-width: 1200px) { .agency-workspace { gap: 28px; } .agency-form { padding-left: 28px; } .agency-choice { gap: 12px; padding: 16px; } .agency-choice-icon { width: 48px; height: 48px; } }
-@media (max-width: 767px) { .agency-hero { display: grid; grid-template-columns: 1fr; gap: 24px; padding: 12px 0 28px; } .agency-hero h1 { font-size: clamp(28px, 6.3vw, 42px); } .agency-bridge { position: static; width: 100%; max-width: 580px; justify-self: end; } .agency-workspace { grid-template-columns: 1fr; gap: 20px; padding-top: 28px; } .agency-form { padding: 28px 0 0; border-left: 0; border-top: 1px solid #e0e6ea; } .agency-directions legend { margin-bottom: 18px; } .agency-choice { min-height: 94px; margin-bottom: 12px; } .agency-dialog { padding: 20px; } }
+@media (max-width: 767px) { .agency-hero { display: grid; grid-template-columns: 1fr; gap: 24px; padding: 12px 0 28px; } .agency-hero h1 { font-size: clamp(28px, 6.3vw, 42px); } .agency-bridge { position: static; transform: none; width: 100%; height: auto; max-width: 580px; justify-self: end; } .agency-workspace { grid-template-columns: 1fr; gap: 20px; padding-top: 28px; } .agency-form { padding: 28px 0 0; border-left: 0; border-top: 1px solid #e0e6ea; } .agency-directions legend { margin-bottom: 18px; } .agency-choice { min-height: 94px; margin-bottom: 12px; } .agency-dialog { padding: 20px; } }
+/* 矮屏（1366x768 这类笔记本，去掉浏览器外壳只剩 660~700）再压一档：
+   这些屏上「提交」按钮能不能一眼看见，比配图大小重要得多。 */
+@media (max-height: 780px) and (min-width: 768px) { .agency-hero { min-height: 118px; padding: 6px 0 10px; } .agency-hero h1 { font-size: clamp(24px, 2.2vw, 34px); } .agency-workspace { padding: 14px 0 12px; } .agency-directions legend, .agency-form h2 { margin-bottom: 10px; } .agency-choice { min-height: 74px; margin-bottom: 10px; padding: 12px 14px; } .agency-choice-icon { width: 42px; height: 42px; } .agency-field { margin-bottom: 10px; } .agency-field textarea { min-height: 64px; } }
 @media (prefers-reduced-motion: reduce) { .agency-choice, .agency-field input, .agency-field textarea { transition: none; } }
 </style>

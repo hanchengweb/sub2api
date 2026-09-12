@@ -66,15 +66,21 @@ func (r *agencyApplicationRepository) ListByUser(ctx context.Context, userID int
 	return out, rows.Err()
 }
 
-func (r *agencyApplicationRepository) CountPendingByUser(ctx context.Context, userID int64) (int, error) {
+// CountPending 待处理总数 + 其中落在 direction 上的条数。
+//
+// 用 FILTER 在一条 SQL 里数两次：提交路径上多一次往返没有意义，
+// 而且两次查询之间表可能已经变了，拿到的两个数对不上同一时刻。
+func (r *agencyApplicationRepository) CountPending(ctx context.Context, userID int64, direction string) (int, int, error) {
 	if r == nil || r.db == nil {
-		return 0, errors.New("agency application repository db is nil")
+		return 0, 0, errors.New("agency application repository db is nil")
 	}
-	var n int
-	err := r.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM agency_applications WHERE user_id = $1 AND status = 'pending'`,
-		userID).Scan(&n)
-	return n, err
+	const q = `
+		SELECT count(*), count(*) FILTER (WHERE direction = $2)
+		FROM agency_applications
+		WHERE user_id = $1 AND status = 'pending'`
+	var total, sameDirection int
+	err := r.db.QueryRowContext(ctx, q, userID, direction).Scan(&total, &sameDirection)
+	return total, sameDirection, err
 }
 
 // List 管理员分页列表，同时返回总数用于翻页。

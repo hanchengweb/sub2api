@@ -26,6 +26,9 @@ var agencyStatuses = map[string]struct{}{
 //
 // 表单挂在登录态后面，所以刷不出量；这个上限挡的是「同一个人反复点提交」——
 // 没有它，运营那边会看到十几条一模一样的申请，真实申请反而被埋掉。
+//
+// 真正挡重复提交的是「同方向不得有第二条待处理」（见 Submit）；
+// 这个总数上限是兜底：三个方向各提一条之后就不能再提了。
 const AgencyMaxPendingPerUser = 3
 
 const (
@@ -72,7 +75,9 @@ type AgencyApplicationFilters struct {
 type AgencyApplicationRepository interface {
 	Create(ctx context.Context, app *AgencyApplication) error
 	ListByUser(ctx context.Context, userID int64, limit int) ([]AgencyApplication, error)
-	CountPendingByUser(ctx context.Context, userID int64) (int, error)
+	// CountPending 同时返回该用户待处理总数、以及其中落在 direction 上的条数。
+	// 一次查询拿两个数：提交路径上不值得为此多跑一趟库。
+	CountPending(ctx context.Context, userID int64, direction string) (total int, sameDirection int, err error)
 	List(ctx context.Context, filters AgencyApplicationFilters) ([]AgencyApplication, int, error)
 	UpdateStatus(ctx context.Context, id int64, status, adminNote string) error
 }
@@ -97,11 +102,13 @@ func (s *AgencyApplicationService) Submit(ctx context.Context, userID int64, app
 	if err := normalizeAgencyApplication(userID, app); err != nil {
 		return err
 	}
-	pending, err := s.repo.CountPendingByUser(ctx, userID)
+	pending, sameDirection, err := s.repo.CountPending(ctx, userID, app.Direction)
 	if err != nil {
 		return err
 	}
-	if pending >= AgencyMaxPendingPerUser {
+	// 同一个方向已经有在处理的申请 = 重复提交，直接挡掉。
+	// 不同方向另算：一个人既想做渠道又想做交付是正常诉求，不该被算成刷单。
+	if sameDirection > 0 || pending >= AgencyMaxPendingPerUser {
 		return ErrAgencyTooManyPending
 	}
 	app.UserID = userID
