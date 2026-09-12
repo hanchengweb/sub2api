@@ -1,4 +1,22 @@
 export default {
+    agency: {
+      loadFailed: 'Failed to load, please try again',
+      title: 'Agency applications',
+      description: 'Handle partnership applications from the Become an Agent page',
+      direction: 'Direction',
+      contact: 'Contact',
+      status: 'Status',
+      submittedAt: 'Submitted',
+      handle: 'Handle',
+      note: 'Note to applicant',
+      notePlaceholder: 'e.g. Called, meeting scheduled next week',
+      noteHint: 'The applicant can see this note — keep internal details out',
+      filterStatus: 'Filter by status',
+      allStatuses: 'All statuses',
+      totalCount: '{n} total',
+      toggleScenario: 'Click to expand/collapse',
+      saveFailed: 'Save failed, please try again'
+    },
     scheduledTests: {
       title: 'Scheduled Tests',
       addPlan: 'Add Plan',

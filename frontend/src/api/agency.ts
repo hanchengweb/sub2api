@@ -43,4 +43,39 @@ export async function listMyAgencyApplications(): Promise<AgencyApplication[]> {
   return data.data ?? []
 }
 
-export default { submitAgencyApplication, listMyAgencyApplications }
+export interface AdminAgencyApplication extends AgencyApplication {
+  user_id: number
+}
+
+export interface AdminAgencyListResult {
+  items: AdminAgencyApplication[]
+  total: number
+}
+
+/** 管理员列表。status 留空表示不筛选。 */
+export async function listAgencyApplications(params: {
+  status?: string
+  limit?: number
+  offset?: number
+}): Promise<AdminAgencyListResult> {
+  const { data } = await apiClient.get<{ data: AdminAgencyApplication[]; total: number }>(
+    '/admin/agency-applications',
+    { params: { status: params.status || undefined, limit: params.limit, offset: params.offset } }
+  )
+  return { items: data.data ?? [], total: data.total ?? 0 }
+}
+
+/** 管理员改处理状态与备注。备注会展示给申请人，不要写内部信息。 */
+export async function updateAgencyApplication(
+  id: number,
+  payload: { status: AgencyStatus; admin_note: string }
+): Promise<void> {
+  await apiClient.put(`/admin/agency-applications/${id}`, payload)
+}
+
+export default {
+  submitAgencyApplication,
+  listMyAgencyApplications,
+  listAgencyApplications,
+  updateAgencyApplication
+}

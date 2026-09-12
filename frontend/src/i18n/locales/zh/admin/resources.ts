@@ -1,4 +1,22 @@
 export default {
+    agency: {
+      loadFailed: '加载失败，请稍后重试',
+      title: '代理申请',
+      description: '处理「成为代理」页提交的合作申请',
+      direction: '合作方向',
+      contact: '联系人',
+      status: '状态',
+      submittedAt: '提交时间',
+      handle: '处理',
+      note: '处理备注',
+      notePlaceholder: '例如：已电话联系，约定下周细谈',
+      noteHint: '这条备注申请人可以看到，不要写内部信息',
+      filterStatus: '按状态筛选',
+      allStatuses: '全部状态',
+      totalCount: '共 {n} 条',
+      toggleScenario: '点击展开/收起',
+      saveFailed: '保存失败，请稍后重试'
+    },
     scheduledTests: {
       title: '定时测试',
       addPlan: '添加计划',

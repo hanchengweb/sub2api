@@ -153,6 +153,7 @@ export default {
   // Navigation
   nav: {
     dashboard: 'Dashboard',
+    agencyApplications: 'Agency applications',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     playground: 'Playground',
