@@ -58,7 +58,14 @@ ENV GOPROXY=${GOPROXY}
 ENV GOSUMDB=${GOSUMDB}
 
 # Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+# apk 换国内源。生产机在杭州，dl-cdn.alpinelinux.org 时快时慢：2026-09-11 一次
+# 发布里光这两步 apk 就从几十秒变成 25 分钟，把发布拖到接近轮询上限。
+# 镜像站临时故障时还原默认源重试，不让换源本身成为新的单点。
+RUN cp /etc/apk/repositories /etc/apk/repositories.bak \
+    && sed -i 's#https://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories \
+    && (apk add --no-cache git ca-certificates tzdata \
+        || (cp /etc/apk/repositories.bak /etc/apk/repositories \
+            && apk add --no-cache git ca-certificates tzdata))
 
 WORKDIR /app/backend
 
@@ -94,11 +101,14 @@ LABEL description="Sub2API - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/hanchengweb/sub2api"
 
 # Install runtime dependencies
-RUN apk add --no-cache \
-    ca-certificates \
-    tzdata \
-    curl \
-    su-exec \
+# apk 换国内源。生产机在杭州，dl-cdn.alpinelinux.org 时快时慢：2026-09-11 一次
+# 发布里光这两步 apk 就从几十秒变成 25 分钟，把发布拖到接近轮询上限。
+# 镜像站临时故障时还原默认源重试，不让换源本身成为新的单点。
+RUN cp /etc/apk/repositories /etc/apk/repositories.bak \
+    && sed -i 's#https://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories \
+    && (apk add --no-cache ca-certificates tzdata curl su-exec \
+        || (cp /etc/apk/repositories.bak /etc/apk/repositories \
+            && apk add --no-cache ca-certificates tzdata curl su-exec)) \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user
