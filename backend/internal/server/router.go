@@ -138,6 +138,12 @@ func registerRoutes(
 	// 上游结果 24 小时过期，不落本地盘的话历史会话隔天就只剩碎图。
 	playgroundMedia := service.NewPlaygroundMediaService(
 		repository.NewPlaygroundMediaRepository(sqlDB), cfg.Pricing.DataDir)
+	// 成为代理：合作申请。用户提交、管理员处理。
+	routes.RegisterAgencyRoutes(v1,
+		handler.NewAgencyHandler(service.NewAgencyApplicationService(
+			repository.NewAgencyApplicationRepository(sqlDB))),
+		jwtAuth, adminAuth)
+
 	playgroundConvs := service.NewPlaygroundConversationService(
 		repository.NewPlaygroundConversationRepository(sqlDB))
 	routes.RegisterPlaygroundRoutes(v1,
