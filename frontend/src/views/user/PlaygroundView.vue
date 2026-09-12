@@ -43,7 +43,7 @@
         <div ref="scrollArea" class="pg-messages min-h-0 flex-1 overflow-y-auto px-4 py-5">
           <div v-if="!activeMessages.length" class="flex h-full flex-col items-center justify-center text-center">
             <ModelBrandMark :model="selectedModel" size="lg" class="mb-4" />
-            <h2 class="max-w-full break-words text-xl font-semibold text-gray-900 dark:text-white">{{ selectedModel || t('playground.title') }}</h2>
+            <h2 class="max-w-full break-words text-xl font-semibold text-gray-900 dark:text-white">{{ selectedModel ? resolveModelLabel(selectedModel) : t('playground.title') }}</h2>
             <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">{{ t(mode === 'chat' ? 'playground.chatPrompt' : mode === 'image' ? 'playground.imagePrompt' : 'playground.videoPrompt') }}</p>
           </div>
 
@@ -180,7 +180,7 @@
                   @click="modelPickerOpen = !modelPickerOpen"
                 >
                   <ModelBrandMark :model="selectedModel" size="sm" />
-                  <span class="min-w-0 flex-1 truncate">{{ selectedModel }}</span>
+                  <span class="min-w-0 flex-1 truncate">{{ resolveModelLabel(selectedModel) }}</span>
                   <Icon name="chevronDown" size="xs" class="shrink-0 opacity-50" />
                 </button>
 
@@ -206,7 +206,9 @@
                       @click="pickModel(m)"
                     >
                       <ModelBrandMark :model="m" size="sm" />
-                      <span class="min-w-0 flex-1 truncate">{{ m }}</span>
+                      <!-- 显示版本名，title 保留 ID：用户挑的是「哪一版」，
+                           但真要去调接口时得能看到该写的字符串 -->
+                      <span data-testid="model-option-label" class="min-w-0 flex-1 truncate" :title="m">{{ resolveModelLabel(m) }}</span>
                       <Icon v-if="m === selectedModel" name="check" size="xs" class="shrink-0" />
                     </button>
                   </template>
@@ -278,6 +280,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import { formatCredits } from '@/utils/format'
 import { resolveModelVendor } from '@/utils/modelVendor'
+import { resolveModelLabel } from '@/utils/modelDisplayName'
 import { BILLING_MODE_TOKEN } from '@/constants/channel'
 
 const { t } = useI18n()
