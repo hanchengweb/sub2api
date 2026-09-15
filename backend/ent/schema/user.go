@@ -22,7 +22,9 @@ type User struct {
 
 func (User) Annotations() []schema.Annotation {
 	return []schema.Annotation{
-		entsql.Annotation{Table: "users"},
+		entsql.Annotation{Table: "users", Checks: map[string]string{
+			"users_organization_identity_valid": "((account_type = 'personal' AND organization_issuer = '' AND organization_id = '' AND organization_environment = '') OR (account_type = 'organization_service' AND role = 'user' AND trim(organization_issuer) <> '' AND trim(organization_id) <> '' AND organization_environment IN ('test', 'production')))",
+		}},
 	}
 }
 
@@ -35,6 +37,10 @@ func (User) Mixin() []ent.Mixin {
 
 func (User) Fields() []ent.Field {
 	return []ent.Field{
+		field.String("account_type").Default("personal").MaxLen(32).Immutable(),
+		field.String("organization_issuer").Default("").MaxLen(80).Immutable(),
+		field.String("organization_id").Default("").MaxLen(160).Immutable(),
+		field.String("organization_environment").Default("").MaxLen(20).Immutable(),
 		// 唯一约束通过部分索引实现（WHERE deleted_at IS NULL），支持软删除后重用
 		// 见迁移文件 016_soft_delete_partial_unique_indexes.sql
 		field.String("email").
@@ -140,6 +146,9 @@ func (User) Edges() []ent.Edge {
 
 func (User) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("organization_issuer", "organization_environment", "organization_id").
+			Unique().StorageKey("users_organization_identity_unique").
+			Annotations(entsql.IndexWhere("account_type = 'organization_service'")),
 		// email 字段已在 Fields() 中声明 Unique()，无需重复索引
 		index.Fields("status"),
 		index.Fields("deleted_at"),

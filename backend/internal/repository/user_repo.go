@@ -114,6 +114,10 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 		SetUsername(userIn.Username).
 		SetNotes(userIn.Notes).
 		SetPasswordHash(userIn.PasswordHash).
+		SetAccountType(userIn.NormalizedAccountType()).
+		SetOrganizationIssuer(userIn.OrganizationIssuer).
+		SetOrganizationID(userIn.OrganizationID).
+		SetOrganizationEnvironment(userIn.OrganizationEnvironment).
 		SetRole(userIn.Role).
 		SetBalance(userIn.Balance).
 		SetConcurrency(userIn.Concurrency).
@@ -1241,6 +1245,10 @@ func applyUserEntityToService(dst *service.User, src *dbent.User) {
 	}
 	dst.ID = src.ID
 	dst.SignupSource = src.SignupSource
+	dst.AccountType = src.AccountType
+	dst.OrganizationIssuer = src.OrganizationIssuer
+	dst.OrganizationID = src.OrganizationID
+	dst.OrganizationEnvironment = src.OrganizationEnvironment
 	dst.LastLoginAt = src.LastLoginAt
 	dst.LastActiveAt = src.LastActiveAt
 	dst.CreatedAt = src.CreatedAt

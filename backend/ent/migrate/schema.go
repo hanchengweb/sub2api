@@ -1766,6 +1766,10 @@ var (
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_type", Type: field.TypeString, Size: 32, Default: "personal"},
+		{Name: "organization_issuer", Type: field.TypeString, Size: 80, Default: ""},
+		{Name: "organization_id", Type: field.TypeString, Size: 160, Default: ""},
+		{Name: "organization_environment", Type: field.TypeString, Size: 20, Default: ""},
 		{Name: "email", Type: field.TypeString, Size: 255},
 		{Name: "password_hash", Type: field.TypeString, Size: 255},
 		{Name: "role", Type: field.TypeString, Size: 20, Default: "user"},
@@ -1795,9 +1799,17 @@ var (
 		PrimaryKey: []*schema.Column{UsersColumns[0]},
 		Indexes: []*schema.Index{
 			{
+				Name:    "users_organization_identity_unique",
+				Unique:  true,
+				Columns: []*schema.Column{UsersColumns[5], UsersColumns[7], UsersColumns[6]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "account_type = 'organization_service'",
+				},
+			},
+			{
 				Name:    "user_status",
 				Unique:  false,
-				Columns: []*schema.Column{UsersColumns[10]},
+				Columns: []*schema.Column{UsersColumns[14]},
 			},
 			{
 				Name:    "user_deleted_at",
@@ -2235,6 +2247,9 @@ func init() {
 	}
 	UsersTable.Annotation = &entsql.Annotation{
 		Table: "users",
+	}
+	UsersTable.Annotation.Checks = map[string]string{
+		"users_organization_identity_valid": "((account_type = 'personal' AND organization_issuer = '' AND organization_id = '' AND organization_environment = '') OR (account_type = 'organization_service' AND role = 'user' AND trim(organization_issuer) <> '' AND trim(organization_id) <> '' AND organization_environment IN ('test', 'production')))",
 	}
 	UserAllowedGroupsTable.ForeignKeys[0].RefTable = UsersTable
 	UserAllowedGroupsTable.ForeignKeys[1].RefTable = GroupsTable

@@ -7,6 +7,11 @@ import (
 )
 
 type User struct {
+	AccountType             string
+	OrganizationIssuer      string
+	OrganizationID          string
+	OrganizationEnvironment string
+
 	ID             int64
 	Email          string
 	Username       string
@@ -100,5 +105,8 @@ func (u *User) SetPassword(password string) error {
 }
 
 func (u *User) CheckPassword(password string) bool {
+	if !u.CanLogin() {
+		return false
+	}
 	return bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) == nil
 }

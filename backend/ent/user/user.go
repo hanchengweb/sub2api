@@ -21,6 +21,14 @@ const (
 	FieldUpdatedAt = "updated_at"
 	// FieldDeletedAt holds the string denoting the deleted_at field in the database.
 	FieldDeletedAt = "deleted_at"
+	// FieldAccountType holds the string denoting the account_type field in the database.
+	FieldAccountType = "account_type"
+	// FieldOrganizationIssuer holds the string denoting the organization_issuer field in the database.
+	FieldOrganizationIssuer = "organization_issuer"
+	// FieldOrganizationID holds the string denoting the organization_id field in the database.
+	FieldOrganizationID = "organization_id"
+	// FieldOrganizationEnvironment holds the string denoting the organization_environment field in the database.
+	FieldOrganizationEnvironment = "organization_environment"
 	// FieldEmail holds the string denoting the email field in the database.
 	FieldEmail = "email"
 	// FieldPasswordHash holds the string denoting the password_hash field in the database.
@@ -197,6 +205,10 @@ var Columns = []string{
 	FieldCreatedAt,
 	FieldUpdatedAt,
 	FieldDeletedAt,
+	FieldAccountType,
+	FieldOrganizationIssuer,
+	FieldOrganizationID,
+	FieldOrganizationEnvironment,
 	FieldEmail,
 	FieldPasswordHash,
 	FieldRole,
@@ -250,6 +262,22 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultAccountType holds the default value on creation for the "account_type" field.
+	DefaultAccountType string
+	// AccountTypeValidator is a validator for the "account_type" field. It is called by the builders before save.
+	AccountTypeValidator func(string) error
+	// DefaultOrganizationIssuer holds the default value on creation for the "organization_issuer" field.
+	DefaultOrganizationIssuer string
+	// OrganizationIssuerValidator is a validator for the "organization_issuer" field. It is called by the builders before save.
+	OrganizationIssuerValidator func(string) error
+	// DefaultOrganizationID holds the default value on creation for the "organization_id" field.
+	DefaultOrganizationID string
+	// OrganizationIDValidator is a validator for the "organization_id" field. It is called by the builders before save.
+	OrganizationIDValidator func(string) error
+	// DefaultOrganizationEnvironment holds the default value on creation for the "organization_environment" field.
+	DefaultOrganizationEnvironment string
+	// OrganizationEnvironmentValidator is a validator for the "organization_environment" field. It is called by the builders before save.
+	OrganizationEnvironmentValidator func(string) error
 	// EmailValidator is a validator for the "email" field. It is called by the builders before save.
 	EmailValidator func(string) error
 	// PasswordHashValidator is a validator for the "password_hash" field. It is called by the builders before save.
@@ -313,6 +341,26 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByDeletedAt orders the results by the deleted_at field.
 func ByDeletedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDeletedAt, opts...).ToFunc()
+}
+
+// ByAccountType orders the results by the account_type field.
+func ByAccountType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountType, opts...).ToFunc()
+}
+
+// ByOrganizationIssuer orders the results by the organization_issuer field.
+func ByOrganizationIssuer(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOrganizationIssuer, opts...).ToFunc()
+}
+
+// ByOrganizationID orders the results by the organization_id field.
+func ByOrganizationID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOrganizationID, opts...).ToFunc()
+}
+
+// ByOrganizationEnvironment orders the results by the organization_environment field.
+func ByOrganizationEnvironment(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOrganizationEnvironment, opts...).ToFunc()
 }
 
 // ByEmail orders the results by the email field.

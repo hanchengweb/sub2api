@@ -70,6 +70,26 @@ func DeletedAt(v time.Time) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldDeletedAt, v))
 }
 
+// AccountType applies equality check predicate on the "account_type" field. It's identical to AccountTypeEQ.
+func AccountType(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAccountType, v))
+}
+
+// OrganizationIssuer applies equality check predicate on the "organization_issuer" field. It's identical to OrganizationIssuerEQ.
+func OrganizationIssuer(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldOrganizationIssuer, v))
+}
+
+// OrganizationID applies equality check predicate on the "organization_id" field. It's identical to OrganizationIDEQ.
+func OrganizationID(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldOrganizationID, v))
+}
+
+// OrganizationEnvironment applies equality check predicate on the "organization_environment" field. It's identical to OrganizationEnvironmentEQ.
+func OrganizationEnvironment(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldOrganizationEnvironment, v))
+}
+
 // Email applies equality check predicate on the "email" field. It's identical to EmailEQ.
 func Email(v string) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldEmail, v))
@@ -303,6 +323,266 @@ func DeletedAtIsNil() predicate.User {
 // DeletedAtNotNil applies the NotNil predicate on the "deleted_at" field.
 func DeletedAtNotNil() predicate.User {
 	return predicate.User(sql.FieldNotNull(FieldDeletedAt))
+}
+
+// AccountTypeEQ applies the EQ predicate on the "account_type" field.
+func AccountTypeEQ(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAccountType, v))
+}
+
+// AccountTypeNEQ applies the NEQ predicate on the "account_type" field.
+func AccountTypeNEQ(v string) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldAccountType, v))
+}
+
+// AccountTypeIn applies the In predicate on the "account_type" field.
+func AccountTypeIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldIn(FieldAccountType, vs...))
+}
+
+// AccountTypeNotIn applies the NotIn predicate on the "account_type" field.
+func AccountTypeNotIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldAccountType, vs...))
+}
+
+// AccountTypeGT applies the GT predicate on the "account_type" field.
+func AccountTypeGT(v string) predicate.User {
+	return predicate.User(sql.FieldGT(FieldAccountType, v))
+}
+
+// AccountTypeGTE applies the GTE predicate on the "account_type" field.
+func AccountTypeGTE(v string) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldAccountType, v))
+}
+
+// AccountTypeLT applies the LT predicate on the "account_type" field.
+func AccountTypeLT(v string) predicate.User {
+	return predicate.User(sql.FieldLT(FieldAccountType, v))
+}
+
+// AccountTypeLTE applies the LTE predicate on the "account_type" field.
+func AccountTypeLTE(v string) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldAccountType, v))
+}
+
+// AccountTypeContains applies the Contains predicate on the "account_type" field.
+func AccountTypeContains(v string) predicate.User {
+	return predicate.User(sql.FieldContains(FieldAccountType, v))
+}
+
+// AccountTypeHasPrefix applies the HasPrefix predicate on the "account_type" field.
+func AccountTypeHasPrefix(v string) predicate.User {
+	return predicate.User(sql.FieldHasPrefix(FieldAccountType, v))
+}
+
+// AccountTypeHasSuffix applies the HasSuffix predicate on the "account_type" field.
+func AccountTypeHasSuffix(v string) predicate.User {
+	return predicate.User(sql.FieldHasSuffix(FieldAccountType, v))
+}
+
+// AccountTypeEqualFold applies the EqualFold predicate on the "account_type" field.
+func AccountTypeEqualFold(v string) predicate.User {
+	return predicate.User(sql.FieldEqualFold(FieldAccountType, v))
+}
+
+// AccountTypeContainsFold applies the ContainsFold predicate on the "account_type" field.
+func AccountTypeContainsFold(v string) predicate.User {
+	return predicate.User(sql.FieldContainsFold(FieldAccountType, v))
+}
+
+// OrganizationIssuerEQ applies the EQ predicate on the "organization_issuer" field.
+func OrganizationIssuerEQ(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerNEQ applies the NEQ predicate on the "organization_issuer" field.
+func OrganizationIssuerNEQ(v string) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerIn applies the In predicate on the "organization_issuer" field.
+func OrganizationIssuerIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldIn(FieldOrganizationIssuer, vs...))
+}
+
+// OrganizationIssuerNotIn applies the NotIn predicate on the "organization_issuer" field.
+func OrganizationIssuerNotIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldOrganizationIssuer, vs...))
+}
+
+// OrganizationIssuerGT applies the GT predicate on the "organization_issuer" field.
+func OrganizationIssuerGT(v string) predicate.User {
+	return predicate.User(sql.FieldGT(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerGTE applies the GTE predicate on the "organization_issuer" field.
+func OrganizationIssuerGTE(v string) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerLT applies the LT predicate on the "organization_issuer" field.
+func OrganizationIssuerLT(v string) predicate.User {
+	return predicate.User(sql.FieldLT(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerLTE applies the LTE predicate on the "organization_issuer" field.
+func OrganizationIssuerLTE(v string) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerContains applies the Contains predicate on the "organization_issuer" field.
+func OrganizationIssuerContains(v string) predicate.User {
+	return predicate.User(sql.FieldContains(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerHasPrefix applies the HasPrefix predicate on the "organization_issuer" field.
+func OrganizationIssuerHasPrefix(v string) predicate.User {
+	return predicate.User(sql.FieldHasPrefix(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerHasSuffix applies the HasSuffix predicate on the "organization_issuer" field.
+func OrganizationIssuerHasSuffix(v string) predicate.User {
+	return predicate.User(sql.FieldHasSuffix(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerEqualFold applies the EqualFold predicate on the "organization_issuer" field.
+func OrganizationIssuerEqualFold(v string) predicate.User {
+	return predicate.User(sql.FieldEqualFold(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIssuerContainsFold applies the ContainsFold predicate on the "organization_issuer" field.
+func OrganizationIssuerContainsFold(v string) predicate.User {
+	return predicate.User(sql.FieldContainsFold(FieldOrganizationIssuer, v))
+}
+
+// OrganizationIDEQ applies the EQ predicate on the "organization_id" field.
+func OrganizationIDEQ(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldOrganizationID, v))
+}
+
+// OrganizationIDNEQ applies the NEQ predicate on the "organization_id" field.
+func OrganizationIDNEQ(v string) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldOrganizationID, v))
+}
+
+// OrganizationIDIn applies the In predicate on the "organization_id" field.
+func OrganizationIDIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldIn(FieldOrganizationID, vs...))
+}
+
+// OrganizationIDNotIn applies the NotIn predicate on the "organization_id" field.
+func OrganizationIDNotIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldOrganizationID, vs...))
+}
+
+// OrganizationIDGT applies the GT predicate on the "organization_id" field.
+func OrganizationIDGT(v string) predicate.User {
+	return predicate.User(sql.FieldGT(FieldOrganizationID, v))
+}
+
+// OrganizationIDGTE applies the GTE predicate on the "organization_id" field.
+func OrganizationIDGTE(v string) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldOrganizationID, v))
+}
+
+// OrganizationIDLT applies the LT predicate on the "organization_id" field.
+func OrganizationIDLT(v string) predicate.User {
+	return predicate.User(sql.FieldLT(FieldOrganizationID, v))
+}
+
+// OrganizationIDLTE applies the LTE predicate on the "organization_id" field.
+func OrganizationIDLTE(v string) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldOrganizationID, v))
+}
+
+// OrganizationIDContains applies the Contains predicate on the "organization_id" field.
+func OrganizationIDContains(v string) predicate.User {
+	return predicate.User(sql.FieldContains(FieldOrganizationID, v))
+}
+
+// OrganizationIDHasPrefix applies the HasPrefix predicate on the "organization_id" field.
+func OrganizationIDHasPrefix(v string) predicate.User {
+	return predicate.User(sql.FieldHasPrefix(FieldOrganizationID, v))
+}
+
+// OrganizationIDHasSuffix applies the HasSuffix predicate on the "organization_id" field.
+func OrganizationIDHasSuffix(v string) predicate.User {
+	return predicate.User(sql.FieldHasSuffix(FieldOrganizationID, v))
+}
+
+// OrganizationIDEqualFold applies the EqualFold predicate on the "organization_id" field.
+func OrganizationIDEqualFold(v string) predicate.User {
+	return predicate.User(sql.FieldEqualFold(FieldOrganizationID, v))
+}
+
+// OrganizationIDContainsFold applies the ContainsFold predicate on the "organization_id" field.
+func OrganizationIDContainsFold(v string) predicate.User {
+	return predicate.User(sql.FieldContainsFold(FieldOrganizationID, v))
+}
+
+// OrganizationEnvironmentEQ applies the EQ predicate on the "organization_environment" field.
+func OrganizationEnvironmentEQ(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentNEQ applies the NEQ predicate on the "organization_environment" field.
+func OrganizationEnvironmentNEQ(v string) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentIn applies the In predicate on the "organization_environment" field.
+func OrganizationEnvironmentIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldIn(FieldOrganizationEnvironment, vs...))
+}
+
+// OrganizationEnvironmentNotIn applies the NotIn predicate on the "organization_environment" field.
+func OrganizationEnvironmentNotIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldOrganizationEnvironment, vs...))
+}
+
+// OrganizationEnvironmentGT applies the GT predicate on the "organization_environment" field.
+func OrganizationEnvironmentGT(v string) predicate.User {
+	return predicate.User(sql.FieldGT(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentGTE applies the GTE predicate on the "organization_environment" field.
+func OrganizationEnvironmentGTE(v string) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentLT applies the LT predicate on the "organization_environment" field.
+func OrganizationEnvironmentLT(v string) predicate.User {
+	return predicate.User(sql.FieldLT(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentLTE applies the LTE predicate on the "organization_environment" field.
+func OrganizationEnvironmentLTE(v string) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentContains applies the Contains predicate on the "organization_environment" field.
+func OrganizationEnvironmentContains(v string) predicate.User {
+	return predicate.User(sql.FieldContains(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentHasPrefix applies the HasPrefix predicate on the "organization_environment" field.
+func OrganizationEnvironmentHasPrefix(v string) predicate.User {
+	return predicate.User(sql.FieldHasPrefix(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentHasSuffix applies the HasSuffix predicate on the "organization_environment" field.
+func OrganizationEnvironmentHasSuffix(v string) predicate.User {
+	return predicate.User(sql.FieldHasSuffix(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentEqualFold applies the EqualFold predicate on the "organization_environment" field.
+func OrganizationEnvironmentEqualFold(v string) predicate.User {
+	return predicate.User(sql.FieldEqualFold(FieldOrganizationEnvironment, v))
+}
+
+// OrganizationEnvironmentContainsFold applies the ContainsFold predicate on the "organization_environment" field.
+func OrganizationEnvironmentContainsFold(v string) predicate.User {
+	return predicate.User(sql.FieldContainsFold(FieldOrganizationEnvironment, v))
 }
 
 // EmailEQ applies the EQ predicate on the "email" field.

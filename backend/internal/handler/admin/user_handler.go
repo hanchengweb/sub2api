@@ -59,15 +59,19 @@ func NewUserHandler(
 
 // CreateUserRequest represents admin create user request
 type CreateUserRequest struct {
-	Email         string   `json:"email" binding:"required,email"`
-	Password      string   `json:"password" binding:"required,min=6"`
-	Username      string   `json:"username"`
-	Notes         string   `json:"notes"`
-	Role          string   `json:"role" binding:"omitempty,oneof=admin user"`
-	Balance       *float64 `json:"balance"`
-	Concurrency   int      `json:"concurrency"`
-	RPMLimit      int      `json:"rpm_limit"`
-	AllowedGroups []int64  `json:"allowed_groups"`
+	AccountType             string   `json:"account_type" binding:"omitempty,oneof=personal organization_service"`
+	OrganizationIssuer      string   `json:"organization_issuer" binding:"max=80"`
+	OrganizationID          string   `json:"organization_id" binding:"max=160"`
+	OrganizationEnvironment string   `json:"organization_environment" binding:"omitempty,oneof=test production"`
+	Email                   string   `json:"email" binding:"required,email"`
+	Password                string   `json:"password" binding:"required_unless=AccountType organization_service,omitempty,min=6"`
+	Username                string   `json:"username"`
+	Notes                   string   `json:"notes"`
+	Role                    string   `json:"role" binding:"omitempty,oneof=admin user"`
+	Balance                 *float64 `json:"balance"`
+	Concurrency             int      `json:"concurrency"`
+	RPMLimit                int      `json:"rpm_limit"`
+	AllowedGroups           []int64  `json:"allowed_groups"`
 }
 
 // UpdateUserRequest represents admin update user request
@@ -283,24 +287,48 @@ func (h *UserHandler) Create(c *gin.Context) {
 		}
 	}
 
-	user, err := h.adminService.CreateUser(c.Request.Context(), &service.CreateUserInput{
-		Email:         req.Email,
-		Password:      req.Password,
-		Username:      req.Username,
-		Notes:         req.Notes,
-		Role:          req.Role,
-		Balance:       req.Balance,
-		Concurrency:   req.Concurrency,
-		RPMLimit:      req.RPMLimit,
-		AllowedGroups: req.AllowedGroups,
-		ActorAdminID:  getAdminIDFromContext(c),
-	})
+	input := &service.CreateUserInput{
+		AccountType:             req.AccountType,
+		OrganizationIssuer:      req.OrganizationIssuer,
+		OrganizationID:          req.OrganizationID,
+		OrganizationEnvironment: req.OrganizationEnvironment,
+		Email:                   req.Email,
+		Password:                req.Password,
+		Username:                req.Username,
+		Notes:                   req.Notes,
+		Role:                    req.Role,
+		Balance:                 req.Balance,
+		Concurrency:             req.Concurrency,
+		RPMLimit:                req.RPMLimit,
+		AllowedGroups:           req.AllowedGroups,
+		ActorAdminID:            getAdminIDFromContext(c),
+	}
+	create := func(ctx context.Context) (any, error) {
+		user, err := h.adminService.CreateUser(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return dto.UserFromServiceAdmin(user), nil
+	}
+	if req.AccountType == service.AccountTypeOrganizationService {
+		if strings.TrimSpace(c.GetHeader("Idempotency-Key")) == "" {
+			response.BadRequest(c, "Idempotency-Key is required")
+			return
+		}
+		if service.DefaultIdempotencyCoordinator() == nil {
+			response.ErrorFrom(c, service.ErrIdempotencyStoreUnavail)
+			return
+		}
+		executeAdminIdempotentJSON(c, "admin.organization_service.create", req, service.DefaultWriteIdempotencyTTL(), create)
+		return
+	}
+	result, err := create(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	response.Success(c, dto.UserFromServiceAdmin(user))
+	response.Success(c, result)
 }
 
 // Update handles updating a user

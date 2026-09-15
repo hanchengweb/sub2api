@@ -76,7 +76,7 @@ func jwtAuth(
 		}
 
 		// 检查用户状态
-		if !user.IsActive() {
+		if !user.IsActive() || !user.CanLogin() {
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
 			return
 		}

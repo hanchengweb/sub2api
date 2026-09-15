@@ -139,6 +139,11 @@ type AdminService interface {
 
 // CreateUserInput represents input for creating a new user via admin operations.
 type CreateUserInput struct {
+	AccountType             string
+	OrganizationIssuer      string
+	OrganizationID          string
+	OrganizationEnvironment string
+
 	Email         string
 	Password      string
 	Username      string

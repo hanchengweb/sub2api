@@ -76,6 +76,62 @@ func (_c *UserCreate) SetNillableDeletedAt(v *time.Time) *UserCreate {
 	return _c
 }
 
+// SetAccountType sets the "account_type" field.
+func (_c *UserCreate) SetAccountType(v string) *UserCreate {
+	_c.mutation.SetAccountType(v)
+	return _c
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_c *UserCreate) SetNillableAccountType(v *string) *UserCreate {
+	if v != nil {
+		_c.SetAccountType(*v)
+	}
+	return _c
+}
+
+// SetOrganizationIssuer sets the "organization_issuer" field.
+func (_c *UserCreate) SetOrganizationIssuer(v string) *UserCreate {
+	_c.mutation.SetOrganizationIssuer(v)
+	return _c
+}
+
+// SetNillableOrganizationIssuer sets the "organization_issuer" field if the given value is not nil.
+func (_c *UserCreate) SetNillableOrganizationIssuer(v *string) *UserCreate {
+	if v != nil {
+		_c.SetOrganizationIssuer(*v)
+	}
+	return _c
+}
+
+// SetOrganizationID sets the "organization_id" field.
+func (_c *UserCreate) SetOrganizationID(v string) *UserCreate {
+	_c.mutation.SetOrganizationID(v)
+	return _c
+}
+
+// SetNillableOrganizationID sets the "organization_id" field if the given value is not nil.
+func (_c *UserCreate) SetNillableOrganizationID(v *string) *UserCreate {
+	if v != nil {
+		_c.SetOrganizationID(*v)
+	}
+	return _c
+}
+
+// SetOrganizationEnvironment sets the "organization_environment" field.
+func (_c *UserCreate) SetOrganizationEnvironment(v string) *UserCreate {
+	_c.mutation.SetOrganizationEnvironment(v)
+	return _c
+}
+
+// SetNillableOrganizationEnvironment sets the "organization_environment" field if the given value is not nil.
+func (_c *UserCreate) SetNillableOrganizationEnvironment(v *string) *UserCreate {
+	if v != nil {
+		_c.SetOrganizationEnvironment(*v)
+	}
+	return _c
+}
+
 // SetEmail sets the "email" field.
 func (_c *UserCreate) SetEmail(v string) *UserCreate {
 	_c.mutation.SetEmail(v)
@@ -600,6 +656,22 @@ func (_c *UserCreate) defaults() error {
 		v := user.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		v := user.DefaultAccountType
+		_c.mutation.SetAccountType(v)
+	}
+	if _, ok := _c.mutation.OrganizationIssuer(); !ok {
+		v := user.DefaultOrganizationIssuer
+		_c.mutation.SetOrganizationIssuer(v)
+	}
+	if _, ok := _c.mutation.OrganizationID(); !ok {
+		v := user.DefaultOrganizationID
+		_c.mutation.SetOrganizationID(v)
+	}
+	if _, ok := _c.mutation.OrganizationEnvironment(); !ok {
+		v := user.DefaultOrganizationEnvironment
+		_c.mutation.SetOrganizationEnvironment(v)
+	}
 	if _, ok := _c.mutation.Role(); !ok {
 		v := user.DefaultRole
 		_c.mutation.SetRole(v)
@@ -666,6 +738,38 @@ func (_c *UserCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "User.updated_at"`)}
+	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		return &ValidationError{Name: "account_type", err: errors.New(`ent: missing required field "User.account_type"`)}
+	}
+	if v, ok := _c.mutation.AccountType(); ok {
+		if err := user.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "User.account_type": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.OrganizationIssuer(); !ok {
+		return &ValidationError{Name: "organization_issuer", err: errors.New(`ent: missing required field "User.organization_issuer"`)}
+	}
+	if v, ok := _c.mutation.OrganizationIssuer(); ok {
+		if err := user.OrganizationIssuerValidator(v); err != nil {
+			return &ValidationError{Name: "organization_issuer", err: fmt.Errorf(`ent: validator failed for field "User.organization_issuer": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.OrganizationID(); !ok {
+		return &ValidationError{Name: "organization_id", err: errors.New(`ent: missing required field "User.organization_id"`)}
+	}
+	if v, ok := _c.mutation.OrganizationID(); ok {
+		if err := user.OrganizationIDValidator(v); err != nil {
+			return &ValidationError{Name: "organization_id", err: fmt.Errorf(`ent: validator failed for field "User.organization_id": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.OrganizationEnvironment(); !ok {
+		return &ValidationError{Name: "organization_environment", err: errors.New(`ent: missing required field "User.organization_environment"`)}
+	}
+	if v, ok := _c.mutation.OrganizationEnvironment(); ok {
+		if err := user.OrganizationEnvironmentValidator(v); err != nil {
+			return &ValidationError{Name: "organization_environment", err: fmt.Errorf(`ent: validator failed for field "User.organization_environment": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.Email(); !ok {
 		return &ValidationError{Name: "email", err: errors.New(`ent: missing required field "User.email"`)}
@@ -783,6 +887,22 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DeletedAt(); ok {
 		_spec.SetField(user.FieldDeletedAt, field.TypeTime, value)
 		_node.DeletedAt = &value
+	}
+	if value, ok := _c.mutation.AccountType(); ok {
+		_spec.SetField(user.FieldAccountType, field.TypeString, value)
+		_node.AccountType = value
+	}
+	if value, ok := _c.mutation.OrganizationIssuer(); ok {
+		_spec.SetField(user.FieldOrganizationIssuer, field.TypeString, value)
+		_node.OrganizationIssuer = value
+	}
+	if value, ok := _c.mutation.OrganizationID(); ok {
+		_spec.SetField(user.FieldOrganizationID, field.TypeString, value)
+		_node.OrganizationID = value
+	}
+	if value, ok := _c.mutation.OrganizationEnvironment(); ok {
+		_spec.SetField(user.FieldOrganizationEnvironment, field.TypeString, value)
+		_node.OrganizationEnvironment = value
 	}
 	if value, ok := _c.mutation.Email(); ok {
 		_spec.SetField(user.FieldEmail, field.TypeString, value)
@@ -1494,6 +1614,18 @@ func (u *UserUpsertOne) UpdateNewValues() *UserUpsertOne {
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(user.FieldCreatedAt)
 		}
+		if _, exists := u.create.mutation.AccountType(); exists {
+			s.SetIgnore(user.FieldAccountType)
+		}
+		if _, exists := u.create.mutation.OrganizationIssuer(); exists {
+			s.SetIgnore(user.FieldOrganizationIssuer)
+		}
+		if _, exists := u.create.mutation.OrganizationID(); exists {
+			s.SetIgnore(user.FieldOrganizationID)
+		}
+		if _, exists := u.create.mutation.OrganizationEnvironment(); exists {
+			s.SetIgnore(user.FieldOrganizationEnvironment)
+		}
 	}))
 	return u
 }
@@ -2109,6 +2241,18 @@ func (u *UserUpsertBulk) UpdateNewValues() *UserUpsertBulk {
 		for _, b := range u.create.builders {
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(user.FieldCreatedAt)
+			}
+			if _, exists := b.mutation.AccountType(); exists {
+				s.SetIgnore(user.FieldAccountType)
+			}
+			if _, exists := b.mutation.OrganizationIssuer(); exists {
+				s.SetIgnore(user.FieldOrganizationIssuer)
+			}
+			if _, exists := b.mutation.OrganizationID(); exists {
+				s.SetIgnore(user.FieldOrganizationID)
+			}
+			if _, exists := b.mutation.OrganizationEnvironment(); exists {
+				s.SetIgnore(user.FieldOrganizationEnvironment)
 			}
 		}
 	}))

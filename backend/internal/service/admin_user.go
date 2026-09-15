@@ -118,10 +118,14 @@ func normalizeUserRole(role, fallback string) (string, error) {
 }
 
 func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInput) (*User, error) {
+	identity, err := validateOrganizationIdentity(input)
+	if err != nil {
+		return nil, err
+	}
 	balance := 0.0
 	if input.Balance != nil {
 		balance = *input.Balance
-	} else if s.settingService != nil {
+	} else if identity.AccountType == AccountTypePersonal && s.settingService != nil {
 		balance = s.settingService.GetDefaultBalance(ctx)
 	}
 
@@ -132,17 +136,28 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 	}
 
 	user := &User{
-		Email:         input.Email,
-		Username:      input.Username,
-		Notes:         input.Notes,
-		Role:          role,
-		Balance:       balance,
-		Concurrency:   input.Concurrency,
-		RPMLimit:      input.RPMLimit,
-		Status:        StatusActive,
-		AllowedGroups: input.AllowedGroups,
+		AccountType:             identity.AccountType,
+		OrganizationIssuer:      identity.OrganizationIssuer,
+		OrganizationID:          identity.OrganizationID,
+		OrganizationEnvironment: identity.OrganizationEnvironment,
+		Email:                   input.Email,
+		Username:                input.Username,
+		Notes:                   input.Notes,
+		Role:                    role,
+		Balance:                 balance,
+		Concurrency:             input.Concurrency,
+		RPMLimit:                input.RPMLimit,
+		Status:                  StatusActive,
+		AllowedGroups:           input.AllowedGroups,
 	}
-	if err := user.SetPassword(input.Password); err != nil {
+	password := input.Password
+	if user.AccountType == AccountTypeOrganizationService {
+		password, err = randomHexString(32)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := user.SetPassword(password); err != nil {
 		return nil, err
 	}
 	if err := s.userRepo.Create(ctx, user); err != nil {
@@ -153,7 +168,9 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		logger.LegacyPrintf("service.admin", "audit: admin user created actor_admin_id=%d target_user_id=%d",
 			input.ActorAdminID, user.ID)
 	}
-	s.assignDefaultSubscriptions(ctx, user.ID)
+	if user.CanLogin() {
+		s.assignDefaultSubscriptions(ctx, user.ID)
+	}
 	return user, nil
 }
 
@@ -205,6 +222,10 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+
+	if !user.CanLogin() && (input.Password != "" || (input.Role != "" && input.Role != RoleUser)) {
+		return nil, ErrServiceAccountIdentity
 	}
 
 	// Protect admin users: cannot disable admin accounts

@@ -47151,6 +47151,10 @@ type UserMutation struct {
 	created_at                    *time.Time
 	updated_at                    *time.Time
 	deleted_at                    *time.Time
+	account_type                  *string
+	organization_issuer           *string
+	organization_id               *string
+	organization_environment      *string
 	email                         *string
 	password_hash                 *string
 	role                          *string
@@ -47440,6 +47444,150 @@ func (m *UserMutation) DeletedAtCleared() bool {
 func (m *UserMutation) ResetDeletedAt() {
 	m.deleted_at = nil
 	delete(m.clearedFields, user.FieldDeletedAt)
+}
+
+// SetAccountType sets the "account_type" field.
+func (m *UserMutation) SetAccountType(s string) {
+	m.account_type = &s
+}
+
+// AccountType returns the value of the "account_type" field in the mutation.
+func (m *UserMutation) AccountType() (r string, exists bool) {
+	v := m.account_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountType returns the old "account_type" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldAccountType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountType: %w", err)
+	}
+	return oldValue.AccountType, nil
+}
+
+// ResetAccountType resets all changes to the "account_type" field.
+func (m *UserMutation) ResetAccountType() {
+	m.account_type = nil
+}
+
+// SetOrganizationIssuer sets the "organization_issuer" field.
+func (m *UserMutation) SetOrganizationIssuer(s string) {
+	m.organization_issuer = &s
+}
+
+// OrganizationIssuer returns the value of the "organization_issuer" field in the mutation.
+func (m *UserMutation) OrganizationIssuer() (r string, exists bool) {
+	v := m.organization_issuer
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOrganizationIssuer returns the old "organization_issuer" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldOrganizationIssuer(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOrganizationIssuer is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOrganizationIssuer requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOrganizationIssuer: %w", err)
+	}
+	return oldValue.OrganizationIssuer, nil
+}
+
+// ResetOrganizationIssuer resets all changes to the "organization_issuer" field.
+func (m *UserMutation) ResetOrganizationIssuer() {
+	m.organization_issuer = nil
+}
+
+// SetOrganizationID sets the "organization_id" field.
+func (m *UserMutation) SetOrganizationID(s string) {
+	m.organization_id = &s
+}
+
+// OrganizationID returns the value of the "organization_id" field in the mutation.
+func (m *UserMutation) OrganizationID() (r string, exists bool) {
+	v := m.organization_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOrganizationID returns the old "organization_id" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldOrganizationID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOrganizationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOrganizationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOrganizationID: %w", err)
+	}
+	return oldValue.OrganizationID, nil
+}
+
+// ResetOrganizationID resets all changes to the "organization_id" field.
+func (m *UserMutation) ResetOrganizationID() {
+	m.organization_id = nil
+}
+
+// SetOrganizationEnvironment sets the "organization_environment" field.
+func (m *UserMutation) SetOrganizationEnvironment(s string) {
+	m.organization_environment = &s
+}
+
+// OrganizationEnvironment returns the value of the "organization_environment" field in the mutation.
+func (m *UserMutation) OrganizationEnvironment() (r string, exists bool) {
+	v := m.organization_environment
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOrganizationEnvironment returns the old "organization_environment" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldOrganizationEnvironment(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOrganizationEnvironment is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOrganizationEnvironment requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOrganizationEnvironment: %w", err)
+	}
+	return oldValue.OrganizationEnvironment, nil
+}
+
+// ResetOrganizationEnvironment resets all changes to the "organization_environment" field.
+func (m *UserMutation) ResetOrganizationEnvironment() {
+	m.organization_environment = nil
 }
 
 // SetEmail sets the "email" field.
@@ -49120,7 +49268,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 28)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -49129,6 +49277,18 @@ func (m *UserMutation) Fields() []string {
 	}
 	if m.deleted_at != nil {
 		fields = append(fields, user.FieldDeletedAt)
+	}
+	if m.account_type != nil {
+		fields = append(fields, user.FieldAccountType)
+	}
+	if m.organization_issuer != nil {
+		fields = append(fields, user.FieldOrganizationIssuer)
+	}
+	if m.organization_id != nil {
+		fields = append(fields, user.FieldOrganizationID)
+	}
+	if m.organization_environment != nil {
+		fields = append(fields, user.FieldOrganizationEnvironment)
 	}
 	if m.email != nil {
 		fields = append(fields, user.FieldEmail)
@@ -49207,6 +49367,14 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.UpdatedAt()
 	case user.FieldDeletedAt:
 		return m.DeletedAt()
+	case user.FieldAccountType:
+		return m.AccountType()
+	case user.FieldOrganizationIssuer:
+		return m.OrganizationIssuer()
+	case user.FieldOrganizationID:
+		return m.OrganizationID()
+	case user.FieldOrganizationEnvironment:
+		return m.OrganizationEnvironment()
 	case user.FieldEmail:
 		return m.Email()
 	case user.FieldPasswordHash:
@@ -49264,6 +49432,14 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldUpdatedAt(ctx)
 	case user.FieldDeletedAt:
 		return m.OldDeletedAt(ctx)
+	case user.FieldAccountType:
+		return m.OldAccountType(ctx)
+	case user.FieldOrganizationIssuer:
+		return m.OldOrganizationIssuer(ctx)
+	case user.FieldOrganizationID:
+		return m.OldOrganizationID(ctx)
+	case user.FieldOrganizationEnvironment:
+		return m.OldOrganizationEnvironment(ctx)
 	case user.FieldEmail:
 		return m.OldEmail(ctx)
 	case user.FieldPasswordHash:
@@ -49335,6 +49511,34 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDeletedAt(v)
+		return nil
+	case user.FieldAccountType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountType(v)
+		return nil
+	case user.FieldOrganizationIssuer:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOrganizationIssuer(v)
+		return nil
+	case user.FieldOrganizationID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOrganizationID(v)
+		return nil
+	case user.FieldOrganizationEnvironment:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOrganizationEnvironment(v)
 		return nil
 	case user.FieldEmail:
 		v, ok := value.(string)
@@ -49654,6 +49858,18 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldDeletedAt:
 		m.ResetDeletedAt()
+		return nil
+	case user.FieldAccountType:
+		m.ResetAccountType()
+		return nil
+	case user.FieldOrganizationIssuer:
+		m.ResetOrganizationIssuer()
+		return nil
+	case user.FieldOrganizationID:
+		m.ResetOrganizationID()
+		return nil
+	case user.FieldOrganizationEnvironment:
+		m.ResetOrganizationEnvironment()
 		return nil
 	case user.FieldEmail:
 		m.ResetEmail()

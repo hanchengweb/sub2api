@@ -104,6 +104,21 @@ func TestJWTAuth_ValidToken(t *testing.T) {
 	require.Equal(t, "user", body["role"])
 }
 
+func TestJWTAuth_RejectsOrganizationServiceIdentity(t *testing.T) {
+	user := &service.User{ID: 1, Email: "service@example.test", Role: "user", Status: service.StatusActive}
+	router, authSvc := newJWTTestEnv(map[int64]*service.User{1: user})
+	// Even a previously issued or externally supplied valid JWT cannot turn a
+	// service identity into an interactive user.
+	token, err := authSvc.GenerateToken(context.Background(), user)
+	require.NoError(t, err)
+	user.AccountType = service.AccountTypeOrganizationService
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 func TestJWTAuth_ValidToken_LowercaseBearer(t *testing.T) {
 	user := &service.User{
 		ID:           1,
