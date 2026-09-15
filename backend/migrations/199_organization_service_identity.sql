@@ -1,6 +1,11 @@
 -- Human identities keep their existing behavior. Organization bindings are
 -- reserved even after soft deletion so an external organization cannot be
 -- silently reassigned to a new account and lose its billing history.
+-- Fail and roll back rather than queue behind live traffic indefinitely.
+-- SET LOCAL is scoped to the migration runner's transaction.
+SET LOCAL lock_timeout = '2s';
+SET LOCAL statement_timeout = '15s';
+
 ALTER TABLE users
     ADD COLUMN account_type VARCHAR(32) NOT NULL DEFAULT 'personal',
     ADD COLUMN organization_issuer VARCHAR(80) NOT NULL DEFAULT '',
