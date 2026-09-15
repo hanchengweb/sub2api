@@ -284,6 +284,12 @@ func registerDashboardRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	organizations := admin.Group("/organization-services/:issuer/:environment/:organization_id")
+	organizations.GET("", h.Admin.APIKey.GetOrganization)
+	organizations.POST("/keys", h.Admin.APIKey.EnsureOrganizationKey)
+	organizations.PUT("/status", h.Admin.APIKey.SetOrganizationStatus)
+	organizations.DELETE("/keys/:key_id", h.Admin.APIKey.RevokeOrganizationKey)
+	organizations.GET("/usage", h.Admin.APIKey.ScopeOrganizationUsage, h.Admin.Usage.List)
 	users := admin.Group("/users")
 	{
 		users.GET("", h.Admin.User.List)

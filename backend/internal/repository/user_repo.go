@@ -470,6 +470,19 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 
 	q := r.client.User.Query()
 
+	if filters.AccountType != "" {
+		q = q.Where(dbuser.AccountTypeEQ(filters.AccountType))
+	}
+	if filters.OrganizationIssuer != "" {
+		q = q.Where(dbuser.OrganizationIssuerEQ(filters.OrganizationIssuer))
+	}
+	if filters.OrganizationID != "" {
+		q = q.Where(dbuser.OrganizationIDEQ(filters.OrganizationID))
+	}
+	if filters.OrganizationEnvironment != "" {
+		q = q.Where(dbuser.OrganizationEnvironmentEQ(filters.OrganizationEnvironment))
+	}
+
 	if filters.Status != "" {
 		q = q.Where(dbuser.StatusEQ(filters.Status))
 	}

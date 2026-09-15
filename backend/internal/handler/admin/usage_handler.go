@@ -172,6 +172,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		SortOrder: c.DefaultQuery("sort_order", "desc"),
 	}
 	filters := usagestats.UsageLogFilters{
+		RequestID:         c.Query("request_id"),
 		UserID:            userID,
 		APIKeyID:          apiKeyID,
 		AccountID:         accountID,
@@ -195,7 +196,12 @@ func (h *UsageHandler) List(c *gin.Context) {
 
 	out := make([]dto.AdminUsageLog, 0, len(records))
 	for i := range records {
-		out = append(out, *dto.UsageLogFromServiceAdmin(&records[i]))
+		item := dto.UsageLogFromServiceAdmin(&records[i])
+		if c.GetBool("organization_usage") {
+			item.APIKey = nil
+			item.User = nil
+		}
+		out = append(out, *item)
 	}
 	response.Paginated(c, out, result.Total, page, pageSize)
 }
