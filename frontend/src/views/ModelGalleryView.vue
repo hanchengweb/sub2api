@@ -77,17 +77,18 @@
             class="gallery-name text-sm font-semibold text-gray-900 dark:text-white"
             :title="card.name"
           >
-            {{ card.name }}
+            {{ resolveModelLabel(card.name) }}
           </h2>
-          <!-- 上游真实版本号。ID 是对外契约不能改，但用户光看 ID 判断不出用的哪一版：
-               deepseek-v4-flash 实际打到的是官方 DeepSeek-V4.1-Flash。 -->
+          <!-- 主标题给版本名，用户要看的是「这是哪一版」：deepseek-v4-flash 打到的
+               其实是官方 DeepSeek-V4.1-Flash，只写 ID 会被读成还停在 V4。
+               ID 不能藏——调接口写的是它——所以降为副标题，等宽字体标出是个标识符。 -->
           <p
             v-if="resolveModelVersion(card.name)"
-            data-testid="model-version"
-            class="mt-0.5 truncate text-[11px] text-gray-400 dark:text-gray-500"
-            :title="resolveModelVersion(card.name)"
+            data-testid="model-id"
+            class="mt-0.5 truncate font-mono text-[11px] text-gray-400 dark:text-gray-500"
+            :title="card.name"
           >
-            {{ resolveModelVersion(card.name) }}
+            {{ card.name }}
           </p>
           <p class="mt-0.5 truncate text-xs text-gray-400">{{ card.vendor }}</p>
 
@@ -128,7 +129,7 @@ import { RouterLink } from 'vue-router'
 import ModelBrandMark from '@/components/modelPlaza/ModelBrandMark.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { getModelPlaza, type PlazaModel } from '@/api/modelPlaza'
-import { resolveModelVersion } from '@/utils/modelDisplayName'
+import { resolveModelVersion, resolveModelLabel } from '@/utils/modelDisplayName'
 import { resolveModelVendor, resolveModelKind, type ModelKind } from '@/utils/modelVendor'
 import { formatCredits } from '@/utils/format'
 

@@ -5,7 +5,9 @@
  * 但用户光看 ID 判断不出实际用的是哪一版。比如 `deepseek-v4-flash` 打到的其实是
  * 官方的 DeepSeek-V4.1-Flash——看名字会以为还是 V4。
  *
- * 只做补充展示，不替换 ID：ID 仍然是主标题，版本号作为副标题出现。
+ * 展示上以版本名为主：用户看的是「这是哪一版」，不是「我该在代码里写什么」。
+ * 但 ID 不能藏起来——它是调接口时真正要写的那个字符串，所以降为副标题继续露出，
+ * 复制按钮复制的也始终是 ID。
  *
  * **这张表里的每一条都必须是核实过的**。它是在对用户做一个关于上游模型的事实
  * 陈述——写错就是误导。核实方式：拿这个 ID 打一次上游，看响应里的 model 字段，
@@ -30,4 +32,14 @@ const MODEL_VERSIONS: Record<string, string> = {
  */
 export function resolveModelVersion(model: string): string {
   return MODEL_VERSIONS[model.trim()] ?? ''
+}
+
+/**
+ * 展示用主名：核实过版本名的用它，否则回落到模型 ID。
+ *
+ * 与 resolveModelVersion 的区别：那个没收录就返回空串（调用方据此决定要不要渲染
+ * 副标题），这个一定给得出一个能显示的名字，用在主标题位置。
+ */
+export function resolveModelLabel(model: string): string {
+  return resolveModelVersion(model) || model.trim()
 }

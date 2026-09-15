@@ -12,11 +12,12 @@
           <header class="pz-model-header">
             <ModelBrandMark :model="m.name" size="md" />
             <div class="min-w-0 flex-1">
-              <h3 data-testid="model-name" class="break-words text-sm font-semibold text-gray-900 dark:text-gray-100">{{ m.name }}</h3>
+              <h3 data-testid="model-name" class="break-words text-sm font-semibold text-gray-900 dark:text-gray-100">{{ resolveModelLabel(m.name) }}</h3>
               <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                 <span>{{ resolveModelVendor(m.name).label }}</span>
-                <!-- 上游真实版本号，仅在核实过的模型上出现 -->
-                <span v-if="resolveModelVersion(m.name)" data-testid="model-version" class="text-gray-400 dark:text-gray-500">{{ resolveModelVersion(m.name) }}</span>
+                <!-- 调接口要写的是 ID，不能因为主标题换成版本名就把它藏起来。
+                     等宽字体 + 复制按钮复制的始终是这个值。 -->
+                <span v-if="resolveModelVersion(m.name)" data-testid="model-id" class="font-mono text-gray-400 dark:text-gray-500">{{ m.name }}</span>
               </div>
             </div>
             <div class="pz-model-links">
@@ -127,7 +128,7 @@ import ModelBrandMark from './ModelBrandMark.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PeakOffPeakPrice from './PeakOffPeakPrice.vue'
 import { resolveModelVendor } from '@/utils/modelVendor'
-import { resolveModelVersion } from '@/utils/modelDisplayName'
+import { resolveModelVersion, resolveModelLabel } from '@/utils/modelDisplayName'
 import { useClipboard } from '@/composables/useClipboard'
 import { plazaSection, comparePlazaModels } from '@/utils/modelPlazaOrdering'
 import { BILLING_MODE_TOKEN, BILLING_MODE_IMAGE, type BillingMode } from '@/constants/channel'

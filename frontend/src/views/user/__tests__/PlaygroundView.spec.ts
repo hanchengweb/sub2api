@@ -86,6 +86,16 @@ async function modelOptions(wrapper: ReturnType<typeof mountView>): Promise<stri
   return items
 }
 
+/** 下拉项 title 里的模型 ID。显示名换成版本名之后，ID 仍然要能从界面上拿到。 */
+async function modelOptionIds(wrapper: ReturnType<typeof mountView>): Promise<string[]> {
+  const trigger = wrapper.find('[data-testid="model-select"]')
+  if (!trigger.exists()) return []
+  await trigger.trigger('click')
+  const ids = wrapper.findAll('[data-testid="model-option-label"]').map((o) => o.attributes('title') ?? '')
+  await trigger.trigger('click')
+  return ids
+}
+
 /** 走一遍「输入 → 发送」，返回 wrapper。 */
 async function send(wrapper: ReturnType<typeof mountView>, text: string) {
   await wrapper.find('textarea').setValue(text)
@@ -154,7 +164,10 @@ describe('PlaygroundView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(await modelOptions(wrapper)).toEqual(['deepseek-v4-flash'])
+    // 显示的是核实过的上游版本名——只写 deepseek-v4-flash 会被读成还停在 V4
+    expect(await modelOptions(wrapper)).toEqual(['DeepSeek-V4.1-Flash'])
+    // 但调接口写的是 ID，它必须还能从界面上拿到
+    expect(await modelOptionIds(wrapper)).toEqual(['deepseek-v4-flash'])
 
     await wrapper.findAll('button').find((b) => b.text().includes('playground.modeImage'))!.trigger('click')
     await flushPromises()
@@ -344,7 +357,8 @@ describe('PlaygroundView 模型名单兜底', () => {
     await flushPromises()
 
     // 广场目录里的对话模型仍然列得出来
-    expect(await modelOptions(wrapper)).toEqual(['deepseek-v4-flash'])
+    expect(await modelOptions(wrapper)).toEqual(['DeepSeek-V4.1-Flash'])
+    expect(await modelOptionIds(wrapper)).toEqual(['deepseek-v4-flash'])
   })
 
   it('名单与广场都拿不到时不白屏，只是没有模型', async () => {
