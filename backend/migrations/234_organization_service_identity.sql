@@ -2,6 +2,11 @@
 -- reserved even after soft deletion so an external organization cannot be
 -- silently reassigned to a new account and lose its billing history.
 -- Fail and roll back rather than queue behind live traffic indefinitely.
+-- The runner wraps this entire file in one transaction. Use an ordinary CHECK:
+-- NOT VALID followed by VALIDATE here cannot release ACCESS EXCLUSIVE early.
+-- Hangzhou had 17 users at the 2026-09-15 preflight; no two-phase rollout.
+-- lock_timeout bounds each lock acquisition, not total transaction/traffic delay.
+-- statement_timeout bounds each statement; locks already acquired last to COMMIT.
 -- SET LOCAL is scoped to the migration runner's transaction.
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '15s';

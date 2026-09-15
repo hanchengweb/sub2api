@@ -20,9 +20,9 @@ import (
 
 // Uses only the dedicated loopback test cluster; never a business DSN.
 // Start PostgreSQL on 55439 with user windhub_migration_test, then set
-// WINDHUB_PG199_TEST=1. Each invocation creates and drops its own database.
+// WINDHUB_PG234_TEST=1. Each invocation creates and drops its own database.
 func TestOrganizationMigrationPostgres(t *testing.T) {
-	if os.Getenv("WINDHUB_PG199_TEST") != "1" {
+	if os.Getenv("WINDHUB_PG234_TEST") != "1" {
 		t.Skip("requires isolated PostgreSQL on 127.0.0.1:55439")
 	}
 	const baseDSN = "host=127.0.0.1 port=55439 user=windhub_migration_test sslmode=disable connect_timeout=5 dbname="
@@ -38,7 +38,7 @@ func TestOrganizationMigrationPostgres(t *testing.T) {
 	defer db.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	const migration = "199_organization_service_identity.sql"
+	const migration = "234_organization_service_identity.sql"
 	old := fstest.MapFS{}
 	entries, err := migrations.FS.ReadDir(".")
 	require.NoError(t, err)
