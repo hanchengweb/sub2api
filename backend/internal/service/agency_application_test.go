@@ -7,6 +7,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// agencyStatusUpdate 记一次 UpdateStatus 调用，供断言审核路径用。
+type agencyStatusUpdate struct {
+	ID     int64
+	Status string
+	Note   string
+}
+
 type fakeAgencyRepo struct {
 	total     int
 	sameDir   int
@@ -14,6 +21,11 @@ type fakeAgencyRepo struct {
 	lastDir   string
 	countErr  error
 	createErr error
+
+	// stored 是 GetByID 返回的那条申请；nil 表示查不到。
+	stored        *AgencyApplication
+	getErr        error
+	statusUpdates []agencyStatusUpdate
 }
 
 func (r *fakeAgencyRepo) Create(_ context.Context, app *AgencyApplication) error {
@@ -38,7 +50,22 @@ func (r *fakeAgencyRepo) List(context.Context, AgencyApplicationFilters) ([]Agen
 	return nil, 0, nil
 }
 
-func (r *fakeAgencyRepo) UpdateStatus(context.Context, int64, string, string) error { return nil }
+func (r *fakeAgencyRepo) GetByID(_ context.Context, id int64) (*AgencyApplication, error) {
+	if r.getErr != nil {
+		return nil, r.getErr
+	}
+	if r.stored == nil {
+		return nil, ErrAgencyApplicationInvalid
+	}
+	app := *r.stored
+	app.ID = id
+	return &app, nil
+}
+
+func (r *fakeAgencyRepo) UpdateStatus(_ context.Context, id int64, status, note string) error {
+	r.statusUpdates = append(r.statusUpdates, agencyStatusUpdate{ID: id, Status: status, Note: note})
+	return nil
+}
 
 func validApp(direction string) *AgencyApplication {
 	return &AgencyApplication{

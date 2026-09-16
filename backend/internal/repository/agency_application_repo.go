@@ -83,6 +83,25 @@ func (r *agencyApplicationRepository) CountPending(ctx context.Context, userID i
 	return total, sameDirection, err
 }
 
+// GetByID 单条读取。
+//
+// 审核通过时要据此拿到申请人和合作方向去建代理档案——不能信任请求体里
+// 带来的 user_id，那是客户端说的。
+func (r *agencyApplicationRepository) GetByID(ctx context.Context, id int64) (*service.AgencyApplication, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("agency application repository db is nil")
+	}
+	const q = `SELECT ` + agencyColumns + ` FROM agency_applications WHERE id = $1`
+	a, err := scanAgencyApplication(r.db.QueryRowContext(ctx, q, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrAgencyApplicationInvalid
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
 // List 管理员分页列表，同时返回总数用于翻页。
 func (r *agencyApplicationRepository) List(ctx context.Context, f service.AgencyApplicationFilters) ([]service.AgencyApplication, int, error) {
 	if r == nil || r.db == nil {

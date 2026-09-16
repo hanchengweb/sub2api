@@ -38,6 +38,9 @@ func SetupRouter(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 	redisClient *redis.Client,
+	channelService *service.ChannelService,
+	paymentConfigService *service.PaymentConfigService,
+	affiliateService *service.AffiliateService,
 	sqlDB *sql.DB,
 ) *gin.Engine {
 	middleware2.SetIngressRejectRecorder(opsService)
@@ -93,7 +96,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, sqlDB)
+	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, channelService, paymentConfigService, affiliateService, sqlDB)
 
 	return r
 }
@@ -115,6 +118,9 @@ func registerRoutes(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 	redisClient *redis.Client,
+	channelService *service.ChannelService,
+	paymentConfigService *service.PaymentConfigService,
+	affiliateService *service.AffiliateService,
 	sqlDB *sql.DB,
 ) {
 	// 通用路由（健康检查、状态等）
@@ -138,10 +144,23 @@ func registerRoutes(
 	// 上游结果 24 小时过期，不落本地盘的话历史会话隔天就只剩碎图。
 	playgroundMedia := service.NewPlaygroundMediaService(
 		repository.NewPlaygroundMediaRepository(sqlDB), cfg.Pricing.DataDir)
-	// 成为代理：合作申请。用户提交、管理员处理。
+	// 成为代理：合作申请 + 代理身份 + 代理定价。
+	//
+	// 审核通过（status=accepted）会顺带开通代理身份并发码——在此之前
+	// accepted 只是个状态字，运营得手工去别处再配一遍。
+	agentService := service.NewAgentService(
+		repository.NewAgentProfileRepository(sqlDB), affiliateService)
 	routes.RegisterAgencyRoutes(v1,
-		handler.NewAgencyHandler(service.NewAgencyApplicationService(
-			repository.NewAgencyApplicationRepository(sqlDB))),
+		handler.NewAgencyHandler(service.NewAgencyApplicationServiceWithAgents(
+			repository.NewAgencyApplicationRepository(sqlDB), agentService)),
+		jwtAuth, adminAuth)
+	routes.RegisterAgentRoutes(v1,
+		handler.NewAgentHandler(
+			agentService,
+			service.NewAgentPricingPlanService(repository.NewAgentPricingPlanRepository(sqlDB)),
+			channelService,
+			paymentConfigService,
+		),
 		jwtAuth, adminAuth)
 
 	// 会话删除 / 裁剪后回收没人再引用的转存文件——会话没了，那些图片视频

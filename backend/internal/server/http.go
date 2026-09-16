@@ -43,6 +43,12 @@ func ProvideRouter(
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
 	redisClient *redis.Client,
+	// channelService / paymentConfigService / affiliateService 供代理定价用：
+	// 算代理批发价要读源渠道的零售价与成本，把「让一毛」折算成积分要读
+	// BALANCE_RECHARGE_MULTIPLIER，分佣代理开通时要确保他有邀请码。
+	channelService *service.ChannelService,
+	paymentConfigService *service.PaymentConfigService,
+	affiliateService *service.AffiliateService,
 	// sqlDB 供在线使用的生成结果转存用。它需要自己的仓储，而 Handlers 在 wire 里
 	// 构造时引擎还不存在，没法把 handler 放进去，只能把 DB 递到这一层现搭。
 	sqlDB *sql.DB,
@@ -91,7 +97,7 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, sqlDB)
+	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, channelService, paymentConfigService, affiliateService, sqlDB)
 }
 
 func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {

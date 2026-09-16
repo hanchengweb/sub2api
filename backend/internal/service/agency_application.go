@@ -78,6 +78,8 @@ type AgencyApplicationRepository interface {
 	// CountPending 同时返回该用户待处理总数、以及其中落在 direction 上的条数。
 	// 一次查询拿两个数：提交路径上不值得为此多跑一趟库。
 	CountPending(ctx context.Context, userID int64, direction string) (total int, sameDirection int, err error)
+	// GetByID 单条读取。审核通过要据此拿到申请人和合作方向去建代理档案。
+	GetByID(ctx context.Context, id int64) (*AgencyApplication, error)
 	List(ctx context.Context, filters AgencyApplicationFilters) ([]AgencyApplication, int, error)
 	UpdateStatus(ctx context.Context, id int64, status, adminNote string) error
 }
@@ -85,10 +87,21 @@ type AgencyApplicationRepository interface {
 // AgencyApplicationService 合作申请。
 type AgencyApplicationService struct {
 	repo AgencyApplicationRepository
+	// agents 非空时，审核通过会顺带开通代理身份。
+	// 留空则退化成纯状态机（老行为），方便测试和渐进接线。
+	agents *AgentService
 }
 
 func NewAgencyApplicationService(repo AgencyApplicationRepository) *AgencyApplicationService {
 	return &AgencyApplicationService{repo: repo}
+}
+
+// NewAgencyApplicationServiceWithAgents 带代理开通能力的构造。
+//
+// 分成两个构造函数而不是给老的加参数：现有调用点和测试不用跟着改，
+// 接线错了也只是退回「改状态但不开通」，不会在审核路径上 panic。
+func NewAgencyApplicationServiceWithAgents(repo AgencyApplicationRepository, agents *AgentService) *AgencyApplicationService {
+	return &AgencyApplicationService{repo: repo, agents: agents}
 }
 
 // Submit 提交一条合作申请。
@@ -150,6 +163,13 @@ func (s *AgencyApplicationService) List(ctx context.Context, filters AgencyAppli
 }
 
 // UpdateStatus 管理员改处理状态与备注。
+//
+// 改成 accepted 会顺带开通代理身份——在此之前 accepted 只是个状态字，
+// 审核通过之后平台侧什么都不会发生，运营得手工去别处再配一遍。
+//
+// 开通失败不回滚状态：状态已经写进库了，代理档案可以由管理员在代理管理页补建；
+// 反过来（状态回滚、档案留着）才是更难收拾的不一致。失败会向上抛，
+// 由 handler 决定怎么提示。
 func (s *AgencyApplicationService) UpdateStatus(ctx context.Context, id int64, status, note string) error {
 	if s == nil || s.repo == nil {
 		return errors.New("agency application service is unavailable")
@@ -161,7 +181,34 @@ func (s *AgencyApplicationService) UpdateStatus(ctx context.Context, id int64, s
 	if _, ok := agencyStatuses[status]; !ok {
 		return ErrAgencyApplicationInvalid
 	}
-	return s.repo.UpdateStatus(ctx, id, status, truncateRunes(note, 2000))
+
+	// 先把申请读出来：状态改完再读的话，拿到的 direction 仍然是对的，
+	// 但要是那一瞬间申请被删了就没法建档，还不如提前失败。
+	var app *AgencyApplication
+	if status == "accepted" && s.agents != nil {
+		loaded, err := s.repo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		app = loaded
+	}
+
+	if err := s.repo.UpdateStatus(ctx, id, status, truncateRunes(note, 2000)); err != nil {
+		return err
+	}
+	if app == nil {
+		return nil
+	}
+
+	_, err := s.agents.Activate(ctx, ActivateAgentInput{
+		UserID:        app.UserID,
+		ApplicationID: &app.ID,
+		Direction:     app.Direction,
+		// Mode 留空：由 DefaultAgentModeForDirection 按方向决定
+		// （渠道推广→分佣，技术集成/客户交付→转售）。
+		// 要改模式走代理管理页，不在审核这一步塞选项。
+	})
+	return err
 }
 
 // normalizeAgencyApplication 校验并裁剪到可入库的形状。
