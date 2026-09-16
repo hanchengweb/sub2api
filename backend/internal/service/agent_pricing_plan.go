@@ -175,14 +175,24 @@ type AgentPriceChange struct {
 	Category    string   `json:"category"`
 	// Field 价格字段名（input / output / per_request / ...），
 	// 一行定价有多个价格字段时会展开成多条。
-	Field       string  `json:"field"`
+	Field string `json:"field"`
+	// TierLabel 非空表示这条来自分层定价（如 1K·高、4K·中），空表示行级默认价。
+	//
+	// 必须展开到分层：生产上 10 条定价配了 54 个层级，实际计费走的是层级价。
+	// 只折行级默认价的话，代理照零售层级价被扣费，一分钱折扣都拿不到；
+	// nano_banana_2 更极端——它行级价是 NULL，只有层级价。
+	TierLabel   string  `json:"tier_label,omitempty"`
 	RetailPrice float64 `json:"retail_price"`
 	AgentPrice  float64 `json:"agent_price"`
 	// CostPrice 成本单价；查不到时为 nil，此时下限保护没有依据。
 	CostPrice *float64 `json:"cost_price,omitempty"`
 	// Warning 非空表示这条需要人看一眼。空字符串表示算得干净。
 	Warning string `json:"warning,omitempty"`
-	// Skipped 为真时这条不会被写入目标渠道。
+	// Skipped 为真时这条保留零售价写入目标渠道，不套用方案。
+	//
+	// 保留零售价而不是不写：不写的话该模型在代理渠道里没有定价，
+	// 会回退到 LiteLLM 官方价——那个价和我们的零售价无关，可能更低，
+	// 等于跳过保护反而捅出一个更大的窟窿。
 	Skipped bool `json:"skipped"`
 }
 
@@ -202,6 +212,13 @@ type AgentPricingPreview struct {
 	TotalRows   int `json:"total_rows"`
 	SkippedRows int `json:"skipped_rows"`
 	WarningRows int `json:"warning_rows"`
+
+	// Rows 算好的代理定价，可直接交给 ChannelService.Update 落库。
+	//
+	// 不序列化：它和 Changes 是同一份结果的两种形态，返回给前端只会让
+	// 响应体翻倍。留在结构体里是为了让「预览」和「应用」共用同一次计算——
+	// 两边各算一次的话，中间零售价一改，运营看到的就不是实际写进去的。
+	Rows []ChannelModelPricing `json:"-"`
 }
 
 // BuildAgentPricingPreview 按方案算出面向代理的批发价。
@@ -237,16 +254,24 @@ func BuildAgentPricingPreview(
 		Changes:          make([]AgentPriceChange, 0, len(retail)*4),
 	}
 
+	preview.Rows = make([]ChannelModelPricing, 0, len(retail))
 	for i := range retail {
-		row := &retail[i]
-		category := CategoryForBillingMode(row.BillingMode)
-		for _, field := range agentPricedFields(row, category) {
+		// 深拷贝一份作为落库用的代理定价：直接改 retail 会污染调用方
+		// 手里的渠道对象，那是从缓存里拿出来的零售价。
+		out := cloneChannelModelPricing(&retail[i])
+		category := CategoryForBillingMode(out.BillingMode)
+
+		for _, field := range agentPricedFields(&out, category) {
 			if field.value == nil {
 				continue
 			}
-			change := buildAgentPriceChange(row, category, field, plan, deduction, costLookup)
+			change := buildAgentPriceChange(&out, category, field, plan, deduction, costLookup)
 			preview.Changes = append(preview.Changes, change)
+			// 跳过的条目保留零售价（change.AgentPrice 已被置为零售价），
+			// 照写不误——留空会让该模型回退到 LiteLLM 官方价。
+			*field.value = change.AgentPrice
 		}
+		preview.Rows = append(preview.Rows, out)
 	}
 
 	preview.TotalRows = len(preview.Changes)
@@ -262,37 +287,117 @@ func BuildAgentPricingPreview(
 }
 
 // agentPricedField 一个待折算的价格字段。
+//
+// value 指向副本里的那个 float64，算完直接写回去——落库用的行和预览看的 diff
+// 就是同一次计算的产物，不会各算一遍再对不上。
 type agentPricedField struct {
 	name  string
 	value *float64
 	// model 该字段对应的代表模型，用于查成本。
 	model string
+	// tier 非空表示来自分层定价；空表示行级默认价。
+	tier string
 }
 
-// agentPricedFields 列出一行定价里需要折算的价格字段。
+// cloneChannelModelPricing 深拷贝一行定价，价格指针全部换成新分配的。
+//
+// 浅拷贝不行：ChannelModelPricing 的价格字段都是 *float64，直接复制结构体
+// 会让副本和原件指向同一个 float64，往副本写代理价等于改掉了缓存里的零售价。
+func cloneChannelModelPricing(src *ChannelModelPricing) ChannelModelPricing {
+	out := *src
+	out.InputPrice = clonePriceValue(src.InputPrice)
+	out.OutputPrice = clonePriceValue(src.OutputPrice)
+	out.CacheWritePrice = clonePriceValue(src.CacheWritePrice)
+	out.CacheReadPrice = clonePriceValue(src.CacheReadPrice)
+	out.ImageInputPrice = clonePriceValue(src.ImageInputPrice)
+	out.ImageOutputPrice = clonePriceValue(src.ImageOutputPrice)
+	out.PerRequestPrice = clonePriceValue(src.PerRequestPrice)
+
+	if src.Models != nil {
+		out.Models = append([]string(nil), src.Models...)
+	}
+	if src.Intervals != nil {
+		out.Intervals = make([]PricingInterval, len(src.Intervals))
+		for i := range src.Intervals {
+			iv := src.Intervals[i]
+			iv.InputPrice = clonePriceValue(src.Intervals[i].InputPrice)
+			iv.OutputPrice = clonePriceValue(src.Intervals[i].OutputPrice)
+			iv.CacheWritePrice = clonePriceValue(src.Intervals[i].CacheWritePrice)
+			iv.CacheReadPrice = clonePriceValue(src.Intervals[i].CacheReadPrice)
+			iv.PerRequestPrice = clonePriceValue(src.Intervals[i].PerRequestPrice)
+			out.Intervals[i] = iv
+		}
+	}
+	return out
+}
+
+func clonePriceValue(p *float64) *float64 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// agentPricedFields 列出一行定价里需要折算的价格字段，含分层定价。
 //
 // 文本类按比例折，所有 token 相关的价格字段都要跟着动——只折输入价不折输出价，
 // 代理在输出密集的场景下拿不到说好的八折。
 // 多模态只动「每次」的价格：那是固定让利唯一说得通的地方。
+//
+// 分层必须一起折：生产上 10 条定价配了 54 个层级（1K/2K/4K × 低/中/高），
+// 实际计费命中的是层级价，只折行级默认价的话代理照零售价被扣。
 func agentPricedFields(row *ChannelModelPricing, category string) []agentPricedField {
 	model := ""
 	if len(row.Models) > 0 {
 		model = row.Models[0]
 	}
+
+	fields := make([]agentPricedField, 0, 6+len(row.Intervals)*2)
 	if category == AgentCategoryText {
-		return []agentPricedField{
-			{name: "input", value: row.InputPrice, model: model},
-			{name: "output", value: row.OutputPrice, model: model},
-			{name: "cache_write", value: row.CacheWritePrice, model: model},
-			{name: "cache_read", value: row.CacheReadPrice, model: model},
-			{name: "image_input", value: row.ImageInputPrice, model: model},
-			{name: "image_output", value: row.ImageOutputPrice, model: model},
+		fields = append(fields,
+			agentPricedField{name: "input", value: row.InputPrice, model: model},
+			agentPricedField{name: "output", value: row.OutputPrice, model: model},
+			agentPricedField{name: "cache_write", value: row.CacheWritePrice, model: model},
+			agentPricedField{name: "cache_read", value: row.CacheReadPrice, model: model},
+			agentPricedField{name: "image_input", value: row.ImageInputPrice, model: model},
+			agentPricedField{name: "image_output", value: row.ImageOutputPrice, model: model},
+		)
+	} else {
+		fields = append(fields,
+			agentPricedField{name: "per_request", value: row.PerRequestPrice, model: model},
+			agentPricedField{name: "image_output", value: row.ImageOutputPrice, model: model},
+		)
+	}
+
+	for i := range row.Intervals {
+		iv := &row.Intervals[i]
+		tier := iv.TierLabel
+		if tier == "" {
+			// token 区间没有标签，用区间边界当标识，否则预览里几条会长得一模一样。
+			tier = formatTokenRange(iv.MinTokens, iv.MaxTokens)
 		}
+		if category == AgentCategoryText {
+			fields = append(fields,
+				agentPricedField{name: "input", value: iv.InputPrice, model: model, tier: tier},
+				agentPricedField{name: "output", value: iv.OutputPrice, model: model, tier: tier},
+				agentPricedField{name: "cache_write", value: iv.CacheWritePrice, model: model, tier: tier},
+				agentPricedField{name: "cache_read", value: iv.CacheReadPrice, model: model, tier: tier},
+			)
+			continue
+		}
+		fields = append(fields,
+			agentPricedField{name: "per_request", value: iv.PerRequestPrice, model: model, tier: tier},
+		)
 	}
-	return []agentPricedField{
-		{name: "per_request", value: row.PerRequestPrice, model: model},
-		{name: "image_output", value: row.ImageOutputPrice, model: model},
+	return fields
+}
+
+func formatTokenRange(minTokens int, maxTokens *int) string {
+	if maxTokens == nil {
+		return fmt.Sprintf("%d+", minTokens)
 	}
+	return fmt.Sprintf("%d-%d", minTokens, *maxTokens)
 }
 
 // buildAgentPriceChange 算一个字段的代理价并判定告警。
@@ -311,6 +416,7 @@ func buildAgentPriceChange(
 		BillingMode: string(row.BillingMode),
 		Category:    category,
 		Field:       field.name,
+		TierLabel:   field.tier,
 		RetailPrice: retailPrice,
 	}
 
@@ -319,12 +425,12 @@ func buildAgentPriceChange(
 	} else {
 		change.AgentPrice = retailPrice - deduction
 		// 让利大于零售价本身：按方案算出来是负价，等于平台倒贴还要送钱。
-		// 夹到 0 并标记跳过，由运营决定这个模型是单独定价还是不给代理。
+		// 退回零售价并标记跳过，由运营决定这个模型是单独定价还是不给代理。
 		if change.AgentPrice <= 0 {
-			change.AgentPrice = 0
+			change.AgentPrice = retailPrice
 			change.Skipped = true
 			change.Warning = fmt.Sprintf(
-				"零售价 %.6f 积分低于每次让利 %.6f 积分，按方案会算出负价，已跳过",
+				"零售价 %.6f 积分不高于每次让利 %.6f 积分，按方案会算出非正价，已退回零售价",
 				retailPrice, deduction)
 			return change
 		}
@@ -346,10 +452,13 @@ func buildAgentPriceChange(
 	change.CostPrice = &cost
 	if change.AgentPrice < cost {
 		change.Warning = fmt.Sprintf(
-			"代理价 %.6f 低于成本 %.6f 积分", change.AgentPrice, cost)
+			"代理价 %.6f 低于成本 %.6f 积分，已退回零售价", change.AgentPrice, cost)
 		// 只有开了保护才真的拦下来。关掉保护时仍然告警：
 		// 明知故犯和不知情是两回事，但都得让人看见。
-		change.Skipped = plan.EnforceCostFloor
+		if plan.EnforceCostFloor {
+			change.Skipped = true
+			change.AgentPrice = retailPrice
+		}
 	}
 	return change
 }

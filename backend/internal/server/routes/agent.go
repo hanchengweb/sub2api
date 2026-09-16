@@ -44,5 +44,7 @@ func RegisterAgentRoutes(
 		plans.PUT("/:id", h.AdminUpdatePlan)
 		// 只算不落库。配错价要等到用户被扣了错的钱才会发现，所以先看 diff。
 		plans.POST("/preview", h.AdminPreviewPricing)
+		// 落库。目标渠道必须不同于来源渠道，否则会把零售价改成代理价。
+		plans.POST("/apply", h.AdminApplyPricing)
 	}
 }

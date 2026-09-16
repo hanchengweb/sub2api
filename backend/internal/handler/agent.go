@@ -235,33 +235,105 @@ func (h *AgentHandler) AdminUpdatePlan(c *gin.Context) {
 // 调用并被扣了错的钱才会发现。返回里带上本次用的积分汇率，
 // 让运营能核对「一毛」到底折成了多少积分。
 func (h *AgentHandler) AdminPreviewPricing(c *gin.Context) {
-	if h.plans == nil || h.channels == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "agent pricing is unavailable"}})
+	preview, _, ok := h.resolveAgentPricing(c)
+	if !ok {
 		return
 	}
-	var req struct {
-		PlanID          int64 `json:"plan_id"`
-		SourceChannelID int64 `json:"source_channel_id"`
+	c.JSON(http.StatusOK, gin.H{"data": preview})
+}
+
+// AdminApplyPricing 把算好的批发价写进目标渠道。
+//
+// 走 ChannelService.Update 而不是自己写 SQL：那条路上带着 validateChannelConfig、
+// 渠道缓存失效和分组鉴权缓存失效。绕开它直接改表，价格会配了却不生效——
+// 得等渠道缓存自己过期才冒出来，中间那段时间足够让人怀疑是算错了。
+func (h *AgentHandler) AdminApplyPricing(c *gin.Context) {
+	preview, req, ok := h.resolveAgentPricing(c)
+	if !ok {
+		return
+	}
+	if req.TargetChannelID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "target_channel_id is required"}})
+		return
+	}
+	// 目标和来源同一个渠道 = 把零售价原地改成代理价，全站降价。
+	// 这是本接口唯一一个不可逆的手滑方式，硬挡。
+	if req.TargetChannelID == req.SourceChannelID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+			"code":    "TARGET_EQUALS_SOURCE",
+			"message": "目标渠道不能与来源渠道相同：那会把零售价直接改成代理价",
+		}})
+		return
+	}
+
+	target, err := h.channels.GetByID(c.Request.Context(), req.TargetChannelID)
+	if err != nil || target == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"message": "target channel not found"}})
+		return
+	}
+
+	rows := preview.Rows
+	if _, err := h.channels.Update(c.Request.Context(), req.TargetChannelID, &service.UpdateChannelInput{
+		// 只带 ModelPricing：UpdateChannelInput 其余字段都是「零值不改」语义，
+		// 所以目标渠道的名称、状态、分组、模型映射都不会被这次调用碰到。
+		ModelPricing: &rows,
+	}); err != nil {
+		requestLogger(c, "handler.agent").Warn("agent.apply_pricing_failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{
+			"message": "failed to write agent pricing: " + err.Error(),
+		}})
+		return
+	}
+
+	// 没挂分组的渠道谁都路由不到，价格写了也没人用。
+	// 不拦下来（先配价后挂组是正常顺序），但必须说出来。
+	warning := ""
+	if len(target.GroupIDs) == 0 {
+		warning = "目标渠道尚未关联任何分组，代理的请求不会路由到这里；请在渠道管理里挂上代理分组"
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{
+		"preview":          preview,
+		"target_channel":   target.Name,
+		"written_pricings": len(rows),
+		"warning":          warning,
+	}})
+}
+
+type agentPricingRequest struct {
+	PlanID          int64 `json:"plan_id"`
+	SourceChannelID int64 `json:"source_channel_id"`
+	TargetChannelID int64 `json:"target_channel_id"`
+}
+
+// resolveAgentPricing 预览与应用共用的计算。
+//
+// 两条路径共用同一次计算，是为了让运营看到的 diff 就是实际会写进去的东西；
+// 各算一遍的话，中间零售价一改，确认过的预览和落库结果就对不上了。
+func (h *AgentHandler) resolveAgentPricing(c *gin.Context) (*service.AgentPricingPreview, agentPricingRequest, bool) {
+	var req agentPricingRequest
+	if h.plans == nil || h.channels == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "agent pricing is unavailable"}})
+		return nil, req, false
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.PlanID <= 0 || req.SourceChannelID <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "invalid body"}})
-		return
+		return nil, req, false
 	}
 
 	plan, err := h.plans.Get(c.Request.Context(), req.PlanID)
 	if errors.Is(err, service.ErrAgentPricingPlanNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"message": "pricing plan not found"}})
-		return
+		return nil, req, false
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "failed to load pricing plan"}})
-		return
+		return nil, req, false
 	}
 
 	channel, err := h.channels.GetByID(c.Request.Context(), req.SourceChannelID)
 	if err != nil || channel == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"message": "source channel not found"}})
-		return
+		return nil, req, false
 	}
 
 	creditsPerCNY, err := h.creditsPerCNY(c)
@@ -270,7 +342,7 @@ func (h *AgentHandler) AdminPreviewPricing(c *gin.Context) {
 			"code":    "CREDIT_RATE_UNAVAILABLE",
 			"message": "取不到积分汇率，无法把让利金额折算成积分",
 		}})
-		return
+		return nil, req, false
 	}
 
 	preview, err := service.BuildAgentPricingPreview(
@@ -281,9 +353,9 @@ func (h *AgentHandler) AdminPreviewPricing(c *gin.Context) {
 	)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": err.Error()}})
-		return
+		return nil, req, false
 	}
-	c.JSON(http.StatusOK, gin.H{"data": preview})
+	return preview, req, true
 }
 
 // creditsPerCNY 每元对应多少积分。
