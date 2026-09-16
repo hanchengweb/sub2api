@@ -18,10 +18,11 @@ import (
 // 审核通过之后平台侧什么都不会发生。这个 handler 补上「通过之后」的那一半：
 // 代理档案、代理列表、以及面向代理的批发价怎么算出来。
 type AgentHandler struct {
-	agents   *service.AgentService
-	plans    *service.AgentPricingPlanService
-	channels *service.ChannelService
-	payments *service.PaymentConfigService
+	agents      *service.AgentService
+	plans       *service.AgentPricingPlanService
+	channels    *service.ChannelService
+	payments    *service.PaymentConfigService
+	settlements *service.AgentSettlementService
 }
 
 func NewAgentHandler(
@@ -29,8 +30,90 @@ func NewAgentHandler(
 	plans *service.AgentPricingPlanService,
 	channels *service.ChannelService,
 	payments *service.PaymentConfigService,
+	settlements *service.AgentSettlementService,
 ) *AgentHandler {
-	return &AgentHandler{agents: agents, plans: plans, channels: channels, payments: payments}
+	return &AgentHandler{
+		agents:      agents,
+		plans:       plans,
+		channels:    channels,
+		payments:    payments,
+		settlements: settlements,
+	}
+}
+
+// AdminSettleAgent 给一个代理结算一次返现。
+//
+// 手动触发而不是定时任务：第一版先让运营决定什么时候结、结完看数对不对，
+// 跑顺了再挂定时。自动发钱在没人核对过一次之前不该开。
+func (h *AgentHandler) AdminSettleAgent(c *gin.Context) {
+	if h.settlements == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "agent settlement is unavailable"}})
+		return
+	}
+	userID, ok := parseAgentUserIDParam(c)
+	if !ok {
+		return
+	}
+	creditsPerCNY, err := h.creditsPerCNY(c)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{
+			"code":    "CREDIT_RATE_UNAVAILABLE",
+			"message": "取不到积分汇率，无法把让利金额折算成积分",
+		}})
+		return
+	}
+
+	settlement, err := h.settlements.SettleAgent(c.Request.Context(), userID, creditsPerCNY)
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, gin.H{"data": settlement})
+	case errors.Is(err, service.ErrAgentSettlementNothingToDo):
+		// 区分于失败：上次结算之后没有新消费是正常状态，不是错误。
+		c.JSON(http.StatusOK, gin.H{"data": nil, "message": "no new usage to settle"})
+	case errors.Is(err, service.ErrAgentProfileNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"message": "agent not found or not active"}})
+	case errors.Is(err, service.ErrAgentSettlementInvalid), errors.Is(err, service.ErrAgentPricingPlanInvalid):
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": err.Error()}})
+	default:
+		requestLogger(c, "handler.agent").Warn("agent.settle_failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "failed to settle: " + err.Error()}})
+	}
+}
+
+// AdminListAgentSettlements 管理员查某个代理的结算历史。
+func (h *AgentHandler) AdminListAgentSettlements(c *gin.Context) {
+	userID, ok := parseAgentUserIDParam(c)
+	if !ok {
+		return
+	}
+	h.writeSettlements(c, userID)
+}
+
+// ListMySettlements 代理查自己的结算历史。
+//
+// 走登录态里的 user id，不接受路径参数——否则改个数字就能看别人的账。
+func (h *AgentHandler) ListMySettlements(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized"}})
+		return
+	}
+	h.writeSettlements(c, subject.UserID)
+}
+
+func (h *AgentHandler) writeSettlements(c *gin.Context, agentUserID int64) {
+	if h.settlements == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "agent settlement is unavailable"}})
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	list, total, err := h.settlements.ListByAgent(c.Request.Context(), agentUserID, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "failed to load settlements"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list, "total": total})
 }
 
 // agentProfileResponse 代理自己看到的档案。

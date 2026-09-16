@@ -150,6 +150,20 @@ func registerRoutes(
 	// accepted 只是个状态字，运营得手工去别处再配一遍。
 	agentService := service.NewAgentService(
 		repository.NewAgentProfileRepository(sqlDB), affiliateService)
+	// 客户归属的闸门：接上之后只有生效中的代理的邀请码能绑定归属。
+	//
+	// 用 setter 而不是构造注入：AgentService 需要 AffiliateService（发码），
+	// AffiliateService 又要回头问 AgentService（这个码是不是代理的），
+	// 构造期互相依赖绕不开。
+	//
+	// 不接的话，绑定会退回去依赖充值返利总开关——而那个开关 2026-09-16
+	// 已经关了，代理发出去的链接会静默地不绑定任何人，注册流程还一切正常。
+	affiliateService.SetAgentGate(agentService)
+
+	agentPlanService := service.NewAgentPricingPlanService(
+		repository.NewAgentPricingPlanRepository(sqlDB))
+	agentSettlementService := service.NewAgentSettlementService(
+		repository.NewAgentSettlementRepository(sqlDB), agentService, agentPlanService)
 	routes.RegisterAgencyRoutes(v1,
 		handler.NewAgencyHandler(service.NewAgencyApplicationServiceWithAgents(
 			repository.NewAgencyApplicationRepository(sqlDB), agentService)),
@@ -157,9 +171,10 @@ func registerRoutes(
 	routes.RegisterAgentRoutes(v1,
 		handler.NewAgentHandler(
 			agentService,
-			service.NewAgentPricingPlanService(repository.NewAgentPricingPlanRepository(sqlDB)),
+			agentPlanService,
 			channelService,
 			paymentConfigService,
+			agentSettlementService,
 		),
 		jwtAuth, adminAuth)
 

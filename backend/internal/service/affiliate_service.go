@@ -204,11 +204,32 @@ type AffiliateUserOverview struct {
 	HistoryQuota        float64 `json:"history_quota"`
 }
 
+// AgentCodeGate 判定一个邀请码能不能用来锁定客户归属。
+//
+// 只取这一个方法而不是整个 *AgentService：返利服务需要知道的仅仅是
+// 「这个码的主人是不是生效中的代理」。
+type AgentCodeGate interface {
+	IsActiveAgent(ctx context.Context, userID int64) (bool, *AgentProfile, error)
+}
+
 type AffiliateService struct {
 	repo                 AffiliateRepository
 	settingService       *SettingService
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	billingCacheService  *BillingCacheService
+	// agentGate 非空时，只有生效中的代理的邀请码能绑定归属。
+	// 留空则退回旧行为（受充值返利总开关控制），便于既有测试不改。
+	agentGate AgentCodeGate
+}
+
+// SetAgentGate 接上代理体系。
+//
+// 用 setter 而不是给构造函数加参数：AffiliateService 在 wire 里构造，
+// 而 AgentService 反过来又要用到它，直接注入会形成构造循环。
+func (s *AffiliateService) SetAgentGate(gate AgentCodeGate) {
+	if s != nil {
+		s.agentGate = gate
+	}
 }
 
 func NewAffiliateService(repo AffiliateRepository, settingService *SettingService, authCacheInvalidator APIKeyAuthCacheInvalidator, billingCacheService *BillingCacheService) *AffiliateService {
@@ -274,8 +295,14 @@ func (s *AffiliateService) BindInviterByCode(ctx context.Context, userID int64, 
 	if s == nil || s.repo == nil {
 		return infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "affiliate service unavailable")
 	}
-	// 总开关关闭时，注册阶段静默忽略 aff 参数（不报错，避免阻断注册流程）
-	if !s.IsEnabled(ctx) {
+	// 充值返利总开关关闭、且没有代理体系接管时，注册阶段静默忽略 aff 参数
+	// （不报错，避免阻断注册流程）。
+	//
+	// 接上代理体系后这里不能只看这个开关：客户归属是代理业务的地基，
+	// 而充值返利是另一回事——2026-09-16 关掉充值返利后，如果绑定还挂在
+	// 同一个开关上，代理商发出去的链接会静默地不绑定任何人，
+	// 而且注册流程一切正常，没有任何地方会报错。
+	if !s.IsEnabled(ctx) && s.agentGate == nil {
 		return nil
 	}
 	if !isValidAffiliateCodeFormat(code) {
@@ -299,6 +326,20 @@ func (s *AffiliateService) BindInviterByCode(ctx context.Context, userID int64, 
 	}
 	if inviterSummary == nil || inviterSummary.UserID <= 0 || inviterSummary.UserID == userID {
 		return ErrAffiliateCodeInvalid
+	}
+
+	// 代理体系接管后，只有生效中的代理的码能绑定归属。
+	//
+	// 每个用户注册时都会拿到一个 aff_code，不加这道闸门的话，任何人
+	// 都能把别人绑到自己名下——而绑定是一次性的、锁定的，事后没法自助解绑。
+	if s.agentGate != nil {
+		active, _, err := s.agentGate.IsActiveAgent(ctx, inviterSummary.UserID)
+		if err != nil {
+			return err
+		}
+		if !active {
+			return ErrAffiliateCodeInvalid
+		}
 	}
 
 	bound, err := s.repo.BindInviter(ctx, userID, inviterSummary.UserID)

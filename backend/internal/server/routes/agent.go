@@ -26,6 +26,9 @@ func RegisterAgentRoutes(
 	{
 		// 不是代理时回 404，前端据此决定显示申请入口还是代理面板。
 		user.GET("/profile", h.GetMine)
+		// 自己的结算历史。取登录态里的 user id，不收路径参数——
+		// 收了的话改个数字就能看别人的账。
+		user.GET("/settlements", h.ListMySettlements)
 	}
 
 	admin := v1.Group("/admin/agents")
@@ -34,6 +37,9 @@ func RegisterAgentRoutes(
 		admin.GET("", h.AdminList)
 		admin.PUT("/:userID/status", h.AdminUpdateStatus)
 		admin.PUT("/:userID/pricing", h.AdminUpdatePricing)
+		admin.GET("/:userID/settlements", h.AdminListAgentSettlements)
+		// 手动触发结算。自动发钱在没人核对过一次之前不该开。
+		admin.POST("/:userID/settle", h.AdminSettleAgent)
 	}
 
 	plans := v1.Group("/admin/agent-pricing-plans")
