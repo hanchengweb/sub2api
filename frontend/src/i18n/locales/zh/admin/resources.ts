@@ -17,6 +17,44 @@ export default {
       toggleScenario: '点击展开/收起',
       saveFailed: '保存失败，请稍后重试'
     },
+    agents: {
+      title: '代理管理',
+      description: '审核通过后开通的代理：模式、状态与批发价配置',
+      user: '代理',
+      unknownUser: '（用户已删除）',
+      mode: '模式与方向',
+      modes: {
+        affiliate: '分佣',
+        reseller: '转售'
+      },
+      status: '状态',
+      statuses: {
+        active: '正常',
+        suspended: '已停用',
+        terminated: '已终止'
+      },
+      allStatuses: '全部状态',
+      allModes: '全部模式',
+      filterStatus: '按状态筛选',
+      filterMode: '按模式筛选',
+      pricing: '批发价配置',
+      pricingNotApplicable: '分佣代理不适用',
+      pricingPlan: '定价方案',
+      resellerGroup: '专属分组',
+      resellerGroupHint: '代理的请求走这个分组，分组要挂在代理渠道下才拿得到批发价',
+      noPlan: '未指定方案',
+      noGroup: '未指定分组',
+      activatedAt: '开通时间',
+      changeStatus: '改状态',
+      changePricing: '配批发价',
+      note: '内部备注',
+      notePlaceholder: '例如：欠款未结，暂停合作',
+      noteHint: '只有管理员看得到，代理本人看不到',
+      statusScopeHint: '停用只挡代理侧功能和后续结算，不会收回已发放的分组权限或余额——那些要单独处理。',
+      totalCount: '共 {n} 个代理',
+      loadFailed: '加载失败，请稍后重试',
+      saveFailed: '保存失败，请稍后重试'
+    },
     agentPricing: {
       title: '代理定价',
       description: '配置面向代理的批发价：文本按折扣、多模态按每次固定让利',

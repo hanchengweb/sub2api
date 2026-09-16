@@ -17,6 +17,44 @@ export default {
       toggleScenario: 'Click to expand/collapse',
       saveFailed: 'Save failed, please try again'
     },
+    agents: {
+      title: 'Agents',
+      description: 'Agents activated after approval: mode, status and wholesale pricing',
+      user: 'Agent',
+      unknownUser: '(user deleted)',
+      mode: 'Mode & direction',
+      modes: {
+        affiliate: 'Commission',
+        reseller: 'Reseller'
+      },
+      status: 'Status',
+      statuses: {
+        active: 'Active',
+        suspended: 'Suspended',
+        terminated: 'Terminated'
+      },
+      allStatuses: 'All statuses',
+      allModes: 'All modes',
+      filterStatus: 'Filter by status',
+      filterMode: 'Filter by mode',
+      pricing: 'Wholesale pricing',
+      pricingNotApplicable: 'N/A for commission agents',
+      pricingPlan: 'Pricing plan',
+      resellerGroup: 'Dedicated group',
+      resellerGroupHint: 'The agent routes through this group; it must sit under the agent channel to get wholesale prices',
+      noPlan: 'No plan',
+      noGroup: 'No group',
+      activatedAt: 'Activated',
+      changeStatus: 'Change status',
+      changePricing: 'Set pricing',
+      note: 'Internal note',
+      notePlaceholder: 'e.g. Unpaid balance, cooperation paused',
+      noteHint: 'Admin-only — the agent cannot see this',
+      statusScopeHint: 'Suspending blocks agent-side features and future settlement only. Group access and balance already granted are not revoked — handle those separately.',
+      totalCount: '{n} agents',
+      loadFailed: 'Failed to load, please try again',
+      saveFailed: 'Save failed, please try again'
+    },
     agentPricing: {
       title: 'Agent pricing',
       description: 'Wholesale pricing for agents: a discount on text, a fixed per-call cut on multimodal',

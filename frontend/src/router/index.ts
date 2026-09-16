@@ -310,6 +310,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/agent-panel',
+    name: 'AgentPanel',
+    component: () => import('@/views/user/AgentPanelView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Agent Panel',
+      titleKey: 'nav.agentPanel'
+    }
+  },
+  {
     path: '/become-agent',
     name: 'Agency',
     component: () => import('@/views/user/AgencyView.vue'),
@@ -590,6 +601,18 @@ const routes: RouteRecordRaw[] = [
       title: 'Agency Applications',
       titleKey: 'admin.agency.title',
       descriptionKey: 'admin.agency.description'
+    }
+  },
+  {
+    path: '/admin/agents',
+    name: 'AdminAgents',
+    component: () => import('@/views/admin/AgentsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Agents',
+      titleKey: 'admin.agents.title',
+      descriptionKey: 'admin.agents.description'
     }
   },
   {

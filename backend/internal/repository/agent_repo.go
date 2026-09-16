@@ -84,9 +84,16 @@ func (r *agentProfileRepository) List(ctx context.Context, filters service.Agent
 		return nil, 0, err
 	}
 
-	const q = `SELECT ` + agentProfileColumns + ` FROM agent_profiles
-		WHERE ($1 = '' OR status = $1) AND ($2 = '' OR mode = $2)
-		ORDER BY created_at DESC LIMIT $3 OFFSET $4`
+	// 带上邮箱：后台只显示 user_id 的话运营认不出谁是谁，
+	// 而停用代理这种操作靠数字 ID 对人是要出事的。
+	// LEFT JOIN 而不是 INNER：用户被删了档案还在，那条记录更该被看见。
+	const q = `SELECT a.user_id, a.application_id, a.mode, a.direction, a.status,
+			a.pricing_plan_id, a.reseller_group_id, a.note, a.activated_at,
+			a.created_at, a.updated_at, COALESCE(u.email, '')
+		FROM agent_profiles a
+		LEFT JOIN users u ON u.id = a.user_id
+		WHERE ($1 = '' OR a.status = $1) AND ($2 = '' OR a.mode = $2)
+		ORDER BY a.created_at DESC LIMIT $3 OFFSET $4`
 	rows, err := r.db.QueryContext(ctx, q, filters.Status, filters.Mode, filters.Limit, filters.Offset)
 	if err != nil {
 		return nil, 0, err
@@ -95,8 +102,10 @@ func (r *agentProfileRepository) List(ctx context.Context, filters service.Agent
 
 	out := make([]service.AgentProfile, 0, filters.Limit)
 	for rows.Next() {
-		p, err := scanAgentProfile(rows)
-		if err != nil {
+		var p service.AgentProfile
+		if err := rows.Scan(&p.UserID, &p.ApplicationID, &p.Mode, &p.Direction, &p.Status,
+			&p.PricingPlanID, &p.ResellerGroupID, &p.Note,
+			&p.ActivatedAt, &p.CreatedAt, &p.UpdatedAt, &p.Email); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, p)

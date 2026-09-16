@@ -808,8 +808,10 @@ const adminNavItems = computed((): NavItem[] => {
     },
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
+    // 申请 → 代理 → 批发价，按运营的实际动线排：
+    // 审一条申请、看这个人开通成了什么模式、再配他的价。
     { path: '/admin/agency-applications', label: t('nav.agencyApplications'), icon: UsersIcon },
-    // 紧挨着代理申请：审核通过之后配的就是这份批发价，两件事是同一条动线。
+    { path: '/admin/agents', label: t('nav.agents'), icon: UsersIcon, hideInSimpleMode: true },
     { path: '/admin/agent-pricing', label: t('nav.agentPricing'), icon: PriceTagIcon, hideInSimpleMode: true },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },

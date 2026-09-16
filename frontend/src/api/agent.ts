@@ -22,6 +22,8 @@ export interface AgentProfile {
   activated_at: string
   created_at: string
   updated_at: string
+  /** 只有管理员列表会返回。后台光有 user_id 的话运营认不出谁是谁。 */
+  email?: string
 }
 
 /** 代理看自己的身份。不是代理时后端回 404 NOT_AN_AGENT。 */

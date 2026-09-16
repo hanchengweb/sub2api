@@ -77,6 +77,12 @@ type AgentProfile struct {
 	ActivatedAt time.Time `json:"activated_at"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+
+	// Email 申请人邮箱，只有管理员列表会填。
+	//
+	// 不填的话后台是一列光秃秃的 user_id，运营认不出谁是谁——
+	// 停用一个代理这种操作，靠数字 ID 对人是要出事的。
+	Email string `json:"email,omitempty"`
 }
 
 // IsActive 只有 active 的代理才享受代理价和代理侧接口。

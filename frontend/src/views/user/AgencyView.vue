@@ -1,6 +1,15 @@
 <template>
   <AppLayout>
     <div class="agency-page">
+      <!--
+        已经是代理的人进到申请页，最需要的是「我的代理中心在哪」。
+        入口放在这里而不是侧边栏：侧边栏对绝大多数不是代理的用户是纯噪音。
+      -->
+      <RouterLink v-if="isAgent" to="/agent-panel" class="agency-panel-entry">
+        <span>{{ t('agency.alreadyAgent') }}</span>
+        <strong>{{ t('agency.goToPanel') }} →</strong>
+      </RouterLink>
+
       <section class="agency-hero" aria-labelledby="agency-headline">
         <h1 id="agency-headline">
           {{ t('agency.headline') }}<br />
@@ -80,12 +89,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { useClipboard } from '@/composables/useClipboard'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { submitAgencyApplication, listMyAgencyApplications, type AgencyApplication } from '@/api/agency'
+import { getMyAgentProfile } from '@/api/agent'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -171,7 +182,15 @@ async function loadMyApplications() {
   }
 }
 
-onMounted(loadMyApplications)
+// 不是代理时后端回 404，这是常态而不是错误——绝大多数访问这页的人都不是代理。
+const isAgent = ref(false)
+
+onMounted(() => {
+  void loadMyApplications()
+  getMyAgentProfile()
+    .then(() => { isAgent.value = true })
+    .catch(() => { isAgent.value = false })
+})
 
 function clearValidity(event: Event) {
   const target = event.target
@@ -214,6 +233,10 @@ async function copyText() {
 .agency-notice.is-success { color: #0f766e; font-weight: 600; }
 .agency-primary:disabled { opacity: .55; cursor: not-allowed; }
 .agency-page { max-width: 1440px; margin: 0 auto; color: #0f172a; }
+/* 已是代理时置顶的入口条。只在 isAgent 为真时渲染，不占非代理用户的视线。 */
+.agency-panel-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0 0; padding: 12px 16px; border: 1px solid #99d3cd; border-radius: 12px; background: #f1fbf9; color: #0f766e; font-size: 14px; text-decoration: none; }
+.agency-panel-entry:hover { border-color: #0f766e; }
+.agency-panel-entry strong { font-weight: 650; }
 .agency-hero { position: relative; display: flex; align-items: center; min-height: clamp(150px, 19vh, 220px); padding: 10px 0 14px; border-bottom: 1px solid #dce4e8; }
 .agency-hero h1 { position: relative; z-index: 1; margin: 0; font-size: clamp(26px, 2.7vw, 42px); line-height: 1.3; font-weight: 750; letter-spacing: -.04em; }
 .agency-hero h1 span { color: #0f766e; }

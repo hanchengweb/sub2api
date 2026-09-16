@@ -9,6 +9,8 @@ export default {
     status: { pending: 'Pending', contacted: 'Contacted', accepted: 'Accepted', rejected: 'Declined' },
     headline: 'Together with WindHub,',
     headlineAccent: 'connect more AI needs',
+    alreadyAgent: "You're already a WindHub agent.",
+    goToPanel: 'Open agent hub',
     chooseDirection: 'Choose a partnership',
     intent: 'Partnership interest',
     name: 'Name',
@@ -35,6 +37,42 @@ export default {
       integration: { title: 'Technical integration', description: 'Bring model capabilities into your products and solutions.', placeholder: 'Your product, required model capabilities and use case' },
       delivery: { title: 'Customer delivery', description: 'Support customers with consulting, implementation and delivery.', placeholder: 'Your industry experience, customer needs and delivery scenarios' }
     }
+  },
+  agentPanel: {
+    notAgentTitle: 'You are not an agent yet',
+    notAgentHint: 'Send a partnership application. Once approved, your agent status, invite code and customers appear here.',
+    goApply: 'Apply now',
+    modes: {
+      affiliate: {
+        title: 'Channel agent · Commission',
+        hint: 'Your customers pay the platform retail price, and you earn a rebate on what they top up.'
+      },
+      reseller: {
+        title: 'Reseller · Wholesale pricing',
+        hint: 'You buy at wholesale price and charge your own customers, keeping the difference.'
+      }
+    },
+    statuses: { active: 'Active', suspended: 'Suspended', terminated: 'Terminated' },
+    statusHint: {
+      suspended: 'Your agent access is paused — no new rebates or wholesale pricing for now. Contact the platform for details.',
+      terminated: 'Your agent partnership has ended.'
+    },
+    direction: 'Partnership',
+    activatedAt: 'Activated',
+    inviteTitle: 'My invite code',
+    inviteHint: 'Customers who sign up with this code or link are attributed to you, and their top-ups earn you a rebate.',
+    inviteLoadFailed: 'Failed to load invite details, please refresh',
+    customerCount: 'Customers',
+    rebateRate: 'Rebate rate',
+    availableQuota: 'Available rebate',
+    customersTitle: 'My customers',
+    customersHint: 'Accounts registered with your invite code. Emails are masked per platform policy.',
+    customerEmail: 'Customer',
+    joinedAt: 'Joined',
+    resellerTitle: 'My wholesale pricing',
+    resellerHint: 'Your requests route through a dedicated group and are billed at the wholesale prices configured for you.',
+    resellerPending: 'The platform is still setting up your dedicated group. Until then your calls are billed at retail price.',
+    resellerReady: 'Your dedicated group is configured — calls are billed at wholesale price.'
   },
   dashboard: {
     title: 'Dashboard',

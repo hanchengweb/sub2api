@@ -9,6 +9,8 @@ export default {
     status: { pending: '待处理', contacted: '已联系', accepted: '已通过', rejected: '未通过' },
     headline: '与 WindHub 一起，',
     headlineAccent: '连接更多 AI 需求',
+    alreadyAgent: '你已经是 WindHub 代理。',
+    goToPanel: '进入代理中心',
     chooseDirection: '选择合作方向',
     intent: '合作意向',
     name: '姓名',
@@ -35,6 +37,42 @@ export default {
       integration: { title: '技术集成', description: '将模型能力接入你的产品与解决方案。', placeholder: '希望集成的产品、模型能力与使用场景' },
       delivery: { title: '客户交付', description: '为客户提供应用咨询、实施与交付服务。', placeholder: '你的行业经验、客户需求与交付场景' }
     }
+  },
+  agentPanel: {
+    notAgentTitle: '你还不是代理',
+    notAgentHint: '提交合作申请，通过审核后这里会显示你的代理身份、邀请码与客户。',
+    goApply: '去申请',
+    modes: {
+      affiliate: {
+        title: '渠道代理 · 分佣',
+        hint: '你的客户按平台零售价付费，你按他们的充值金额拿返利。'
+      },
+      reseller: {
+        title: '转售代理 · 批发价',
+        hint: '你按批发价拿货，自己向客户收费赚差价。'
+      }
+    },
+    statuses: { active: '正常', suspended: '已停用', terminated: '已终止' },
+    statusHint: {
+      suspended: '你的代理权限已被暂停，暂时无法产生新的返利或享受批发价。请联系平台了解详情。',
+      terminated: '你的代理合作已终止。'
+    },
+    direction: '合作方向',
+    activatedAt: '开通时间',
+    inviteTitle: '我的邀请码',
+    inviteHint: '客户通过这个码或链接注册后，会记在你名下，他们的充值会给你带来返利。',
+    inviteLoadFailed: '邀请信息加载失败，请刷新重试',
+    customerCount: '客户数',
+    rebateRate: '返利比例',
+    availableQuota: '可提取返利',
+    customersTitle: '我的客户',
+    customersHint: '通过你的邀请码注册的账号。邮箱按平台规则做了脱敏处理。',
+    customerEmail: '客户',
+    joinedAt: '注册时间',
+    resellerTitle: '我的批发价',
+    resellerHint: '你的请求走专属分组，按平台为你配置的批发价计费。',
+    resellerPending: '平台还在为你配置专属分组，配好之前你的调用仍按零售价计费。',
+    resellerReady: '专属分组已配置，你的调用按批发价计费。'
   },
   dashboard: {
     title: '仪表盘',

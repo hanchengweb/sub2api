@@ -208,6 +208,7 @@ import {
   type AgentPriceChange
 } from '@/api/agent'
 import { list as listChannels, type Channel } from '@/api/admin/channels'
+import { extractApiErrorMessage } from '@/utils/apiError'
 
 const { t } = useI18n()
 
@@ -413,10 +414,9 @@ async function savePlan() {
 }
 
 // 后端对折扣越界、汇率取不到这些情况给了具体文案，直接透出来比
-// 统一displaying「操作失败」有用得多。
+// 统一显示「操作失败」有用得多。
 function extractError(e: unknown, fallback: string): string {
-  const resp = (e as { response?: { data?: { error?: { message?: string } } } })?.response
-  return resp?.data?.error?.message || fallback
+  return extractApiErrorMessage(e) || fallback
 }
 
 onMounted(() => {

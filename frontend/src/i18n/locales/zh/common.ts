@@ -155,7 +155,9 @@ export default {
   nav: {
     dashboard: '仪表盘',
     agencyApplications: '代理申请',
+    agents: '代理管理',
     agentPricing: '代理定价',
+    agentPanel: '代理中心',
     announcements: '公告',
     apiKeys: 'API 密钥',
     playground: '在线使用',
