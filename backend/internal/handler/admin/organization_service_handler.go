@@ -131,6 +131,66 @@ func (h *AdminAPIKeyHandler) EnsureOrganizationKey(c *gin.Context) {
 	})
 }
 
+// SetOrganizationBalance credits the organization service identity with WindHub
+// credits. The operations platform owns the conversion: it grants standard
+// tokens against a contract and converts them to credits before calling here.
+//
+// Credits are WindHub's own unit for upstream routing cost. They are not the
+// platform's contract ledger and the two amounts must never be treated as one.
+//
+// Idempotency is mandatory: grant delivery retries must not credit twice. The
+// same Idempotency-Key replays the stored receipt instead of re-applying.
+func (h *AdminAPIKeyHandler) SetOrganizationBalance(c *gin.Context) {
+	f, err := organizationFilters(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	var req struct {
+		Credits   float64 `json:"credits" binding:"required,gt=0"`
+		Operation string  `json:"operation" binding:"required,oneof=set add subtract"`
+		Notes     string  `json:"notes" binding:"max=500"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		response.BadRequest(c, "Invalid organization balance request")
+		return
+	}
+	if strings.TrimSpace(c.GetHeader("Idempotency-Key")) == "" {
+		response.BadRequest(c, "Idempotency-Key is required")
+		return
+	}
+	if service.DefaultIdempotencyCoordinator() == nil {
+		response.ErrorFrom(c, service.ErrIdempotencyStoreUnavail)
+		return
+	}
+	// Include actual identity values; FullPath only contains parameter placeholders.
+	payload := struct {
+		Identity service.UserListFilters
+		Request  any
+	}{f, req}
+	executeAdminIdempotentJSON(c, "admin.organization.balance", payload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		u, err := h.organization(ctx, f)
+		if err != nil {
+			return nil, err
+		}
+		if !u.IsActive() {
+			return nil, service.ErrUserNotActive
+		}
+		updated, err := h.adminService.UpdateUserBalance(ctx, u.ID, req.Credits, req.Operation, req.Notes)
+		if err != nil {
+			return nil, err
+		}
+		return gin.H{
+			"user_id":                  updated.ID,
+			"balance":                  updated.Balance,
+			"operation":                req.Operation,
+			"organization_issuer":      f.OrganizationIssuer,
+			"organization_id":          f.OrganizationID,
+			"organization_environment": f.OrganizationEnvironment,
+		}, nil
+	})
+}
+
 func (h *AdminAPIKeyHandler) SetOrganizationStatus(c *gin.Context) {
 	f, err := organizationFilters(c)
 	if err != nil {

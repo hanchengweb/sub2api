@@ -58,3 +58,61 @@ func TestOrganizationInvalidKeyDoesNotEchoSecret(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.NotContains(t, rec.Body.String(), secret)
 }
+
+// A credit allocation that is not retry-safe must never reach the ledger.
+// Grant delivery retries on a lost response, so a missing Idempotency-Key has to
+// be rejected before UpdateUserBalance runs, not after.
+func TestOrganizationBalanceRejectsUnsafeRequestsBeforeCrediting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name       string
+		body       string
+		idempotent bool
+	}{
+		{"missing idempotency key", `{"credits":1000,"operation":"add"}`, false},
+		{"zero credits", `{"credits":0,"operation":"add"}`, true},
+		{"negative credits", `{"credits":-1000,"operation":"add"}`, true},
+		{"unknown operation", `{"credits":1000,"operation":"multiply"}`, true},
+		{"missing operation", `{"credits":1000}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newStubAdminService()
+			svc.users = []service.User{{ID: 42, AccountType: service.AccountTypeOrganizationService,
+				OrganizationIssuer: "wemoreai-ops", OrganizationID: "college", OrganizationEnvironment: "test",
+				Status: service.StatusActive}}
+			router := gin.New()
+			router.POST("/org/:issuer/:environment/:organization_id/balance",
+				NewAdminAPIKeyHandler(svc, nil).SetOrganizationBalance)
+			req := httptest.NewRequest("POST", "/org/wemoreai-ops/test/college/balance", bytes.NewBufferString(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			if tc.idempotent {
+				req.Header.Set("Idempotency-Key", "orgcredit-1")
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Zero(t, svc.balanceCalls, "balance must not move on a rejected request")
+		})
+	}
+}
+
+// The identity is part of the path, not the body. A mismatched organization must
+// not be able to spend another organization's allocation.
+func TestOrganizationBalanceRejectsUnknownIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newStubAdminService()
+	svc.users = []service.User{{ID: 42, AccountType: service.AccountTypeOrganizationService,
+		OrganizationIssuer: "wemoreai-ops", OrganizationID: "college", OrganizationEnvironment: "test",
+		Status: service.StatusActive}}
+	router := gin.New()
+	router.POST("/org/:issuer/:environment/:organization_id/balance",
+		NewAdminAPIKeyHandler(svc, nil).SetOrganizationBalance)
+	req := httptest.NewRequest("POST", "/org/wemoreai-ops/staging/college/balance",
+		bytes.NewBufferString(`{"credits":1000,"operation":"add"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "orgcredit-2")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.NotEqual(t, http.StatusOK, rec.Code)
+	require.Zero(t, svc.balanceCalls)
+}
