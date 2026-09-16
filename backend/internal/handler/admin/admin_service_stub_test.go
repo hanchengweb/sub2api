@@ -11,6 +11,7 @@ import (
 
 type stubAdminService struct {
 	users                               []service.User
+	balanceCalls                        int
 	apiKeys                             []service.APIKey
 	groups                              []service.Group
 	accounts                            []service.Account
@@ -188,6 +189,7 @@ func (s *stubAdminService) DeleteUser(ctx context.Context, id int64) error {
 }
 
 func (s *stubAdminService) UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*service.User, error) {
+	s.balanceCalls++
 	user := service.User{ID: userID, Balance: balance, Status: service.StatusActive}
 	return &user, nil
 }

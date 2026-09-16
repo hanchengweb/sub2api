@@ -541,7 +541,13 @@ func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, 
 	if s.authCacheInvalidator != nil && balanceDiff != 0 {
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
 	}
-	s.tryAccrueAffiliateRebateForAdminRecharge(ctx, userID, operation, balance)
+	// A service identity has no invite relationship that could earn a rebate.
+	// Guard by account type rather than relying on affiliate_admin_recharge_enabled:
+	// organization credit allocation must stay rebate-free even if that setting is
+	// later turned on for human recharges.
+	if user.AccountType != AccountTypeOrganizationService {
+		s.tryAccrueAffiliateRebateForAdminRecharge(ctx, userID, operation, balance)
+	}
 
 	if s.billingCacheService != nil {
 		go func() {

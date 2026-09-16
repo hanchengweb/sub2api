@@ -288,6 +288,7 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	organizations.GET("", h.Admin.APIKey.GetOrganization)
 	organizations.POST("/keys", h.Admin.APIKey.EnsureOrganizationKey)
 	organizations.PUT("/status", h.Admin.APIKey.SetOrganizationStatus)
+	organizations.POST("/balance", h.Admin.APIKey.SetOrganizationBalance)
 	organizations.DELETE("/keys/:key_id", h.Admin.APIKey.RevokeOrganizationKey)
 	organizations.GET("/usage", h.Admin.APIKey.ScopeOrganizationUsage, h.Admin.Usage.List)
 	users := admin.Group("/users")
