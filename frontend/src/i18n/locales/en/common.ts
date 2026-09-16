@@ -154,6 +154,7 @@ export default {
   nav: {
     dashboard: 'Dashboard',
     agencyApplications: 'Agency applications',
+    agentPricing: 'Agent pricing',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     playground: 'Playground',
