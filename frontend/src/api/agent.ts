@@ -87,10 +87,116 @@ export interface AgentPricingApplyResult {
   warning: string
 }
 
+/** 代理名下的一个客户。邮箱由后端脱敏。 */
+export interface AgentCustomer {
+  user_id: number
+  email: string
+  status: string
+  bound_at: string
+  total_cost_credits: number
+  request_count: number
+  last_active_at?: string
+}
+
+/**
+ * 客户的一条用量记录（代理视角）。
+ *
+ * 后端刻意不返回 prompt 与 token 明细——代理该知道客户花了多少钱在什么模型上，
+ * 不该看到客户具体问了什么。
+ */
+export interface AgentCustomerUsage {
+  id: number
+  customer_id: number
+  customer_email: string
+  model: string
+  billing_mode: string
+  actual_cost: number
+  image_count: number
+  created_at: string
+}
+
+/** 一次返现结算。规则字段是结算当时的快照，不是当前方案值。 */
+export interface AgentSettlement {
+  id: number
+  agent_user_id: number
+  from_usage_log_id: number
+  to_usage_log_id: number
+  period_start: string
+  period_end: string
+  text_cost_credits: number
+  text_rebate_credits: number
+  multimodal_units: number
+  multimodal_rebate_credits: number
+  total_rebate_credits: number
+  text_discount: number
+  multimodal_deduction_cny: number
+  credits_per_cny: number
+  customer_count: number
+  status: string
+  created_at: string
+}
+
 /** 代理查看自己的档案。不是代理时抛 404，调用方据此显示申请入口。 */
 export async function getMyAgentProfile(): Promise<MyAgentProfile> {
   const { data } = await apiClient.get<{ data: MyAgentProfile }>('/agent/profile')
   return data.data
+}
+
+/**
+ * 以下三个接口的作用域根都取自登录态，不接受代理 id 参数。
+ * 后端 requireActiveAgent 会挡住非代理和已停用的代理。
+ */
+export async function listMyCustomers(params: { limit?: number; offset?: number } = {}): Promise<{
+  items: AgentCustomer[]
+  total: number
+}> {
+  const { data } = await apiClient.get<{ data: AgentCustomer[]; total: number }>('/agent/customers', {
+    params
+  })
+  return { items: data.data ?? [], total: data.total ?? 0 }
+}
+
+export async function listMyCustomerUsage(params: {
+  customer_id?: number
+  model?: string
+  limit?: number
+  offset?: number
+} = {}): Promise<{ items: AgentCustomerUsage[]; total: number }> {
+  const { data } = await apiClient.get<{ data: AgentCustomerUsage[]; total: number }>(
+    '/agent/customers/usage',
+    { params: { ...params, customer_id: params.customer_id || undefined, model: params.model || undefined } }
+  )
+  return { items: data.data ?? [], total: data.total ?? 0 }
+}
+
+export async function listMySettlements(params: { limit?: number; offset?: number } = {}): Promise<{
+  items: AgentSettlement[]
+  total: number
+}> {
+  const { data } = await apiClient.get<{ data: AgentSettlement[]; total: number }>(
+    '/agent/settlements',
+    { params }
+  )
+  return { items: data.data ?? [], total: data.total ?? 0 }
+}
+
+/** 管理员手动给某个代理结算一次。返回 null 表示上次结算后没有新消费。 */
+export async function settleAgent(userId: number): Promise<AgentSettlement | null> {
+  const { data } = await apiClient.post<{ data: AgentSettlement | null }>(
+    `/admin/agents/${userId}/settle`
+  )
+  return data.data ?? null
+}
+
+export async function listAgentSettlements(
+  userId: number,
+  params: { limit?: number; offset?: number } = {}
+): Promise<{ items: AgentSettlement[]; total: number }> {
+  const { data } = await apiClient.get<{ data: AgentSettlement[]; total: number }>(
+    `/admin/agents/${userId}/settlements`,
+    { params }
+  )
+  return { items: data.data ?? [], total: data.total ?? 0 }
 }
 
 export interface AdminAgentListResult {
@@ -193,6 +299,11 @@ export async function applyAgentPricing(payload: {
 
 export default {
   getMyAgentProfile,
+  listMyCustomers,
+  listMyCustomerUsage,
+  listMySettlements,
+  settleAgent,
+  listAgentSettlements,
   listAgents,
   updateAgentStatus,
   updateAgentPricing,

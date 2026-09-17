@@ -39,40 +39,43 @@ export default {
     }
   },
   agentPanel: {
+    title: '代理中心',
+    hint: '通过你的邀请链接注册的客户归在你名下，他们的消费会按结算规则给你返现。',
     notAgentTitle: '你还不是代理',
-    notAgentHint: '提交合作申请，通过审核后这里会显示你的代理身份、邀请码与客户。',
+    notAgentHint: '提交合作申请，通过审核后这里会显示你的邀请链接、客户与返现。',
     goApply: '去申请',
-    modes: {
-      affiliate: {
-        title: '渠道代理 · 分佣',
-        hint: '你的客户按平台零售价付费，你按他们的充值金额拿返利。'
-      },
-      reseller: {
-        title: '转售代理 · 批发价',
-        hint: '你按批发价拿货，自己向客户收费赚差价。'
-      }
-    },
     statuses: { active: '正常', suspended: '已停用', terminated: '已终止' },
     statusHint: {
-      suspended: '你的代理权限已被暂停，暂时无法产生新的返利或享受批发价。请联系平台了解详情。',
+      suspended: '你的代理权限已被暂停，暂时不会产生新的返现。请联系平台了解详情。',
       terminated: '你的代理合作已终止。'
     },
-    direction: '合作方向',
-    activatedAt: '开通时间',
-    inviteTitle: '我的邀请码',
-    inviteHint: '客户通过这个码或链接注册后，会记在你名下，他们的充值会给你带来返利。',
-    inviteLoadFailed: '邀请信息加载失败，请刷新重试',
+    inviteTitle: '我的邀请链接',
+    inviteHint: '客户必须通过这个链接注册才会归在你名下。归属在注册那一刻锁定，事后不能更改。',
     customerCount: '客户数',
-    rebateRate: '返利比例',
-    availableQuota: '可提取返利',
+    customerSpend: '客户消费（积分）',
+    settledRebate: '已结算返现（积分）',
     customersTitle: '我的客户',
-    customersHint: '通过你的邀请码注册的账号。邮箱按平台规则做了脱敏处理。',
+    customersHint: '通过你的邀请链接注册的账号。邮箱按平台规则做了脱敏处理。',
+    customersLoadFailed: '客户列表加载失败，请刷新重试',
     customerEmail: '客户',
-    joinedAt: '注册时间',
-    resellerTitle: '我的批发价',
-    resellerHint: '你的请求走专属分组，按平台为你配置的批发价计费。',
-    resellerPending: '平台还在为你配置专属分组，配好之前你的调用仍按零售价计费。',
-    resellerReady: '专属分组已配置，你的调用按批发价计费。'
+    requests: '调用次数',
+    lastActive: '最后活跃',
+    viewUsage: '看用量',
+    usageTitle: '客户用量',
+    usageHint: '只显示消费与模型，不包含客户的请求内容。',
+    clearFilter: '看全部客户',
+    model: '模型',
+    cost: '消费（积分）',
+    time: '时间',
+    settlementsTitle: '返现结算',
+    settlementsHint: '按客户实际消费结算：文本按比例，多模态按计费单元。',
+    period: '结算区间',
+    textRebate: '文本返现',
+    multimodalRebate: '多模态返现',
+    totalRebate: '合计',
+    settledAt: '结算时间',
+    fromSpend: '来自 {n} 积分消费',
+    fromUnits: '{n} 个计费单元'
   },
   dashboard: {
     title: '仪表盘',

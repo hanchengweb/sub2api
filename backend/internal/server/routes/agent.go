@@ -26,9 +26,11 @@ func RegisterAgentRoutes(
 	{
 		// 不是代理时回 404，前端据此决定显示申请入口还是代理面板。
 		user.GET("/profile", h.GetMine)
-		// 自己的结算历史。取登录态里的 user id，不收路径参数——
-		// 收了的话改个数字就能看别人的账。
+		// 以下都走 requireActiveAgent：作用域根取自登录态，不收路径参数——
+		// 收了的话改个数字就能看别人的客户和账。
 		user.GET("/settlements", h.ListMySettlements)
+		user.GET("/customers", h.ListMyCustomers)
+		user.GET("/customers/usage", h.ListMyCustomerUsage)
 	}
 
 	admin := v1.Group("/admin/agents")

@@ -39,40 +39,43 @@ export default {
     }
   },
   agentPanel: {
+    title: 'Agent hub',
+    hint: 'Customers who sign up through your invite link are attributed to you, and their usage earns you a rebate under the settlement rules.',
     notAgentTitle: 'You are not an agent yet',
-    notAgentHint: 'Send a partnership application. Once approved, your agent status, invite code and customers appear here.',
+    notAgentHint: 'Send a partnership application. Once approved, your invite link, customers and rebates appear here.',
     goApply: 'Apply now',
-    modes: {
-      affiliate: {
-        title: 'Channel agent · Commission',
-        hint: 'Your customers pay the platform retail price, and you earn a rebate on what they top up.'
-      },
-      reseller: {
-        title: 'Reseller · Wholesale pricing',
-        hint: 'You buy at wholesale price and charge your own customers, keeping the difference.'
-      }
-    },
     statuses: { active: 'Active', suspended: 'Suspended', terminated: 'Terminated' },
     statusHint: {
-      suspended: 'Your agent access is paused — no new rebates or wholesale pricing for now. Contact the platform for details.',
+      suspended: 'Your agent access is paused — no new rebates will accrue. Contact the platform for details.',
       terminated: 'Your agent partnership has ended.'
     },
-    direction: 'Partnership',
-    activatedAt: 'Activated',
-    inviteTitle: 'My invite code',
-    inviteHint: 'Customers who sign up with this code or link are attributed to you, and their top-ups earn you a rebate.',
-    inviteLoadFailed: 'Failed to load invite details, please refresh',
+    inviteTitle: 'My invite link',
+    inviteHint: 'Customers must register through this link to be attributed to you. Attribution is locked at sign-up and cannot be changed afterwards.',
     customerCount: 'Customers',
-    rebateRate: 'Rebate rate',
-    availableQuota: 'Available rebate',
+    customerSpend: 'Customer spend (credits)',
+    settledRebate: 'Settled rebate (credits)',
     customersTitle: 'My customers',
-    customersHint: 'Accounts registered with your invite code. Emails are masked per platform policy.',
+    customersHint: 'Accounts registered through your invite link. Emails are masked per platform policy.',
+    customersLoadFailed: 'Failed to load customers, please refresh',
     customerEmail: 'Customer',
-    joinedAt: 'Joined',
-    resellerTitle: 'My wholesale pricing',
-    resellerHint: 'Your requests route through a dedicated group and are billed at the wholesale prices configured for you.',
-    resellerPending: 'The platform is still setting up your dedicated group. Until then your calls are billed at retail price.',
-    resellerReady: 'Your dedicated group is configured — calls are billed at wholesale price.'
+    requests: 'Requests',
+    lastActive: 'Last active',
+    viewUsage: 'View usage',
+    usageTitle: 'Customer usage',
+    usageHint: 'Shows spend and model only — never what your customers actually asked.',
+    clearFilter: 'Show all customers',
+    model: 'Model',
+    cost: 'Cost (credits)',
+    time: 'Time',
+    settlementsTitle: 'Rebate settlements',
+    settlementsHint: 'Settled on actual customer usage: text by ratio, multimodal by billed unit.',
+    period: 'Period',
+    textRebate: 'Text rebate',
+    multimodalRebate: 'Multimodal rebate',
+    totalRebate: 'Total',
+    settledAt: 'Settled at',
+    fromSpend: 'from {n} credits spent',
+    fromUnits: '{n} billed units'
   },
   dashboard: {
     title: 'Dashboard',

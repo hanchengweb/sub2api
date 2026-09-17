@@ -23,6 +23,7 @@ type AgentHandler struct {
 	channels    *service.ChannelService
 	payments    *service.PaymentConfigService
 	settlements *service.AgentSettlementService
+	customers   *service.AgentCustomerService
 }
 
 func NewAgentHandler(
@@ -31,6 +32,7 @@ func NewAgentHandler(
 	channels *service.ChannelService,
 	payments *service.PaymentConfigService,
 	settlements *service.AgentSettlementService,
+	customers *service.AgentCustomerService,
 ) *AgentHandler {
 	return &AgentHandler{
 		agents:      agents,
@@ -38,6 +40,7 @@ func NewAgentHandler(
 		channels:    channels,
 		payments:    payments,
 		settlements: settlements,
+		customers:   customers,
 	}
 }
 
@@ -93,12 +96,96 @@ func (h *AgentHandler) AdminListAgentSettlements(c *gin.Context) {
 //
 // 走登录态里的 user id，不接受路径参数——否则改个数字就能看别人的账。
 func (h *AgentHandler) ListMySettlements(c *gin.Context) {
+	agentUserID, ok := h.requireActiveAgent(c)
+	if !ok {
+		return
+	}
+	h.writeSettlements(c, agentUserID)
+}
+
+// requireActiveAgent 代理侧接口的准入，返回作用域根。
+//
+// 所有代理侧接口都必须先过这一关，并且**只能**用它返回的 id 作为查询作用域。
+// 一旦有接口改用请求参数里的 id，代理就能看到别人的客户。
+//
+// 停用的代理也挡在外面：停用的语义是「代理侧功能立刻停」，
+// 只挡结算不挡数据的话，被停的代理还能继续翻客户名单。
+func (h *AgentHandler) requireActiveAgent(c *gin.Context) (int64, bool) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok || subject.UserID <= 0 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized"}})
+		return 0, false
+	}
+	if h.agents == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "agent service is unavailable"}})
+		return 0, false
+	}
+	active, _, err := h.agents.IsActiveAgent(c.Request.Context(), subject.UserID)
+	if err != nil {
+		requestLogger(c, "handler.agent").Warn("agent.gate_failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "failed to verify agent"}})
+		return 0, false
+	}
+	if !active {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
+			"code":    "NOT_AN_ACTIVE_AGENT",
+			"message": "尚未开通代理或代理已停用",
+		}})
+		return 0, false
+	}
+	return subject.UserID, true
+}
+
+// ListMyCustomers 代理查自己的客户。
+func (h *AgentHandler) ListMyCustomers(c *gin.Context) {
+	agentUserID, ok := h.requireActiveAgent(c)
+	if !ok {
 		return
 	}
-	h.writeSettlements(c, subject.UserID)
+	if h.customers == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "agent customer service is unavailable"}})
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	list, total, err := h.customers.ListCustomers(c.Request.Context(), agentUserID, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "failed to load customers"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list, "total": total})
+}
+
+// ListMyCustomerUsage 代理查自己客户的用量明细。
+func (h *AgentHandler) ListMyCustomerUsage(c *gin.Context) {
+	agentUserID, ok := h.requireActiveAgent(c)
+	if !ok {
+		return
+	}
+	if h.customers == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "agent customer service is unavailable"}})
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	customerID, _ := strconv.ParseInt(strings.TrimSpace(c.Query("customer_id")), 10, 64)
+	// customer_id 直接往下传：仓储层同时要求 inviter_id 匹配，
+	// 填别人的客户 id 查不到东西，不需要在这里额外校验归属。
+	list, total, err := h.customers.ListUsage(c.Request.Context(), agentUserID, service.AgentCustomerUsageFilters{
+		CustomerID: customerID,
+		Model:      c.Query("model"),
+		Limit:      limit,
+		Offset:     offset,
+	})
+	if err != nil {
+		if errors.Is(err, service.ErrAgentProfileInvalid) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "invalid filters"}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "failed to load usage"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list, "total": total})
 }
 
 func (h *AgentHandler) writeSettlements(c *gin.Context, agentUserID int64) {

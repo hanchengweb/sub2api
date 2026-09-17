@@ -164,6 +164,8 @@ func registerRoutes(
 		repository.NewAgentPricingPlanRepository(sqlDB))
 	agentSettlementService := service.NewAgentSettlementService(
 		repository.NewAgentSettlementRepository(sqlDB), agentService, agentPlanService)
+	agentCustomerService := service.NewAgentCustomerService(
+		repository.NewAgentCustomerRepository(sqlDB), agentService)
 	routes.RegisterAgencyRoutes(v1,
 		handler.NewAgencyHandler(service.NewAgencyApplicationServiceWithAgents(
 			repository.NewAgencyApplicationRepository(sqlDB), agentService)),
@@ -175,6 +177,7 @@ func registerRoutes(
 			channelService,
 			paymentConfigService,
 			agentSettlementService,
+			agentCustomerService,
 		),
 		jwtAuth, adminAuth)
 
