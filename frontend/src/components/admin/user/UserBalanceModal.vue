@@ -8,9 +8,12 @@
       <div>
         <label class="input-label">{{ operation === 'add' ? t('admin.users.depositAmount') : t('admin.users.withdrawAmount') }}</label>
         <div class="relative flex gap-2">
-          <div class="relative flex-1"><div class="absolute left-3 top-1/2 -translate-y-1/2 font-medium text-gray-500">￥</div><input v-model.number="form.amount" type="number" step="any" min="0" required class="input pl-8" /></div>
+          <div class="relative flex-1"><div class="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-gray-500">{{ t('common.creditUnit') }}</div><input v-model.number="form.amount" type="number" step="any" min="0" required class="input pl-14" /></div>
           <button v-if="operation === 'subtract'" type="button" @click="fillAllBalance" class="btn btn-secondary whitespace-nowrap">{{ t('admin.users.withdrawAll') }}</button>
         </div>
+        <p v-if="form.amount > 0" class="mt-1.5 text-xs text-gray-400">
+          {{ t('admin.users.amountInCurrency', { amount: formatCreditsAsMoney(form.amount, creditsPerCurrencyUnit), rate: creditsPerCurrencyUnit }) }}
+        </p>
       </div>
       <div><label class="input-label">{{ t('admin.users.notes') }}</label><textarea v-model="form.notes" rows="3" class="input"></textarea></div>
       <div v-if="form.amount > 0" class="rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950"><div class="flex items-center justify-between text-sm"><span class="text-gray-700 dark:text-gray-300">{{ t('admin.users.newBalance') }}:</span><span class="font-bold text-gray-900 dark:text-gray-100">{{ formatBalance(calculateNewBalance()) }} {{ t('common.creditUnit') }}</span></div></div>
@@ -28,12 +31,19 @@
 import { reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAdminSettingsStore } from '@/stores/adminSettings'
+import { formatCreditsAsMoney } from '@/utils/format'
+import { storeToRefs } from 'pinia'
 import { adminAPI } from '@/api/admin'
 import type { AdminUser } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 
 const props = defineProps<{ show: boolean, user: AdminUser | null, operation: 'add' | 'subtract' }>()
 const emit = defineEmits(['close', 'success']); const { t } = useI18n(); const appStore = useAppStore()
+
+// 换算率来自后端 BALANCE_RECHARGE_MULTIPLIER，只用于展示旁注；
+// 提交给接口的始终是积分本身，不受这个率影响。
+const { creditsPerCurrencyUnit } = storeToRefs(useAdminSettingsStore())
 
 const submitting = ref(false); const form = reactive({ amount: 0, notes: '' })
 watch(() => props.show, (v) => { if(v) { form.amount = 0; form.notes = '' } })

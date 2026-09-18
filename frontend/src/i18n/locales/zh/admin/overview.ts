@@ -634,6 +634,7 @@ export default {
       notesOptional: '备注为可选项，有助于未来查账',
       amountHint: '请输入正数金额',
       newBalance: '操作后余额',
+      amountInCurrency: '≈ {amount}（按当前换算率 1 元 = {rate} 积分）',
       depositing: '充值中...',
       withdrawing: '退款中...',
       confirmDeposit: '确认充值',

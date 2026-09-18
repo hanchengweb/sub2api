@@ -48,14 +48,14 @@ type APIKey struct {
 	CurrentConcurrency  int
 
 	// Quota fields
-	Quota     float64    // Quota limit in USD (0 = unlimited)
+	Quota     float64    // 配额上限，单位积分（0 = 不限）。注：曾误写为 USD
 	QuotaUsed float64    // Used quota amount
 	ExpiresAt *time.Time // Expiration time (nil = never expires)
 
 	// Rate limit fields
-	RateLimit5h   float64    // Rate limit in USD per 5h (0 = unlimited)
-	RateLimit1d   float64    // Rate limit in USD per 1d (0 = unlimited)
-	RateLimit7d   float64    // Rate limit in USD per 7d (0 = unlimited)
+	RateLimit5h   float64    // 5 小时限额，单位积分（0 = 不限）
+	RateLimit1d   float64    // 1 天限额，单位积分（0 = 不限）
+	RateLimit7d   float64    // 7 天限额，单位积分（0 = 不限）
 	Usage5h       float64    // Used amount in current 5h window
 	Usage1d       float64    // Used amount in current 1d window
 	Usage7d       float64    // Used amount in current 7d window

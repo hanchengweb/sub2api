@@ -633,6 +633,7 @@ export default {
       notesOptional: 'Notes are optional but helpful for record keeping',
       amountHint: 'Please enter a positive amount',
       newBalance: 'New Balance',
+      amountInCurrency: '≈ {amount} (at the current rate of {rate} credits per CNY)',
       depositing: 'Depositing...',
       withdrawing: 'Withdrawing...',
       confirmDeposit: 'Confirm Deposit',

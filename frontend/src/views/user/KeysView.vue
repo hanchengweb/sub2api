@@ -622,13 +622,13 @@
           <div class="space-y-4">
             <div>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">￥</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">{{ t('common.creditUnit') }}</span>
                 <input
                   v-model.number="formData.quota"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="input pl-14"
                   :placeholder="t('keys.quotaAmountPlaceholder')"
                 />
               </div>
@@ -688,13 +688,13 @@
             <div>
               <label class="input-label">{{ t('keys.rateLimit5h') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">￥</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">{{ t('common.creditUnit') }}</span>
                 <input
                   v-model.number="formData.rate_limit_5h"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="input pl-14"
                   :placeholder="'0'"
                 />
               </div>
@@ -734,13 +734,13 @@
             <div>
               <label class="input-label">{{ t('keys.rateLimit1d') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">￥</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">{{ t('common.creditUnit') }}</span>
                 <input
                   v-model.number="formData.rate_limit_1d"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="input pl-14"
                   :placeholder="'0'"
                 />
               </div>
@@ -780,13 +780,13 @@
             <div>
               <label class="input-label">{{ t('keys.rateLimit7d') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">￥</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">{{ t('common.creditUnit') }}</span>
                 <input
                   v-model.number="formData.rate_limit_7d"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="input pl-14"
                   :placeholder="'0'"
                 />
               </div>
