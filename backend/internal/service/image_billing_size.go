@@ -8,8 +8,14 @@ import (
 
 const (
 	ImageBillingSize1K = "1K"
-	ImageBillingSize2K = "2K"
-	ImageBillingSize4K = "4K"
+	// ImageBillingSize1_5K 为 B 端（组织服务账号）固定输出尺寸单开的档位。
+	//
+	// 只认显式标签和确切像素，**不改通用像素分档**：现在 1025~2048 一律归 2K，
+	// 中间切一刀会把存量 API 调用方（发 1200x1200 这类尺寸的）从 2K 挪到 1.5K，
+	// 而没有任何模型配了 1.5K 档，会回落到按次价——静默改掉别人的账。
+	ImageBillingSize1_5K = "1.5K"
+	ImageBillingSize2K   = "2K"
+	ImageBillingSize4K   = "4K"
 
 	ImageSizeSourceOutput  = "output"
 	ImageSizeSourceInput   = "input"
@@ -33,6 +39,8 @@ func ClassifyImageBillingTier(size string) (string, bool) {
 		return "", false
 	case "1k":
 		return ImageBillingSize1K, true
+	case "1.5k", "1536x1536", "1536x864", "864x1536":
+		return ImageBillingSize1_5K, true
 	case "2k":
 		return ImageBillingSize2K, true
 	case "4k":
@@ -299,10 +307,12 @@ func imageTierRank(tier string) int {
 	switch strings.ToUpper(strings.TrimSpace(tier)) {
 	case ImageBillingSize1K:
 		return 1
-	case ImageBillingSize2K:
+	case ImageBillingSize1_5K:
 		return 2
-	case ImageBillingSize4K:
+	case ImageBillingSize2K:
 		return 3
+	case ImageBillingSize4K:
+		return 4
 	default:
 		return 0
 	}
@@ -313,7 +323,7 @@ func normalizeImageSizeBreakdown(in map[string]int) map[string]int {
 		return nil
 	}
 	out := make(map[string]int, len(in))
-	for _, tier := range []string{ImageBillingSize1K, ImageBillingSize2K, ImageBillingSize4K} {
+	for _, tier := range []string{ImageBillingSize1K, ImageBillingSize1_5K, ImageBillingSize2K, ImageBillingSize4K} {
 		if count := in[tier]; count > 0 {
 			out[tier] = count
 		}
