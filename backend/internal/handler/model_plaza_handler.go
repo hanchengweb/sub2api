@@ -79,6 +79,7 @@ type modelPlazaVideoPricing struct {
 	PricePer480P  *float64 `json:"price_per_second_480p"`
 	PricePer720P  *float64 `json:"price_per_second_720p"`
 	PricePer1080P *float64 `json:"price_per_second_1080p"`
+	PricePer4K    *float64 `json:"price_per_second_4k"`
 }
 
 // modelPlazaGroup 广场分组条目（白名单字段）。
@@ -240,6 +241,7 @@ func toModelPlazaVideoPricing(p *service.PlazaVideoPricing) *modelPlazaVideoPric
 		PricePer480P:  p.PricePer480P,
 		PricePer720P:  p.PricePer720P,
 		PricePer1080P: p.PricePer1080P,
+		PricePer4K:    p.PricePer4K,
 	}
 }
 

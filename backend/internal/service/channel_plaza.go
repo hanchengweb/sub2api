@@ -36,6 +36,7 @@ type PlazaVideoPricing struct {
 	PricePer480P  *float64
 	PricePer720P  *float64
 	PricePer1080P *float64
+	PricePer4K    *float64
 }
 
 // plazaPricingEquivalent 判断两份定价对用户是否等价。
@@ -284,15 +285,8 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 				continue
 			}
 			// 只补视频模型：其余缺失项没有可展示的价格，补进来只会多一行「-」。
-			if !isPlazaVideoModelName(name) {
-				continue
-			}
-			vp := &PlazaVideoPricing{
-				PricePer480P:  g.VideoPrice480P,
-				PricePer720P:  g.VideoPrice720P,
-				PricePer1080P: g.VideoPrice1080P,
-			}
-			if vp.PricePer480P == nil && vp.PricePer720P == nil && vp.PricePer1080P == nil {
+			vp := plazaVideoPricingFor(&g, name)
+			if vp == nil {
 				continue
 			}
 			pg.Models = append(pg.Models, PlazaModel{
@@ -358,6 +352,37 @@ func (s *ChannelService) lookupOfficialPricing(modelName string, memo map[string
 //
 // 按名字判而不是按 billing_mode：视频模型的 billing_mode 配的是 image
 // （它走图片接口那条闸门），计费模式区分不出视频。
+//
+// 只是兜底：名字里带 video 的能认出来，kling-v3 / seedance-2 / MiniMax-H3
+// 这类认不出。优先用分组的按模型视频价来判（见 plazaVideoPricingFor）——
+// 配了每秒价就是视频模型，这是数据，不是猜名字。
 func isPlazaVideoModelName(name string) bool {
 	return strings.Contains(strings.ToLower(name), "video")
+}
+
+// plazaVideoPricingFor 取该模型在广场上展示的每秒单价。
+//
+// 先看分组的按模型价（video_model_prices），没有再回落到分组三列。
+// 返回 nil 表示这个模型没有可展示的视频价，不该补进广场。
+func plazaVideoPricingFor(g *Group, name string) *PlazaVideoPricing {
+	if cfg := g.VideoModelPricesFor(name); cfg != nil {
+		return &PlazaVideoPricing{
+			PricePer480P:  cfg.Price480P,
+			PricePer720P:  cfg.Price720P,
+			PricePer1080P: cfg.Price1080P,
+			PricePer4K:    cfg.Price4K,
+		}
+	}
+	if !isPlazaVideoModelName(name) {
+		return nil
+	}
+	if g.VideoPrice480P == nil && g.VideoPrice720P == nil && g.VideoPrice1080P == nil {
+		return nil
+	}
+	return &PlazaVideoPricing{
+		PricePer480P:  g.VideoPrice480P,
+		PricePer720P:  g.VideoPrice720P,
+		PricePer1080P: g.VideoPrice1080P,
+		PricePer4K:    g.VideoPrice1080P,
+	}
 }

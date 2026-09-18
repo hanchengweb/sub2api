@@ -550,9 +550,11 @@ function pricingTiersOf(model: string): string[] {
 function videoPricePerSecond(m: PlazaModel, res: string): number | null {
   const vp = m.video_pricing
   if (!vp) return null
-  if (res === '1080p') return vp.price_per_second_1080p ?? vp.price_per_second_720p ?? null
+  // 回落方向一律往贵的走：预估比实扣低会让用户以为被多扣了。
+  if (res === '4k') return vp.price_per_second_4k ?? vp.price_per_second_1080p ?? vp.price_per_second_720p ?? null
+  if (res === '1080p') return vp.price_per_second_1080p ?? vp.price_per_second_4k ?? vp.price_per_second_720p ?? null
   if (res === '480p') return vp.price_per_second_480p ?? vp.price_per_second_720p ?? null
-  return vp.price_per_second_720p ?? vp.price_per_second_480p ?? null
+  return vp.price_per_second_720p ?? vp.price_per_second_1080p ?? vp.price_per_second_480p ?? null
 }
 
 /**

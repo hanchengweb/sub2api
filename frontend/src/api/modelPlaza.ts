@@ -23,6 +23,8 @@ export interface PlazaVideoPricing {
   price_per_second_480p: number | null
   price_per_second_720p: number | null
   price_per_second_1080p: number | null
+  /** 4K 每秒单价。只有分档到 4K 的模型有（如 seedance-2），其余为 null。 */
+  price_per_second_4k: number | null
 }
 
 /** 高峰窗口。days 用 ISO 星期（1=周一 … 7=周日），为空表示每天。 */

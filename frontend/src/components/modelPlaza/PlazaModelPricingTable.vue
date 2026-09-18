@@ -311,7 +311,8 @@ function videoTiers(m: PlazaModel): Array<{ label: string; price: string }> {
   const entries: Array<[string, number | null]> = [
     ['480p', vp.price_per_second_480p],
     ['720p', vp.price_per_second_720p],
-    ['1080p', vp.price_per_second_1080p]
+    ['1080p', vp.price_per_second_1080p],
+    ['4K', vp.price_per_second_4k]
   ]
   const present = entries.filter((e): e is [string, number] => e[1] != null)
   if (present.length === 0) return []

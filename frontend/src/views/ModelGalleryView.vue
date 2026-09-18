@@ -234,7 +234,7 @@ function playgroundLink(card: Card) {
 function buildPriceLines(m: PlazaModel, rate: number, k: ModelKind): PriceLine[] {
   if (k === 'video') {
     const vp = m.video_pricing
-    const per = vp?.price_per_second_720p ?? vp?.price_per_second_480p ?? vp?.price_per_second_1080p
+    const per = vp?.price_per_second_480p ?? vp?.price_per_second_720p ?? vp?.price_per_second_1080p ?? vp?.price_per_second_4k
     if (per == null) return []
     return [{ label: t('modelGallery.perSecond'), value: formatCredits(per * rate) }]
   }
