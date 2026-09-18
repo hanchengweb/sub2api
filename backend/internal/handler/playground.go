@@ -192,7 +192,7 @@ func (h *PlaygroundHandler) proxyToGatewayLimited(c *gin.Context, gatewayPath st
 // 漏洞——攻击者能借它探测内网、云元数据地址（169.254.169.254）等。
 // 只放行已知会返回生成结果的域名。
 var mediaProxyAllowedHosts = map[string]struct{}{
-	"files.toapis.cn":  {},
+	"files.toapis.cn": {},
 	// files.toapis.xyz：视频结果实际落在这个域名下（2026-09-18 实打 kling-v3 任务
 	// 返回 https://files.toapis.xyz/videos/...）。少了它视频既存不下也放不出来，
 	// 结果 24 小时后过期，等于白生成。同属 toapis 运营方，与 .cn/.com 同源。

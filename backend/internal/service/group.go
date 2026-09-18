@@ -167,12 +167,34 @@ func (g *Group) VideoModelPricesFor(model string) *VideoPriceConfig {
 		}
 		return nil
 	}
-	return &VideoPriceConfig{
+	cfg := &VideoPriceConfig{
 		Price480P:  pick(VideoBillingResolution480P),
 		Price720P:  pick(VideoBillingResolution720P),
 		Price1080P: pick(VideoBillingResolution1080P),
 		Price4K:    pick(VideoBillingResolution4K),
 	}
+
+	// 没配到的档位补成该模型已配档位里最贵的那个，不能留 nil。
+	//
+	// 留 nil 会掉到 getDefaultVideoPrice —— 那张表是美元口径的历史值
+	// （0.08/0.14/0.25），当积分用等于白送。而上游的价目表经常只给两档
+	// （seedance-2-5 只有 480P/720P），剩下的档一旦有人点到就是全额倒贴。
+	// 补最贵档：要么上游根本不支持该分辨率、请求被拒走退款，要么我们至少不亏。
+	var top *float64
+	for _, p := range []*float64{cfg.Price480P, cfg.Price720P, cfg.Price1080P, cfg.Price4K} {
+		if p != nil && (top == nil || *p > *top) {
+			top = p
+		}
+	}
+	if top == nil {
+		return nil
+	}
+	for _, slot := range []**float64{&cfg.Price480P, &cfg.Price720P, &cfg.Price1080P, &cfg.Price4K} {
+		if *slot == nil {
+			*slot = top
+		}
+	}
+	return cfg
 }
 
 // GetVideoModelPrice 取该模型在该分辨率下的每秒单价；没配返回 nil。

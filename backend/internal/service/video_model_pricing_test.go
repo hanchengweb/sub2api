@@ -43,7 +43,23 @@ func TestVideoModelPriceDoesNotMixWithGroupColumns(t *testing.T) {
 	cfg := videoPriceConfigFromAPIKey(&APIKey{Group: g}, "kling-v3")
 	require.NotNil(t, cfg)
 	require.Equal(t, 71.0, *cfg.Price480P)
-	require.Nil(t, cfg.Price1080P, "模型只配了 480p，1080p 不该借用分组价")
+	// 不借用分组的 37，而是补成该模型自己已配档位里最贵的 71。
+	// 留 nil 会掉到美元口径的代码默认价（0.25/秒），当积分用等于白送。
+	require.Equal(t, 71.0, *cfg.Price1080P)
+}
+
+// 上游价目表经常只给两档（seedance-2-5 只有 480P/720P）。没配到的档位
+// 必须补成已配档位里最贵的，否则一旦有人点到 1080p/4K 就是全额倒贴。
+func TestPartialModelPriceFillsMissingTiersWithTopPrice(t *testing.T) {
+	g := &Group{VideoModelPrices: map[string]map[string]float64{
+		"seedance-2-5": {"480p": 89.27, "720p": 165},
+	}}
+	cfg := videoPriceConfigFromAPIKey(&APIKey{Group: g}, "seedance-2-5")
+	require.NotNil(t, cfg)
+	require.Equal(t, 89.27, *cfg.Price480P)
+	require.Equal(t, 165.0, *cfg.Price720P)
+	require.Equal(t, 165.0, *cfg.Price1080P, "没配的档位补最贵的，不能掉到默认价")
+	require.Equal(t, 165.0, *cfg.Price4K)
 }
 
 // 认不出来的分辨率归最贵档。上游按真实分辨率收我们钱、我们按 480p 收用户钱
