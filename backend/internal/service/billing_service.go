@@ -1373,6 +1373,7 @@ type VideoPriceConfig struct {
 	Price480P  *float64 // 480p 每秒价格（nil 表示使用默认值）
 	Price720P  *float64 // 720p 每秒价格（nil 表示使用默认值）
 	Price1080P *float64 // 1080p 每秒价格（nil 表示使用默认值）
+	Price4K    *float64 // 4k 每秒价格（nil 表示回落到 1080p 或默认值）
 }
 
 const (
@@ -1515,6 +1516,13 @@ func (s *BillingService) getVideoUnitPrice(model string, resolution string, grou
 				return *groupConfig.Price720P
 			}
 		case VideoBillingResolution1080P:
+			if groupConfig.Price1080P != nil {
+				return *groupConfig.Price1080P
+			}
+		case VideoBillingResolution4K:
+			if groupConfig.Price4K != nil {
+				return *groupConfig.Price4K
+			}
 			if groupConfig.Price1080P != nil {
 				return *groupConfig.Price1080P
 			}

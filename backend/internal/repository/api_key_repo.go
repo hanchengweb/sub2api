@@ -939,6 +939,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		BatchImageHoldMultiplier:        g.BatchImageHoldMultiplier,
 		VideoRateIndependent:            g.VideoRateIndependent,
 		VideoRateMultiplier:             g.VideoRateMultiplier,
+		VideoModelPrices:                g.VideoModelPrices,
 		VideoPrice480P:                  g.VideoPrice480p,
 		VideoPrice720P:                  g.VideoPrice720p,
 		VideoPrice1080P:                 g.VideoPrice1080p,

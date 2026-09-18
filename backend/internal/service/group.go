@@ -54,6 +54,10 @@ type Group struct {
 	VideoPrice480P               *float64
 	VideoPrice720P               *float64
 	VideoPrice1080P              *float64
+	// VideoModelPrices 按模型 × 分辨率覆盖视频每秒单价（积分/秒）。
+	// 各上游每秒成本差到 60 倍（grok 8 / seedance-2 4K 500），共用一个单价
+	// 等于除最便宜那个以外全部倒贴，所以单价必须按模型分。
+	VideoModelPrices map[string]map[string]float64
 	// Codex alpha/search 网页搜索单次价格（USD/次，仅 openai 平台使用）；
 	// nil 表示使用默认价 defaultWebSearchPricePerCall（官方 $10/1000 次）。
 	WebSearchPricePerCall *float64
@@ -146,6 +150,49 @@ func (g *Group) GetImagePrice(imageSize string) *float64 {
 
 // GetVideoPrice 根据 resolution 返回对应的视频生成价格。
 // 如果分组未配置价格，返回 nil（调用方应使用默认值）。
+// VideoModelPricesFor 把该模型配置的每秒单价拼成计费用的四档结构；没配返回 nil。
+//
+// 返回 nil 而不是空结构：调用方据此决定要不要回落到分组三列。
+func (g *Group) VideoModelPricesFor(model string) *VideoPriceConfig {
+	if g == nil || len(g.VideoModelPrices) == 0 {
+		return nil
+	}
+	byResolution, ok := g.VideoModelPrices[strings.TrimSpace(model)]
+	if !ok || len(byResolution) == 0 {
+		return nil
+	}
+	pick := func(res string) *float64 {
+		if v, ok := byResolution[res]; ok {
+			return &v
+		}
+		return nil
+	}
+	return &VideoPriceConfig{
+		Price480P:  pick(VideoBillingResolution480P),
+		Price720P:  pick(VideoBillingResolution720P),
+		Price1080P: pick(VideoBillingResolution1080P),
+		Price4K:    pick(VideoBillingResolution4K),
+	}
+}
+
+// GetVideoModelPrice 取该模型在该分辨率下的每秒单价；没配返回 nil。
+//
+// 比 GetVideoPrice 优先：video_price_* 三列是全分组一个价，配了它就把所有
+// 视频模型按同一个单价收，除最便宜那个以外全部倒贴。
+func (g *Group) GetVideoModelPrice(model, resolution string) *float64 {
+	if g == nil || len(g.VideoModelPrices) == 0 {
+		return nil
+	}
+	byResolution, ok := g.VideoModelPrices[strings.TrimSpace(model)]
+	if !ok || len(byResolution) == 0 {
+		return nil
+	}
+	if price, ok := byResolution[NormalizeVideoBillingResolutionOrDefault(resolution)]; ok {
+		return &price
+	}
+	return nil
+}
+
 func (g *Group) GetVideoPrice(resolution string) *float64 {
 	switch NormalizeVideoBillingResolutionOrDefault(resolution) {
 	case VideoBillingResolution480P:
@@ -154,8 +201,12 @@ func (g *Group) GetVideoPrice(resolution string) *float64 {
 		return g.VideoPrice720P
 	case VideoBillingResolution1080P:
 		return g.VideoPrice1080P
+	case VideoBillingResolution4K:
+		// 4K 没有独立的分组列：宁可回落到最贵的 1080p，也不能落到 480p ——
+		// 按最便宜档收最贵的活是静默亏钱，没有任何信号。
+		return g.VideoPrice1080P
 	default:
-		return g.VideoPrice480P
+		return g.VideoPrice1080P
 	}
 }
 

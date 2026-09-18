@@ -6,6 +6,7 @@ const (
 	VideoBillingResolution480P  = "480p"
 	VideoBillingResolution720P  = "720p"
 	VideoBillingResolution1080P = "1080p"
+	VideoBillingResolution4K    = "4k"
 )
 
 // 视频按秒计费。计费时长必须与上游实际消耗对齐：
@@ -82,7 +83,12 @@ func NormalizeVideoBillingResolutionOrDefault(resolution string) string {
 		return VideoBillingResolution720P
 	case "1080", "1080p", "full_hd", "full-hd", "fhd":
 		return VideoBillingResolution1080P
+	case "4k", "2160", "2160p", "uhd", "ultra_hd", "ultra-hd":
+		return VideoBillingResolution4K
 	default:
-		return VideoBillingResolution480P
+		// 认不出来的分辨率归到最贵档，不是最便宜档。
+		// 上游按实际分辨率收我们钱，我们按 480p 收用户钱 = 静默亏，没有任何信号；
+		// 反过来多收会被用户立刻投诉，至少是可发现的。与本文件时长那段同一条原则。
+		return VideoBillingResolution4K
 	}
 }

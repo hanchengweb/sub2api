@@ -42,6 +42,10 @@ var (
 var playgroundMediaAllowedHosts = map[string]struct{}{
 	"files.toapis.cn":  {},
 	"files.toapis.com": {},
+	// files.toapis.xyz：视频结果实际落在这个域名下（2026-09-18 实打 kling-v3 任务
+	// 返回 https://files.toapis.xyz/videos/...）。少了它视频既存不下也放不出来，
+	// 结果 24 小时后过期，等于白生成。同属 toapis 运营方，与 .cn/.com 同源。
+	"files.toapis.xyz": {},
 	"toapis.cn":        {},
 }
 

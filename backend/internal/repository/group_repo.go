@@ -79,6 +79,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetBatchImageHoldMultiplier(groupIn.BatchImageHoldMultiplier).
 		SetVideoRateIndependent(groupIn.VideoRateIndependent).
 		SetVideoRateMultiplier(groupIn.VideoRateMultiplier).
+		SetVideoModelPrices(groupIn.VideoModelPrices).
 		SetNillableVideoPrice480p(groupIn.VideoPrice480P).
 		SetNillableVideoPrice720p(groupIn.VideoPrice720P).
 		SetNillableVideoPrice1080p(groupIn.VideoPrice1080P).
@@ -248,6 +249,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetBatchImageHoldMultiplier(groupIn.BatchImageHoldMultiplier).
 		SetVideoRateIndependent(groupIn.VideoRateIndependent).
 		SetVideoRateMultiplier(groupIn.VideoRateMultiplier).
+		SetVideoModelPrices(groupIn.VideoModelPrices).
 		SetNillableVideoPrice480p(groupIn.VideoPrice480P).
 		SetNillableVideoPrice720p(groupIn.VideoPrice720P).
 		SetNillableVideoPrice1080p(groupIn.VideoPrice1080P).
@@ -300,6 +302,9 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		builder = builder.SetImagePrice4k(*groupIn.ImagePrice4K)
 	} else {
 		builder = builder.ClearImagePrice4k()
+	}
+	if groupIn.VideoModelPrices != nil {
+		builder = builder.SetVideoModelPrices(groupIn.VideoModelPrices)
 	}
 	if groupIn.VideoPrice480P != nil {
 		builder = builder.SetVideoPrice480p(*groupIn.VideoPrice480P)

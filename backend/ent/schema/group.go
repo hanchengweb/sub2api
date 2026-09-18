@@ -148,6 +148,16 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+
+		// 按模型 × 分辨率覆盖视频每秒单价（积分/秒），migration 217 建的列。
+		// 形状：{"seedance-2":{"480p":74,"720p":119,"1080p":254,"4k":529}}
+		// 取价顺序：本表 → video_price_* 三列 → 代码默认值。
+		// 必须按模型分：各上游每秒成本差到 60 倍（grok 8 / seedance-2 4K 500），
+		// 共用一个单价等于除最便宜那个以外全部倒贴。
+		field.JSON("video_model_prices", map[string]map[string]float64{}).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("按模型×分辨率覆盖视频每秒单价（积分/秒）"),
 		field.Float("web_search_price_per_call").
 			Optional().
 			Nillable().
