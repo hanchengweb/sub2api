@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"mime"
 	"strconv"
 	"strings"
 	"time"
@@ -453,6 +454,15 @@ func (s *BalanceNotifyService) sendQuotaAlertEmails(adminEmails []string, accoun
 // sanitizeEmailHeader removes CR/LF characters to prevent SMTP header injection.
 func sanitizeEmailHeader(s string) string {
 	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
+}
+
+// encodeEmailHeaderWord 先去掉 CR/LF（防头注入），再按 RFC 2047 编成 encoded-word。
+//
+// mime.BEncoding.Encode 对不需要编码的纯 ASCII 原样返回，所以英文标题保持可读；
+// 中文用 Base64 比 Q 编码紧凑得多（Q 编码会把几乎每个字节都转义）。
+// 只用于 Subject 和发件人显示名——邮箱地址本身必须保持裸 ASCII，不能编。
+func encodeEmailHeaderWord(s string) string {
+	return mime.BEncoding.Encode("UTF-8", sanitizeEmailHeader(s))
 }
 
 // balanceLowEmailTemplate is the HTML template for balance low notifications.

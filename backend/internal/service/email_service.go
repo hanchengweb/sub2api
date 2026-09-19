@@ -188,11 +188,17 @@ const smtpIOTimeout = 20 * time.Second
 func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body string) error {
 	// Sanitize all SMTP header fields to prevent header injection (CR/LF removal).
 	to = sanitizeEmailHeader(to)
-	subject = sanitizeEmailHeader(subject)
+	// Content-Type 的 charset=UTF-8 只管正文，不管邮件头。RFC 5322 的头必须是 ASCII，
+	// 非 ASCII 要按 RFC 2047 编成 encoded-word，否则中文标题在部分客户端和投递日志里
+	// 会变成乱码（2026-09-19 实测：阿里云 DirectMail 的发送详情把「余额不足提醒」
+	// 显示成「棕庝恬鎯鸿浣」）。encodeEmailHeaderWord 对纯 ASCII 原样返回，
+	// 所以英文标题不受影响。
+	subject = encodeEmailHeaderWord(subject)
 
 	from := sanitizeEmailHeader(config.From)
 	if config.FromName != "" {
-		from = fmt.Sprintf("%s <%s>", sanitizeEmailHeader(config.FromName), sanitizeEmailHeader(config.From))
+		// 发件人显示名同理：地址部分必须保持裸 ASCII，只编码显示名。
+		from = fmt.Sprintf("%s <%s>", encodeEmailHeaderWord(config.FromName), sanitizeEmailHeader(config.From))
 	}
 
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s",
