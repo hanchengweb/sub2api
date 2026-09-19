@@ -2,7 +2,10 @@ import type { PlazaModel } from '@/api/modelPlaza'
 import { BILLING_MODE_TOKEN } from '@/constants/channel'
 
 export function plazaSection(model: PlazaModel): 'text' | 'image' | 'video' {
-  // Video models can use image billing; preserve the existing name-based classification.
+  // 配了视频每秒价就是视频模型 —— 这是数据，不是猜名字。
+  // kling-v3 / seedance-2 / MiniMax-H3 名字里都没有 video，只按名字判会把它们
+  // 分到文本区去（它们没有渠道定价行，billing_mode 也是空的）。
+  if (model.video_pricing) return 'video'
   if (/video/i.test(model.name)) return 'video'
   return (model.pricing?.billing_mode || BILLING_MODE_TOKEN) === BILLING_MODE_TOKEN ? 'text' : 'image'
 }

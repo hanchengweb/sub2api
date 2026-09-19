@@ -42,5 +42,13 @@ describe('resolveModelKind', () => {
     expect(resolveModelKind('deepseek-v4-flash', 'token')).toBe('text')
     expect(resolveModelKind('t-gpt-image-2', 'image')).toBe('image')
     expect(resolveModelKind('some-model', null)).toBe('text')
+
+    // 名字里没有 video、也没有 billing_mode 的视频模型（kling-v3 / seedance-2 /
+    // MiniMax-H3 / veo3.1-fast），只能靠「配了视频每秒价」这个事实认出来。
+    expect(resolveModelKind('kling-v3', null, true)).toBe('video')
+    expect(resolveModelKind('seedance-2', null, true)).toBe('video')
+    expect(resolveModelKind('MiniMax-H3', null, true)).toBe('video')
+    // 没有视频价就不能凭空归成视频
+    expect(resolveModelKind('kling-v3', null, false)).toBe('text')
   })
 })

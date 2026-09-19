@@ -53,10 +53,19 @@ export type ModelKind = 'text' | 'image' | 'video'
 /**
  * 判定模型类型。
  *
- * 视频按模型名判而不是按 billing_mode：线上视频模型的 billing_mode 配的是
- * image（它走图片接口那条闸门），只看计费模式会把视频混进生图。
+ * 判据优先级：有视频每秒价 → 视频；名字带 video → 视频；否则看 billing_mode。
+ *
+ * 不能只按名字判：kling-v3 / seedance-2 / MiniMax-H3 / veo3.1-fast 名字里都没有
+ * video。也不能只按 billing_mode：线上视频模型的 billing_mode 配的是 image
+ * （走图片接口那条闸门），而新上的视频模型干脆没有渠道定价行、压根没有
+ * billing_mode —— 两个单独用都会漏，所以先看「有没有配视频每秒价」这个数据事实。
  */
-export function resolveModelKind(model: string, billingMode?: string | null): ModelKind {
+export function resolveModelKind(
+  model: string,
+  billingMode?: string | null,
+  hasVideoPricing?: boolean
+): ModelKind {
+  if (hasVideoPricing) return 'video'
   if (/video/i.test(model)) return 'video'
   return billingMode && billingMode !== 'token' ? 'image' : 'text'
 }

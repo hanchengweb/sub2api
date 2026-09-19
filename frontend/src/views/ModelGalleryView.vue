@@ -278,7 +278,7 @@ onMounted(async () => {
       for (const m of group.models ?? []) {
         if (seen.has(m.name)) continue
         seen.add(m.name)
-        const k = resolveModelKind(m.name, m.pricing?.billing_mode)
+        const k = resolveModelKind(m.name, m.pricing?.billing_mode, Boolean(m.video_pricing))
         list.push({
           name: m.name,
           vendor: resolveModelVendor(m.name).label,

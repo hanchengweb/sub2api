@@ -123,7 +123,7 @@ const kindCounts = computed(() => {
   for (const group of props.response?.groups ?? []) {
     for (const model of group.models) {
       counts['']++
-      counts[resolveModelKind(model.name, model.pricing?.billing_mode)]++
+      counts[resolveModelKind(model.name, model.pricing?.billing_mode, Boolean(model.video_pricing))]++
     }
   }
   return counts
@@ -191,7 +191,7 @@ const filteredGroups = computed(() => {
     groups = groups
       .map((g) => ({ ...g, models: g.models.filter((m) =>
         `${m.name} ${resolveModelVendor(m.name).label}`.toLowerCase().includes(q) &&
-        (!kind.value || resolveModelKind(m.name, m.pricing?.billing_mode) === kind.value)
+        (!kind.value || resolveModelKind(m.name, m.pricing?.billing_mode, Boolean(m.video_pricing)) === kind.value)
       ) }))
       .filter((g) => g.models.length > 0)
   }

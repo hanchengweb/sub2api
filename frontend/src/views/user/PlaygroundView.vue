@@ -994,8 +994,12 @@ async function loadModels() {
   const video: string[] = []
   for (const name of names) {
     const mode = billingModes.get(name)
-    // 名字里带 video 的一律归视频：视频模型常常没有定价行，等不到 billing_mode。
-    if (/video/i.test(name)) video.push(name)
+    // 先看广场给没给视频每秒价：配了就是视频模型，这是数据，不是猜名字。
+    //
+    // 只按名字判会漏一大片——kling-v3 / seedance-2 / MiniMax-H3 / veo3.1-fast
+    // 名字里都没有 video。而视频模型又没有渠道定价行，billing_mode 也拿不到，
+    // 于是既进不了视频桶、也进不了生图桶，最后全掉进「对话」下拉里。
+    if (priced.get(name)?.model?.video_pricing || /video/i.test(name)) video.push(name)
     else if (mode && mode !== BILLING_MODE_TOKEN) image.push(name)
     else chat.push(name)
   }

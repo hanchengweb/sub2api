@@ -113,11 +113,13 @@ beforeEach(() => {
   URL.revokeObjectURL = vi.fn()
   HTMLDialogElement.prototype.close = vi.fn()
   // 照线上组 4 的真实形态构造：/v1/models 有 7 个，广场只覆盖到其中 6 个,
-  // 视频模型 t-grok-video-1.5 在广场里没有定价行。
+  // 视频模型在广场里没有定价行；kling-v3 连名字里都没有 video，
+  // 只能靠广场返回的 video_pricing 认出来。
   listModels.mockResolvedValue([
     'deepseek-v4-flash',
     't-gpt-image-2',
     't-grok-video-1.5',
+    'kling-v3',
   ])
   getModelPlaza.mockResolvedValue({
     description: '',
@@ -153,6 +155,19 @@ beforeEach(() => {
               price_per_second_1080p: 37,
             },
           },
+          // 名字里没有 video、也没有 billing_mode —— 只能靠 video_pricing 认出来。
+          // 2026-09-18 线上就是这么漏的：8 个新视频模型全被分进了「对话」下拉。
+          {
+            name: 'kling-v3',
+            platform: 'grok',
+            pricing: null,
+            video_pricing: {
+              price_per_second_480p: 71,
+              price_per_second_720p: 71,
+              price_per_second_1080p: 71,
+              price_per_second_4k: 71,
+            },
+          },
         ],
       },
     ],
@@ -165,6 +180,7 @@ describe('PlaygroundView', () => {
     await flushPromises()
 
     // 显示的是核实过的上游版本名——只写 deepseek-v4-flash 会被读成还停在 V4
+    // 对话下拉里不能混进视频模型
     expect(await modelOptions(wrapper)).toEqual(['DeepSeek-V4.1-Flash'])
     // 但调接口写的是 ID，它必须还能从界面上拿到
     expect(await modelOptionIds(wrapper)).toEqual(['deepseek-v4-flash'])
@@ -174,9 +190,13 @@ describe('PlaygroundView', () => {
     expect(await modelOptions(wrapper)).toEqual(['t-gpt-image-2'])
 
     // 关键回归：视频模型在广场里没有定价行，只靠广场这一档会是空的。
+    //
+    // kling-v3 名字里没有 video、也没有 billing_mode，只能靠 video_pricing 认出来。
+    // 2026-09-18 线上就是这么漏的：8 个新视频模型全被分进了「对话」下拉，
+    // 视频下拉里只剩 grok 一个。
     await wrapper.findAll('button').find((b) => b.text().includes('playground.modeVideo'))!.trigger('click')
     await flushPromises()
-    expect(await modelOptions(wrapper)).toEqual(['t-grok-video-1.5'])
+    expect((await modelOptions(wrapper)).sort()).toEqual(['kling-v3', 't-grok-video-1.5'])
   })
 
   /**
