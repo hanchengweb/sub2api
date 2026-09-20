@@ -42,6 +42,13 @@ func SetupRouter(
 	paymentConfigService *service.PaymentConfigService,
 	affiliateService *service.AffiliateService,
 	sqlDB *sql.DB,
+	// emailService 供代理审核结果通知用：审核通过会默默给申请人开通代理身份，
+	// 不发信的话他只能自己再打开「成为代理」页才知道。公告的定向只支持
+	// 订阅套餐和余额两种条件，没法发给单个用户，所以走邮件。
+	emailService *service.EmailService,
+	// settingRepo 供通知取站点名（site_name）。SettingService 没有通用取值方法，
+	// 全仓库都是直接用仓储的 GetValue。
+	settingRepo service.SettingRepository,
 ) *gin.Engine {
 	middleware2.SetIngressRejectRecorder(opsService)
 	// 缓存 iframe 页面的 origin 列表，用于动态注入 CSP frame-src
@@ -96,7 +103,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, channelService, paymentConfigService, affiliateService, sqlDB)
+	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, channelService, paymentConfigService, affiliateService, sqlDB, emailService, settingRepo)
 
 	return r
 }
@@ -122,6 +129,13 @@ func registerRoutes(
 	paymentConfigService *service.PaymentConfigService,
 	affiliateService *service.AffiliateService,
 	sqlDB *sql.DB,
+	// emailService 供代理审核结果通知用：审核通过会默默给申请人开通代理身份，
+	// 不发信的话他只能自己再打开「成为代理」页才知道。公告的定向只支持
+	// 订阅套餐和余额两种条件，没法发给单个用户，所以走邮件。
+	emailService *service.EmailService,
+	// settingRepo 供通知取站点名（site_name）。SettingService 没有通用取值方法，
+	// 全仓库都是直接用仓储的 GetValue。
+	settingRepo service.SettingRepository,
 ) {
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
@@ -168,7 +182,8 @@ func registerRoutes(
 		repository.NewAgentCustomerRepository(sqlDB), agentService)
 	routes.RegisterAgencyRoutes(v1,
 		handler.NewAgencyHandler(service.NewAgencyApplicationServiceWithAgents(
-			repository.NewAgencyApplicationRepository(sqlDB), agentService)),
+			repository.NewAgencyApplicationRepository(sqlDB), agentService).
+			WithNotifier(emailService, settingRepo)),
 		jwtAuth, adminAuth)
 	routes.RegisterAgentRoutes(v1,
 		handler.NewAgentHandler(

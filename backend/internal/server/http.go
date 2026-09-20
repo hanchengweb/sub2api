@@ -52,6 +52,13 @@ func ProvideRouter(
 	// sqlDB 供在线使用的生成结果转存用。它需要自己的仓储，而 Handlers 在 wire 里
 	// 构造时引擎还不存在，没法把 handler 放进去，只能把 DB 递到这一层现搭。
 	sqlDB *sql.DB,
+	// emailService 供代理审核结果通知用：审核通过会默默给申请人开通代理身份，
+	// 不发信的话他只能自己再打开「成为代理」页才知道。公告的定向只支持
+	// 订阅套餐和余额两种条件，没法发给单个用户，所以走邮件。
+	emailService *service.EmailService,
+	// settingRepo 供通知取站点名（site_name）。SettingService 没有通用取值方法，
+	// 全仓库都是直接用仓储的 GetValue。
+	settingRepo service.SettingRepository,
 ) *gin.Engine {
 	if cfg.Server.Mode == "release" {
 		gin.SetMode(gin.ReleaseMode)
@@ -97,7 +104,7 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, channelService, paymentConfigService, affiliateService, sqlDB)
+	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, channelService, paymentConfigService, affiliateService, sqlDB, emailService, settingRepo)
 }
 
 func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {

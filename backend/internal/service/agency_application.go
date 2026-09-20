@@ -90,6 +90,10 @@ type AgencyApplicationService struct {
 	// agents 非空时，审核通过会顺带开通代理身份。
 	// 留空则退化成纯状态机（老行为），方便测试和渐进接线。
 	agents *AgentService
+	// notifier / settings 非空时，审核到终态会给申请人发结果通知。
+	// 全部留空则完全不通知，与接线前的行为一致。
+	notifier agencyNotifier
+	settings SettingRepository
 }
 
 func NewAgencyApplicationService(repo AgencyApplicationRepository) *AgencyApplicationService {
@@ -102,6 +106,19 @@ func NewAgencyApplicationService(repo AgencyApplicationRepository) *AgencyApplic
 // 接线错了也只是退回「改状态但不开通」，不会在审核路径上 panic。
 func NewAgencyApplicationServiceWithAgents(repo AgencyApplicationRepository, agents *AgentService) *AgencyApplicationService {
 	return &AgencyApplicationService{repo: repo, agents: agents}
+}
+
+// WithNotifier 接上审核结果通知。
+//
+// 做成链式设置而不是再开一个构造函数：通知是可选能力，接不接都不影响审核，
+// 每加一个可选依赖就多一个构造函数会很快失控。
+func (s *AgencyApplicationService) WithNotifier(notifier agencyNotifier, settings SettingRepository) *AgencyApplicationService {
+	if s == nil {
+		return nil
+	}
+	s.notifier = notifier
+	s.settings = settings
+	return s
 }
 
 // Submit 提交一条合作申请。
@@ -184,8 +201,13 @@ func (s *AgencyApplicationService) UpdateStatus(ctx context.Context, id int64, s
 
 	// 先把申请读出来：状态改完再读的话，拿到的 direction 仍然是对的，
 	// 但要是那一瞬间申请被删了就没法建档，还不如提前失败。
+	//
+	// 通知也要用它（联系邮箱、称呼），所以 rejected 同样要读——
+	// 只在 accepted 读的话，拒绝通知就没有收件人。
+	needApp := (status == "accepted" && s.agents != nil) ||
+		((status == "accepted" || status == "rejected") && s.notifier != nil)
 	var app *AgencyApplication
-	if status == "accepted" && s.agents != nil {
+	if needApp {
 		loaded, err := s.repo.GetByID(ctx, id)
 		if err != nil {
 			return err
@@ -200,15 +222,28 @@ func (s *AgencyApplicationService) UpdateStatus(ctx context.Context, id int64, s
 		return nil
 	}
 
-	_, err := s.agents.Activate(ctx, ActivateAgentInput{
-		UserID:        app.UserID,
-		ApplicationID: &app.ID,
-		Direction:     app.Direction,
-		// Mode 留空：由 DefaultAgentModeForDirection 按方向决定
-		// （渠道推广→分佣，技术集成/客户交付→转售）。
-		// 要改模式走代理管理页，不在审核这一步塞选项。
-	})
-	return err
+	// 顺序必须是「先开通，成功了才通知」。
+	//
+	// 用 defer 发通知是错的：开通失败照样会执行，申请人就收到一封「已通过」，
+	// 而系统里根本没有他的代理身份——邀请码不生效，他还以为能带客户了。
+	if s.agents != nil && status == "accepted" {
+		if _, err := s.agents.Activate(ctx, ActivateAgentInput{
+			UserID:        app.UserID,
+			ApplicationID: &app.ID,
+			Direction:     app.Direction,
+			// Mode 留空：由 DefaultAgentModeForDirection 按方向决定
+			// （渠道推广→分佣，技术集成/客户交付→转售）。
+			// 要改模式走代理管理页，不在审核这一步塞选项。
+		}); err != nil {
+			// 不通知：让管理员看到错误并重试，好过申请人收到一封空头支票。
+			return err
+		}
+	}
+
+	// 通知失败只记日志：状态已落库、代理身份已开通，这时候报错会让管理员
+	// 以为没审核成功而重复操作。
+	s.notifyApplicant(app, status, note)
+	return nil
 }
 
 // normalizeAgencyApplication 校验并裁剪到可入库的形状。
