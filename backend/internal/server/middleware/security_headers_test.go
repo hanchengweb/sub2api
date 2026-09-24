@@ -82,6 +82,28 @@ func TestGetNonceFromContext(t *testing.T) {
 }
 
 func TestSecurityHeaders(t *testing.T) {
+	t.Run("default_policy_allows_authenticated_blob_video", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/playground", nil)
+
+		SecurityHeaders(config.CSPConfig{Enabled: true, Policy: config.DefaultCSPPolicy}, nil)(c)
+
+		directives := make(map[string][]string)
+		for _, directive := range strings.Split(w.Header().Get("Content-Security-Policy"), ";") {
+			fields := strings.Fields(directive)
+			if len(fields) > 0 {
+				directives[fields[0]] = fields[1:]
+			}
+		}
+		// MediaResult fetches with JWT then plays a blob URL. Do not allow arbitrary remote media.
+		assert.Equal(t, []string{"'self'", "blob:"}, directives["media-src"])
+		assert.Equal(t, []string{"'self'"}, directives["default-src"])
+		assert.Equal(t, []string{"'none'"}, directives["frame-ancestors"])
+		assert.NotContains(t, directives["script-src"], "blob:")
+		assert.NotEmpty(t, GetNonceFromContext(c))
+	})
+
 	t.Run("sets_basic_security_headers", func(t *testing.T) {
 		cfg := config.CSPConfig{Enabled: false}
 		middleware := SecurityHeaders(cfg, nil)
