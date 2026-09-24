@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 18 // v18: preserve per-model video pricing; reject snapshots with only group fallback prices
+const apiKeyAuthSnapshotVersion = 19 // v19: reload snapshots created before the auth query selected per-model video prices
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
