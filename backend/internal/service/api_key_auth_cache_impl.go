@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 17 // v17: include the OpenAI group Live gate
+const apiKeyAuthSnapshotVersion = 18 // v18: preserve per-model video pricing; reject snapshots with only group fallback prices
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -397,6 +397,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ImagePrice4K:                    apiKey.Group.ImagePrice4K,
 			VideoRateIndependent:            apiKey.Group.VideoRateIndependent,
 			VideoRateMultiplier:             apiKey.Group.VideoRateMultiplier,
+			VideoModelPrices:                apiKey.Group.VideoModelPrices,
 			VideoPrice480P:                  apiKey.Group.VideoPrice480P,
 			VideoPrice720P:                  apiKey.Group.VideoPrice720P,
 			VideoPrice1080P:                 apiKey.Group.VideoPrice1080P,
@@ -484,6 +485,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ImagePrice4K:                    snapshot.Group.ImagePrice4K,
 			VideoRateIndependent:            snapshot.Group.VideoRateIndependent,
 			VideoRateMultiplier:             snapshot.Group.VideoRateMultiplier,
+			VideoModelPrices:                snapshot.Group.VideoModelPrices,
 			VideoPrice480P:                  snapshot.Group.VideoPrice480P,
 			VideoPrice720P:                  snapshot.Group.VideoPrice720P,
 			VideoPrice1080P:                 snapshot.Group.VideoPrice1080P,
