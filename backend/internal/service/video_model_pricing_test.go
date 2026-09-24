@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -100,4 +102,40 @@ func TestCalculateVideoCostUsesPerModelPrice(t *testing.T) {
 
 	cheap := svc.CalculateVideoCost("seedance-2", "480p", 1, 8, cfg, 1)
 	require.InDelta(t, 74*8, cheap.TotalCost, 0.001)
+}
+
+// Exercise the real auth snapshot, Redis JSON round-trip and gateway billing path.
+func TestVideoModelPricingSurvivesAuthCache(t *testing.T) {
+	svc := &APIKeyService{}
+	gid := int64(4)
+	key := &APIKey{ID: 1, UserID: 1, GroupID: &gid, User: &User{ID: 1}, Group: &Group{
+		ID: gid, VideoPrice480P: fl(37), VideoPrice720P: fl(37), VideoPrice1080P: fl(37),
+		VideoModelPrices: map[string]map[string]float64{
+			"kling-v3-omni": {"720p": 71}, "grok-video-1.5": {"480p": 37},
+			"seedance-2": {"480p": 74, "720p": 119, "1080p": 254, "4k": 529},
+		},
+	}}
+	raw, err := json.Marshal(svc.snapshotFromAPIKey(context.Background(), key))
+	require.NoError(t, err)
+	var snapshot APIKeyAuthSnapshot
+	require.NoError(t, json.Unmarshal(raw, &snapshot))
+	cached := svc.snapshotToAPIKey("test-key", &snapshot)
+	require.Equal(t, key.Group.VideoModelPrices, cached.Group.VideoModelPrices)
+	gateway := &OpenAIGatewayService{billingService: &BillingService{}}
+	for _, tc := range []struct {
+		model, resolution string
+		want              float64
+	}{
+		{"kling-v3-omni", "720p", 568}, {"kling-v3-omni", "480p", 568},
+		{"grok-video-1.5", "480p", 296}, {"seedance-2", "4k", 4232},
+	} {
+		t.Run(tc.model+tc.resolution, func(t *testing.T) {
+			result := &OpenAIForwardResult{UpstreamModel: tc.model, VideoCount: 1, VideoResolution: tc.resolution, VideoDurationSeconds: 8}
+			cost := gateway.calculateOpenAIVideoCost(context.Background(), tc.model, cached, result, 1)
+			require.InDelta(t, tc.want, cost.ActualCost, 0.001)
+		})
+	}
+	_, ok, err := svc.applyAuthCacheEntry("test-key", &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{Version: 17}})
+	require.NoError(t, err)
+	require.False(t, ok, "old Redis snapshots must be reloaded from the database")
 }
