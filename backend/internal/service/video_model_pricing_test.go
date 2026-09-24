@@ -135,7 +135,7 @@ func TestVideoModelPricingSurvivesAuthCache(t *testing.T) {
 			require.InDelta(t, tc.want, cost.ActualCost, 0.001)
 		})
 	}
-	_, ok, err := svc.applyAuthCacheEntry("test-key", &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{Version: 17}})
+	_, ok, err := svc.applyAuthCacheEntry("test-key", &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{Version: 18}})
 	require.NoError(t, err)
 	require.False(t, ok, "old Redis snapshots must be reloaded from the database")
 }

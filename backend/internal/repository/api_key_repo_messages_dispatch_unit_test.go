@@ -73,3 +73,25 @@ func TestAPIKeyRepository_GetByKeyForAuth_PreservesMessagesDispatchModelConfig_S
 	require.NotNil(t, got.Group)
 	require.Equal(t, group.MessagesDispatchModelConfig, got.Group.MessagesDispatchModelConfig)
 }
+
+func TestAPIKeyRepository_GetByKeyForAuth_PreservesVideoModelPrices_SQLite(t *testing.T) {
+	repo, client := newAPIKeyRepoSQLite(t)
+	ctx := context.Background()
+	user := mustCreateAPIKeyRepoUser(t, ctx, client, "video-auth-test@example.test")
+	prices := map[string]map[string]float64{"kling-v3-omni": {"720p": 71}, "seedance-2": {"4k": 529}}
+	group, err := client.Group.Create().SetName("video-auth-test").SetPlatform(service.PlatformOpenAI).
+		SetStatus(service.StatusActive).SetSubscriptionType(service.SubscriptionTypeStandard).
+		SetRateMultiplier(1).SetVideoPrice480p(37).SetVideoPrice720p(37).SetVideoPrice1080p(37).
+		SetVideoModelPrices(prices).Save(ctx)
+	require.NoError(t, err)
+	key := &service.APIKey{UserID: user.ID, Key: "test-video-auth-key", Name: "video-auth-test", GroupID: &group.ID, Status: service.StatusActive}
+	require.NoError(t, repo.Create(ctx, key))
+	got, err := repo.GetByKeyForAuth(ctx, key.Key)
+	require.NoError(t, err)
+	require.NotNil(t, got.Group)
+	require.Equal(t, prices, got.Group.VideoModelPrices)
+	billing := &service.BillingService{}
+	cfg := got.Group.VideoModelPricesFor("kling-v3-omni")
+	require.NotNil(t, cfg)
+	require.Equal(t, 568.0, billing.CalculateVideoCost("kling-v3-omni", "720p", 1, 8, cfg, 1).ActualCost)
+}
