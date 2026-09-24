@@ -1,5 +1,5 @@
 <template>
-  <figure class="media-result" :style="{ width: `${isVideo ? 520 : imageWidth}px` }" :aria-busy="loading">
+  <figure class="media-result" :style="{ width: `${isVideo ? videoWidth : imageWidth}px` }" :aria-busy="loading">
     <div v-if="loading" class="media-status" role="status">
       <LoadingSpinner size="sm" />
       <span>{{ t('playground.loadingMedia') }}</span>
@@ -12,7 +12,7 @@
       </button>
     </div>
     <template v-else-if="objectUrl">
-      <video v-if="isVideo" :src="objectUrl" controls preload="metadata" class="result-image" @error="decodeFailed" />
+      <video v-if="isVideo" :src="objectUrl" controls preload="metadata" class="result-image" @loadedmetadata="readVideoDimensions" @error="decodeFailed" />
       <button v-else type="button" class="block w-full" :aria-label="t('playground.openOriginal')" @click="preview?.showModal()">
         <img :src="objectUrl" :alt="t('playground.generatedImage')" class="result-image" @load="readDimensions" @error="decodeFailed" />
       </button>
@@ -48,6 +48,7 @@ const error = ref('')
 const mime = ref('')
 const dimensions = ref('')
 const imageWidth = ref(440)
+const videoWidth = ref(520)
 const preview = ref<HTMLDialogElement | null>(null)
 let request: AbortController | undefined
 const isVideo = computed(() => mime.value.startsWith('video/') || props.kind === 'video')
@@ -66,6 +67,7 @@ async function load() {
   release()
   error.value = ''
   dimensions.value = ''
+  videoWidth.value = 520
   loading.value = true
   try {
     const blob = await fetchMediaBlob(props.src, current.signal)
@@ -85,6 +87,13 @@ function readDimensions(event: Event) {
   dimensions.value = `${img.naturalWidth} × ${img.naturalHeight}`
   if (img.naturalWidth && img.naturalHeight) {
     imageWidth.value = Math.min(520, Math.max(200, 440 * img.naturalWidth / img.naturalHeight))
+  }
+}
+function readVideoDimensions(event: Event) {
+  const video = event.target as HTMLVideoElement
+  if (video.videoWidth > 0 && video.videoHeight > 0) {
+    videoWidth.value = Math.min(520, 440 * video.videoWidth / video.videoHeight)
+    dimensions.value = `${video.videoWidth} × ${video.videoHeight}`
   }
 }
 function decodeFailed() { error.value = t('playground.mediaLoadFailed') }

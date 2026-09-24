@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import MediaResult from './MediaResult.vue'
 import { fetchMediaBlob } from '@/api/playground'
 
@@ -7,6 +7,27 @@ vi.mock('@/api/playground', () => ({ fetchMediaBlob: vi.fn() }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 describe('media result lifecycle', () => {
+  beforeEach(() => vi.mocked(fetchMediaBlob).mockReset())
+
+  it('fits square, landscape and portrait videos inside the player without letterboxing', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:video')
+    URL.revokeObjectURL = vi.fn()
+    HTMLDialogElement.prototype.close = vi.fn()
+    vi.mocked(fetchMediaBlob).mockResolvedValue(new Blob(['video'], { type: 'video/mp4' }))
+    const wrapper = mount(MediaResult, { props: { src: '/api/v1/playground/media/3', kind: 'video', name: 'video' } })
+    await flushPromises()
+    const video = wrapper.get('video')
+    for (const [width, height, expected] of [[960, 960, 440], [1920, 1080, 520], [1080, 1920, 247.5]]) {
+      Object.defineProperty(video.element, 'videoWidth', { configurable: true, value: width })
+      Object.defineProperty(video.element, 'videoHeight', { configurable: true, value: height })
+      await video.trigger('loadedmetadata')
+      expect((wrapper.get('figure').element as HTMLElement).style.width).toBe(`${expected}px`)
+      expect(wrapper.get('figcaption').text()).toContain(`${width} × ${height}`)
+      expect(video.attributes('controls')).toBeDefined()
+    }
+    wrapper.unmount()
+  })
+
   it('shows session errors, retries media only and releases the downloaded blob', async () => {
     URL.createObjectURL = vi.fn(() => 'blob:result')
     URL.revokeObjectURL = vi.fn()
