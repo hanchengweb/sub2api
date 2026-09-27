@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -289,6 +290,42 @@ func ollamaUsageAccount(id int64) *Account {
 		ID: id, Name: fmt.Sprintf("ollama-%d", id), Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"base_url": "https://ollama.com", "api_key": fmt.Sprintf("key-%d", id)},
 		Extra:       map[string]any{}, Status: StatusActive, Schedulable: true, Concurrency: 1,
+	}
+}
+
+// waitForSingleflightWaiters 等到至少 n 个协程停在 singleflight 的重复调用等待上。
+//
+// 并发去重的用例必须先确认后来的调用已经挂进正在进行的那次刷新，再放行上游。
+// 放行早了，第一次调用已经结束、组里的键已删除，后来的调用会自己再发一次上游请求，
+// upstream.calls 变成 2——单核下（-cpu 1）300 次全部失败，4 核下约 1%。
+//
+// 生产代码里没有能观测「已经在等」的位置，所以看协程栈：x/sync 的 singleflight
+// 让重复调用者在 Do 里 c.wg.Wait()，首个调用者则在 doCall 里执行函数。
+func waitForSingleflightWaiters(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	buf := make([]byte, 64<<10)
+	for {
+		size := runtime.Stack(buf, true)
+		if size == len(buf) {
+			buf = make([]byte, len(buf)*2) // 栈太多被截断了，加大缓冲重来
+			continue
+		}
+		waiters := 0
+		for _, stack := range strings.Split(string(buf[:size]), "\n\n") {
+			if strings.Contains(stack, "singleflight.(*Group).Do(") &&
+				strings.Contains(stack, "sync.(*WaitGroup).Wait(") &&
+				!strings.Contains(stack, "singleflight.(*Group).doCall(") {
+				waiters++
+			}
+		}
+		if waiters >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("5 秒内只等到 %d 个 singleflight 等待者，期望至少 %d 个", waiters, n)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -806,6 +843,7 @@ func TestOllamaCloudUsageRefreshSingleflightAndRunnerDeduplicateSharedGroup(t *t
 	go func() { _, err := svc.Refresh(context.Background(), first.ID); errs <- err }()
 	<-started
 	go func() { _, err := svc.Refresh(context.Background(), second.ID); errs <- err }()
+	waitForSingleflightWaiters(t, 1)
 	close(release)
 	require.NoError(t, <-errs)
 	require.NoError(t, <-errs)
@@ -1065,6 +1103,7 @@ func TestOllamaCloudUsageSingleflightConcurrencyAndRunnerSwitches(t *testing.T) 
 		}()
 	}
 	<-entered
+	waitForSingleflightWaiters(t, 1)
 	close(unblock)
 	singleflight.Wait()
 	require.Equal(t, int64(1), upstream.calls.Load())
