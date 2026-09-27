@@ -799,3 +799,44 @@ func newTestChannelServiceForStats(t *testing.T, channel *Channel, groupID int64
 	cs.cache.Store(cache)
 	return cs
 }
+
+// 组合分组的成本行：渠道编辑页没有 composite 栏，成本行只能挂在具体平台下（线上全是 anthropic）。
+// 组合分组必须能匹配上它们，与计费侧口径一致；具体平台的分组仍然互相隔离。
+func TestFindPricingForModel_CompositeGroupAcceptsConcretePlatformRows(t *testing.T) {
+	list := []ChannelModelPricing{
+		{ID: 86, Platform: PlatformAnthropic, Models: []string{"doubao-seedream-5-0-pro"}},
+		{ID: 63, Platform: PlatformOpenAI, Models: []string{"deepseek-v4-flash"}},
+	}
+
+	got := findPricingForModel(list, PlatformComposite, "doubao-seedream-5-0-pro")
+	require.NotNil(t, got, "组合分组要能用挂在 anthropic 下的成本行")
+	require.EqualValues(t, 86, got.ID)
+
+	got = findPricingForModel(list, PlatformComposite, "deepseek-v4-flash")
+	require.NotNil(t, got)
+	require.EqualValues(t, 63, got.ID)
+
+	// 具体平台的分组不受影响：openai 分组不能用 anthropic 的行。
+	require.Nil(t, findPricingForModel(list, PlatformOpenAI, "doubao-seedream-5-0-pro"))
+	// 组合分组也不接受非具体平台的标签。
+	require.Nil(t, findPricingForModel([]ChannelModelPricing{{ID: 1, Platform: PlatformComposite, Models: []string{"x"}}}, PlatformComposite, "x"))
+}
+
+// 端到端：线上规则 2 的形状（分组 4、账号不限、成本行挂 anthropic）在组合分组下要算出成本。
+func TestTryCustomRules_CompositeGroupUsesRuleWithAnthropicRows(t *testing.T) {
+	price := 30.0
+	channel := &Channel{AccountStatsPricingRules: []AccountStatsPricingRule{{
+		GroupIDs: []int64{4},
+		Pricing: []ChannelModelPricing{{
+			Platform:        PlatformAnthropic,
+			BillingMode:     BillingModeImage,
+			Models:          []string{"doubao-seedream-5-0-pro"},
+			PerRequestPrice: &price,
+		}},
+	}}}
+
+	cost := tryCustomRules(channel, 17, 4, PlatformComposite, "doubao-seedream-5-0-pro", UsageTokens{}, 1, mediaStatsContext{})
+
+	require.NotNil(t, cost, "规则 2 在组合分组下必须生效，否则媒体成本会被记成等于收入")
+	require.InDelta(t, 30.0, *cost, 1e-9)
+}

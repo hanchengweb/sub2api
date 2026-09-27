@@ -170,9 +170,19 @@ func findPricingForModel(pricingList []ChannelModelPricing, platform, modelLower
 }
 
 // isPlatformMatch 判断平台是否匹配（空平台视为不限平台）。
+//
+// 组合分组（composite）接受任何具体平台的成本行，与计费侧 isPlatformPricingMatch 同一口径。
+// 组合分组里的模型本来就来自多个平台，而渠道编辑页只按具体平台分栏、没有 composite 这一栏，
+// 成本行只能挂在某个具体平台下保存。原先这里要求平台严格相等，组合分组拿 composite 去比，
+// 一行都匹配不上：线上规则 2 的 34 行（平台全是 anthropic）从配置那天起就没生效过，
+// 媒体调用的成本被记成「等于收入」，deepseek 的成本则落到 LiteLLM 的美元单价上。
+// 只改数据也不行——下次在后台保存渠道，空平台又会被写回 anthropic。
 func isPlatformMatch(queryPlatform, pricingPlatform string) bool {
 	if queryPlatform == "" || pricingPlatform == "" {
 		return true
+	}
+	if queryPlatform == PlatformComposite {
+		return isConcreteRequestPlatform(pricingPlatform)
 	}
 	return queryPlatform == pricingPlatform
 }
