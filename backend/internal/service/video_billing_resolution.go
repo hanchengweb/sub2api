@@ -29,12 +29,6 @@ const (
 	// toAPI 的 grok-video-1.5。
 	toapiVideoMinDurationSeconds = 6
 	toapiVideoMaxDurationSeconds = 30
-
-	// toAPI 的 kling-v3 / kling-v3-omni：时长 3-15 秒，没带时上游默认 5 秒、720P。
-	// 来源：toapis.com/model-guide/kling-v3-omni 参数表（2026-09-27 核对）。
-	klingVideoMinDurationSeconds     = 3
-	klingVideoMaxDurationSeconds     = 15
-	klingVideoDefaultDurationSeconds = 5
 )
 
 // VideoBillingMinDurationSeconds / VideoBillingMaxDurationSeconds 是未知模型的兵底区间，
@@ -45,21 +39,51 @@ const (
 	VideoBillingMaxDurationSeconds = toapiVideoMaxDurationSeconds
 )
 
-// videoDurationBoundsForModel 返回该模型在上游的合法时长区间。
+// videoUpstreamLimit 一个上游视频模型的时长区间，以及请求没带参数时上游的默认值。
 //
-// 注意前缀顺序：grok-imagine-video 必须先判，否则会被 grok-video 误匹配。
-func videoDurationBoundsForModel(model string) (int, int) {
+// DefaultSeconds / DefaultResolution 为零值表示不知道上游默认值，走全局兜底
+// （8 秒 / 最贵档）。AutoIsMax 表示上游支持 duration=-1（自动时长）：上游自己定时长，
+// 最长可能出到上限，所以按上限计费。
+type videoUpstreamLimit struct {
+	Prefix            string
+	MinSeconds        int
+	MaxSeconds        int
+	DefaultSeconds    int
+	DefaultResolution string
+	AutoIsMax         bool
+}
+
+// videoUpstreamLimits 按模型前缀匹配，顺序敏感：grok-imagine-video 要排在 grok-video 前面，
+// 否则会被误匹配。toAPI 的默认值来自 toapis.com/model-guide/<模型> 的参数表（2026-09-27 核对）。
+var videoUpstreamLimits = []videoUpstreamLimit{
+	// 直连 xAI。
+	{Prefix: "grok-imagine-video", MinSeconds: xaiVideoMinDurationSeconds, MaxSeconds: xaiVideoMaxDurationSeconds},
+	// toAPI grok-video-1.5，区间来自 2026-09-08 实测报错。
+	{Prefix: "grok-video", MinSeconds: toapiVideoMinDurationSeconds, MaxSeconds: toapiVideoMaxDurationSeconds},
+	// kling-v3 / kling-v3-omni：3-15 秒，默认 5 秒、720P。
+	{Prefix: "kling-v3", MinSeconds: 3, MaxSeconds: 15, DefaultSeconds: 5, DefaultResolution: VideoBillingResolution720P},
+	// seedance-2-fast：4-15 秒，默认 5 秒、720p，-1 为自动。
+	{Prefix: "seedance-2-fast", MinSeconds: 4, MaxSeconds: 15, DefaultSeconds: 5, DefaultResolution: VideoBillingResolution720P, AutoIsMax: true},
+	// seedance-2-5：4-30 秒，默认 **30 秒**、720p，-1 为自动。没带时长按 8 秒收会每条少收 22 秒。
+	{Prefix: "seedance-2-5", MinSeconds: 4, MaxSeconds: 30, DefaultSeconds: 30, DefaultResolution: VideoBillingResolution720P, AutoIsMax: true},
+}
+
+func videoUpstreamLimitForModel(model string) (videoUpstreamLimit, bool) {
 	m := strings.ToLower(strings.TrimSpace(model))
-	switch {
-	case strings.HasPrefix(m, "grok-imagine-video"):
-		return xaiVideoMinDurationSeconds, xaiVideoMaxDurationSeconds
-	case strings.HasPrefix(m, "grok-video"):
-		return toapiVideoMinDurationSeconds, toapiVideoMaxDurationSeconds
-	case strings.HasPrefix(m, "kling-v3"):
-		return klingVideoMinDurationSeconds, klingVideoMaxDurationSeconds
-	default:
-		return VideoBillingMinDurationSeconds, VideoBillingMaxDurationSeconds
+	for _, limit := range videoUpstreamLimits {
+		if strings.HasPrefix(m, limit.Prefix) {
+			return limit, true
+		}
 	}
+	return videoUpstreamLimit{}, false
+}
+
+// videoDurationBoundsForModel 返回该模型在上游的合法时长区间；不认识的模型用兜底区间。
+func videoDurationBoundsForModel(model string) (int, int) {
+	if limit, ok := videoUpstreamLimitForModel(model); ok {
+		return limit.MinSeconds, limit.MaxSeconds
+	}
+	return VideoBillingMinDurationSeconds, VideoBillingMaxDurationSeconds
 }
 
 // NormalizeVideoBillingDurationSecondsOrDefault 归一化计费用视频时长（不知模型时用兵底区间）。
@@ -68,8 +92,14 @@ func NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds int) int {
 }
 
 // NormalizeVideoBillingDurationForModel 按模型的上游区间归一化计费时长：
-// 未指定（<=0）按该模型上游的默认时长计（kling 5 秒，其余 8 秒），超出区间按边界收敛。
+//   - 自动（-1，仅上游支持时）按区间上限计
+//   - 未指定（<=0）按该模型上游的默认时长计，不知道就按 8 秒
+//   - 超出区间按边界收敛
 func NormalizeVideoBillingDurationForModel(model string, durationSeconds int) int {
+	limit, known := videoUpstreamLimitForModel(model)
+	if durationSeconds < 0 && known && limit.AutoIsMax {
+		return limit.MaxSeconds
+	}
 	if durationSeconds <= 0 {
 		return videoDefaultDurationForModel(model)
 	}
@@ -85,18 +115,19 @@ func NormalizeVideoBillingDurationForModel(model string, durationSeconds int) in
 
 // videoDefaultDurationForModel 请求没带时长时，上游按多少秒出片。
 //
-// 必须和上游一致：我们按 8 秒收、上游只出 5 秒，就是没带时长的请求每次多收 3 秒。
+// 必须和上游一致，两个方向都会错：kling 上游默认 5 秒、按 8 秒收是多收；
+// seedance-2-5 上游默认 30 秒、按 8 秒收是少收。
 func videoDefaultDurationForModel(model string) int {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "kling-v3") {
-		return klingVideoDefaultDurationSeconds
+	if limit, ok := videoUpstreamLimitForModel(model); ok && limit.DefaultSeconds > 0 {
+		return limit.DefaultSeconds
 	}
 	return VideoBillingDefaultDurationSeconds
 }
 
 // videoDefaultResolutionForModel 请求没带分辨率时上游的默认分辨率；不知道就返回空。
 func videoDefaultResolutionForModel(model string) string {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "kling-v3") {
-		return VideoBillingResolution720P
+	if limit, ok := videoUpstreamLimitForModel(model); ok {
+		return limit.DefaultResolution
 	}
 	return ""
 }

@@ -23,6 +23,8 @@ func TestVideoDurationBounds_MatchUpstreamPerModel(t *testing.T) {
 		{"grok-video-1.5", 6, 30},         // toAPI
 		{"kling-v3", 3, 15},               // toAPI，模型说明页参数表
 		{"kling-v3-omni", 3, 15},          // 同上
+		{"seedance-2-fast", 4, 15},        // toAPI，模型说明页参数表
+		{"seedance-2-5", 4, 30},           // 同上
 	}
 	for _, tc := range cases {
 		gotMin, gotMax := videoDurationBoundsForModel(tc.model)
@@ -109,4 +111,36 @@ func TestParseGrokMediaRequestKlingDefaults(t *testing.T) {
 	info = ParseGrokMediaRequest("application/json", []byte(`{"model":"kling-v3-omni","prompt":"x","resolution":"4K","duration":10}`))
 	require.Equal(t, VideoBillingResolution4K, info.Resolution, "显式 4K 照收 4K")
 	require.Equal(t, 10, info.DurationSeconds)
+}
+
+// seedance 的上游默认值：两个方向都会错。
+//   - seedance-2-fast 默认 5 秒：B 端租户不带时长，按 8 秒收是每条多收 3 秒
+//   - seedance-2-5 默认 30 秒：按 8 秒收是每条少收 22 秒
+func TestVideoBillingSeedanceDefaultsFollowUpstream(t *testing.T) {
+	require.Equal(t, 5, NormalizeVideoBillingDurationForModel("seedance-2-fast", 0))
+	require.Equal(t, 30, NormalizeVideoBillingDurationForModel("seedance-2-5", 0))
+	require.Equal(t, VideoBillingResolution720P, NormalizeVideoBillingResolutionForModel("seedance-2-fast", ""))
+	require.Equal(t, VideoBillingResolution720P, NormalizeVideoBillingResolutionForModel("seedance-2-5", ""))
+	require.Equal(t, VideoBillingResolution1080P, NormalizeVideoBillingResolutionForModel("seedance-2-5", "1080p"))
+
+	// -1 是上游的「自动时长」：上游自己定，最长可能出到上限，按上限收。
+	require.Equal(t, 15, NormalizeVideoBillingDurationForModel("seedance-2-fast", -1))
+	require.Equal(t, 30, NormalizeVideoBillingDurationForModel("seedance-2-5", -1))
+	// 上游没声明支持自动的模型，-1 照旧按默认值。
+	require.Equal(t, 5, NormalizeVideoBillingDurationForModel("kling-v3-omni", -1))
+	require.Equal(t, 8, NormalizeVideoBillingDurationForModel("grok-video-1.5", -1))
+
+	// seedance-2 基础款没有核对过上游默认值，维持兜底。
+	require.Equal(t, 8, NormalizeVideoBillingDurationForModel("seedance-2", 0))
+	require.Equal(t, VideoBillingResolution4K, NormalizeVideoBillingResolutionForModel("seedance-2", ""))
+}
+
+// 端到端：B 端租户发的 seedance-2-fast 请求不带分辨率和时长，解析出来是 720p、5 秒。
+func TestParseGrokMediaRequestSeedanceDefaults(t *testing.T) {
+	info := ParseGrokMediaRequest("application/json", []byte(`{"model":"seedance-2-fast","prompt":"x"}`))
+	require.Equal(t, VideoBillingResolution720P, info.Resolution)
+	require.Equal(t, 5, info.DurationSeconds)
+
+	info = ParseGrokMediaRequest("application/json", []byte(`{"model":"seedance-2-5","prompt":"x","duration":-1}`))
+	require.Equal(t, 30, info.DurationSeconds)
 }
