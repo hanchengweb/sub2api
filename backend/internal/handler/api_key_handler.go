@@ -79,23 +79,7 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 		SortOrder: c.DefaultQuery("sort_order", "desc"),
 	}
 
-	// Parse filter parameters
-	var filters service.APIKeyListFilters
-	if search := strings.TrimSpace(c.Query("search")); search != "" {
-		if len(search) > 100 {
-			search = search[:100]
-		}
-		filters.Search = search
-	}
-	filters.Status = c.Query("status")
-	if groupIDStr := c.Query("group_id"); groupIDStr != "" {
-		gid, err := strconv.ParseInt(groupIDStr, 10, 64)
-		if err == nil {
-			filters.GroupID = &gid
-		}
-	}
-
-	keys, result, err := h.apiKeyService.List(c.Request.Context(), subject.UserID, params, filters)
+	keys, result, err := h.apiKeyService.List(c.Request.Context(), subject.UserID, params, userAPIKeyListFilters(c))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -140,6 +124,36 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 
 // Create handles creating a new API key
 // POST /api/v1/api-keys
+// userAPIKeyListFilters 解析用户「API 密钥」列表的筛选参数。
+//
+// 固定排除内部钥匙：网页端「在线使用」那把是系统替用户建的，不该出现在他的列表里。
+func userAPIKeyListFilters(c *gin.Context) service.APIKeyListFilters {
+	filters := service.APIKeyListFilters{ExcludeInternal: true}
+	if search := strings.TrimSpace(c.Query("search")); search != "" {
+		if len(search) > 100 {
+			search = search[:100]
+		}
+		filters.Search = search
+	}
+	filters.Status = c.Query("status")
+	if groupIDStr := c.Query("group_id"); groupIDStr != "" {
+		gid, err := strconv.ParseInt(groupIDStr, 10, 64)
+		if err == nil {
+			filters.GroupID = &gid
+		}
+	}
+	return filters
+}
+
+// rejectReservedAPIKeyName 用户把钥匙起成系统保留名时回 400，返回是否已拒绝。
+func rejectReservedAPIKeyName(c *gin.Context, name string) bool {
+	if !service.IsReservedAPIKeyName(name) {
+		return false
+	}
+	response.BadRequest(c, "「"+service.PlaygroundKeyName+"」是系统保留名称，请换一个名字")
+	return true
+}
+
 func (h *APIKeyHandler) Create(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -150,6 +164,9 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	var req CreateAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if rejectReservedAPIKeyName(c, req.Name) {
 		return
 	}
 
@@ -201,6 +218,9 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	var req UpdateAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if rejectReservedAPIKeyName(c, req.Name) {
 		return
 	}
 

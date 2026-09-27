@@ -393,6 +393,9 @@ func (r *apiKeyRepository) deleteWithTombstone(ctx context.Context, exec *dbent.
 
 func (r *apiKeyRepository) apiKeyListByUserIDQuery(userID int64, filters service.APIKeyListFilters) *dbent.APIKeyQuery {
 	q := r.activeQuery().Where(apikey.UserIDEQ(userID))
+	if filters.ExcludeInternal {
+		q = q.Where(apikey.NameNEQ(service.PlaygroundKeyName))
+	}
 
 	if filters.Search != "" {
 		q = q.Where(apikey.Or(

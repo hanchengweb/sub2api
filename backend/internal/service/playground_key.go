@@ -6,10 +6,19 @@ import (
 	"strings"
 )
 
-// PlaygroundKeyName 网页端「在线使用」自动建的密钥名。
+// PlaygroundKeyName 网页端「在线使用」自动建的内部钥匙名，同时是保留名。
 //
-// 和侧边栏的页面名一致，用户在密钥列表里一眼能认出它是从哪来的。
+// 网页端要拿用户的某把钥匙走网关计费，所以充过值、又没建过钥匙的用户第一次使用时，
+// 系统替他建这一把。它**不出现在用户的「API 密钥」列表里**：用户只该看到自己建的钥匙，
+// 一把来路不明的钥匙只会让人困惑（注册送的「试用密钥」就是这么被删掉的）。
+// 靠名字识别，所以用户不能把自己的钥匙起成这个名字，见 IsReservedAPIKeyName。
 const PlaygroundKeyName = "在线使用"
+
+// IsReservedAPIKeyName 是否为系统保留的钥匙名。用户侧新建、改名都要拒绝：
+// 撞了名，用户自己的钥匙会从列表里消失。
+func IsReservedAPIKeyName(name string) bool {
+	return strings.TrimSpace(name) == PlaygroundKeyName
+}
 
 // SettingPlaygroundKeyGroupID 「在线使用」自动建钥匙时绑定的分组。
 //

@@ -142,4 +142,8 @@ type APIKeyListFilters struct {
 	Search  string
 	Status  string
 	GroupID *int64 // nil=不筛选, 0=无分组, >0=指定分组
+
+	// ExcludeInternal 排除系统替用户建的内部钥匙（目前只有网页端「在线使用」那把）。
+	// 只有用户自己的「API 密钥」列表要开；在线使用页取钥匙时必须看得见它。
+	ExcludeInternal bool
 }

@@ -43,3 +43,13 @@ func TestPlaygroundKeyGroupID(t *testing.T) {
 func TestPlaygroundKeyGroupSettingKeepsLegacyKey(t *testing.T) {
 	require.Equal(t, "signup_trial_key_group_id", SettingPlaygroundKeyGroupID)
 }
+
+// 保留名判断：撞了名，用户自己的钥匙会从列表里消失，所以新建和改名都要拒绝。
+func TestIsReservedAPIKeyName(t *testing.T) {
+	for _, name := range []string{"在线使用", " 在线使用 "} {
+		require.True(t, IsReservedAPIKeyName(name), name)
+	}
+	for _, name := range []string{"", "在线使用1", "我的在线使用", "风合智联桌面端", "默认密钥"} {
+		require.False(t, IsReservedAPIKeyName(name), name)
+	}
+}
