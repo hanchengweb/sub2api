@@ -16,6 +16,8 @@ ARG GOSUMDB=sum.golang.google.cn
 # Stage 1: Frontend Builder
 # -----------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS frontend-builder
+# npm 源。留空走官方源；发布脚本传国内镜像，见下面装依赖那一步。
+ARG NPM_REGISTRY=
 
 WORKDIR /app/frontend
 # vue-tsc + vite build 的峰值堆已超过 1536MB：2026-09-07 在 14GB 内存的构建机上
@@ -27,11 +29,28 @@ ENV NODE_OPTIONS=--max-old-space-size=4096
 
 # Install pnpm. Keep this pinned to the lockfile-compatible major version so
 # Docker builds remain reproducible when pnpm changes config validation rules.
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+# corepack 下载 pnpm 本身也走 npm 源，一并换。
+RUN corepack enable \
+    && if [ -n "$NPM_REGISTRY" ]; then \
+         COREPACK_NPM_REGISTRY="$NPM_REGISTRY" corepack prepare pnpm@9.15.9 --activate \
+         || corepack prepare pnpm@9.15.9 --activate; \
+       else \
+         corepack prepare pnpm@9.15.9 --activate; \
+       fi
 
 # Install dependencies first (better caching)
+# 依赖换国内源。这层缓存每次发布成功后都会被清悬空镜像一并删掉（旧版构建器的缓存
+# 就是中间镜像），所以每次发布都是冷装。生产机在杭州，官方源走跨境线路：2026-09-27
+# 一次发布在这一步卡了 30 多分钟（实测 12~108 KB/s），同一台机器上 npmmirror 8.7 MB/s。
+# lockfile 里的包都带 sha512 完整性校验、没有写死下载地址，换源不改变装到的内容——
+# 镜像站给错包会校验失败，不会被装进去。镜像站故障时退回官方源重装，不让换源成为新的单点。
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN if [ -n "$NPM_REGISTRY" ]; then \
+      (pnpm config set registry "$NPM_REGISTRY" && pnpm install --frozen-lockfile) \
+      || (pnpm config delete registry; pnpm install --frozen-lockfile); \
+    else \
+      pnpm install --frozen-lockfile; \
+    fi
 
 # Copy frontend source and build.
 # LegalDocumentView.vue (admin-compliance gate) build-time imports

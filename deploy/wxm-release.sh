@@ -43,6 +43,9 @@ VERSION="${WXM_VERSION:-0.1.165}"
 PREFIX="${WXM_TAG_PREFIX:-sub2api:${VERSION}-wxm2}"
 MIRROR="docker.m.daocloud.io/library"
 GO_IMAGE="${WXM_GO_IMAGE:-$MIRROR/golang:1.26.5-alpine}"
+# 前端依赖的 npm 源。每次发布都是冷装（缓存随悬空镜像一起清掉），官方源走跨境线路
+# 时快时慢，2026-09-27 一次卡了 30 多分钟。设成空串就退回官方源。
+NPM_REGISTRY="${WXM_NPM_REGISTRY-https://registry.npmmirror.com}"
 # Go 模块与构建缓存挂持久卷。实测：冷 10m22s~10m53s → 热 9m06s，只省 15%。
 # 大头不是下模块而是编译 + 跑测（internal/service 单包 157s）。卷确实在用（模块
 # 868M，构建缓存 2.1G / 约 1 万条目），所以剩下的时间就是真活，不是缓存未命中。
@@ -308,6 +311,7 @@ cd $WORK && exec docker build -t '$TAG' \
   --build-arg GOLANG_IMAGE=$MIRROR/golang:1.26.5-alpine \
   --build-arg ALPINE_IMAGE=$MIRROR/alpine:3.21 \
   --build-arg GOPROXY=https://goproxy.cn,direct --build-arg GOSUMDB=sum.golang.google.cn \
+  --build-arg NPM_REGISTRY='$NPM_REGISTRY' \
   -f deploy/Dockerfile .
 BUILDSH
   then
