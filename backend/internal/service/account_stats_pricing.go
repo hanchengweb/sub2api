@@ -276,19 +276,32 @@ func applyAccountStatsCost(
 	if usageLog != nil && usageLog.ImageCount > 0 {
 		requestCount = usageLog.ImageCount
 	}
-	media := mediaStatsContext{}
-	if usageLog != nil {
-		if usageLog.ImageSize != nil {
-			media.SizeTier = strings.TrimSpace(*usageLog.ImageSize)
-		}
-		// 视频才有时长；有时长就按秒算。图片路径这个字段为空，不受影响。
-		if usageLog.VideoDurationSeconds != nil && *usageLog.VideoDurationSeconds > 0 {
-			media.DurationSeconds = *usageLog.VideoDurationSeconds
-		}
-	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, media,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, accountStatsMediaContext(usageLog),
 	)
+}
+
+// accountStatsMediaContext 从用量记录取成本计算要用的档位和时长。
+//
+// 视频没有图片档位，就用视频分辨率（720p/1080p/4k）当档位：视频成本按分辨率能差好几倍
+// （kling-v3-omni 每秒 720P 42、1080P 56、4K 210 积分），不分档就只能配一个扁平价，
+// 4K 会被算成 720P 的成本。成本行按分辨率配分档即可；没配分档照旧用扁平价，行为不变。
+func accountStatsMediaContext(usageLog *UsageLog) mediaStatsContext {
+	media := mediaStatsContext{}
+	if usageLog == nil {
+		return media
+	}
+	if usageLog.ImageSize != nil {
+		media.SizeTier = strings.TrimSpace(*usageLog.ImageSize)
+	}
+	if media.SizeTier == "" && usageLog.VideoResolution != nil {
+		media.SizeTier = strings.TrimSpace(*usageLog.VideoResolution)
+	}
+	// 视频才有时长；有时长就按秒算。图片路径这个字段为空，不受影响。
+	if usageLog.VideoDurationSeconds != nil && *usageLog.VideoDurationSeconds > 0 {
+		media.DurationSeconds = *usageLog.VideoDurationSeconds
+	}
+	return media
 }
 
 // applyStatsTimePricing 给成本套上时段折扣。

@@ -840,3 +840,42 @@ func TestTryCustomRules_CompositeGroupUsesRuleWithAnthropicRows(t *testing.T) {
 	require.NotNil(t, cost, "规则 2 在组合分组下必须生效，否则媒体成本会被记成等于收入")
 	require.InDelta(t, 30.0, *cost, 1e-9)
 }
+
+// 视频按分辨率分档计成本：kling-v3-omni 每秒 720P 42、1080P 56、4K 210。
+func TestAccountStatsVideoCostByResolution(t *testing.T) {
+	flat, c720, c1080, c4k := 42.0, 42.0, 56.0, 210.0
+	pricing := &ChannelModelPricing{
+		BillingMode:     BillingModeImage,
+		Models:          []string{"kling-v3-omni"},
+		PerRequestPrice: &flat,
+		Intervals: []PricingInterval{
+			{TierLabel: "720p", PerRequestPrice: &c720},
+			{TierLabel: "1080p", PerRequestPrice: &c1080},
+			{TierLabel: "4k", PerRequestPrice: &c4k},
+		},
+	}
+	video := func(res string, seconds int) *UsageLog {
+		return &UsageLog{ImageCount: 1, VideoResolution: &res, VideoDurationSeconds: &seconds}
+	}
+	for _, tc := range []struct {
+		log  *UsageLog
+		want float64
+	}{
+		{video("720p", 8), 42 * 8},
+		{video("1080p", 5), 56 * 5},
+		{video("4k", 5), 210 * 5},
+		{video("480p", 5), 42 * 5}, // 没配这一档：回落到扁平价
+	} {
+		cost := calculateStatsCost(pricing, UsageTokens{}, 1, accountStatsMediaContext(tc.log))
+		require.NotNil(t, cost)
+		require.InDelta(t, tc.want, *cost, 1e-9, *tc.log.VideoResolution)
+	}
+}
+
+// 图片照旧按图片档位；有图片档位时不被视频分辨率覆盖。
+func TestAccountStatsMediaContextPrefersImageSize(t *testing.T) {
+	size, res := "2K·高", "720p"
+	media := accountStatsMediaContext(&UsageLog{ImageSize: &size, VideoResolution: &res})
+	require.Equal(t, "2K·高", media.SizeTier)
+	require.Equal(t, mediaStatsContext{}, accountStatsMediaContext(nil))
+}
