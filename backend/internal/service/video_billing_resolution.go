@@ -29,6 +29,12 @@ const (
 	// toAPI 的 grok-video-1.5。
 	toapiVideoMinDurationSeconds = 6
 	toapiVideoMaxDurationSeconds = 30
+
+	// toAPI 的 kling-v3 / kling-v3-omni：时长 3-15 秒，没带时上游默认 5 秒、720P。
+	// 来源：toapis.com/model-guide/kling-v3-omni 参数表（2026-09-27 核对）。
+	klingVideoMinDurationSeconds     = 3
+	klingVideoMaxDurationSeconds     = 15
+	klingVideoDefaultDurationSeconds = 5
 )
 
 // VideoBillingMinDurationSeconds / VideoBillingMaxDurationSeconds 是未知模型的兵底区间，
@@ -49,6 +55,8 @@ func videoDurationBoundsForModel(model string) (int, int) {
 		return xaiVideoMinDurationSeconds, xaiVideoMaxDurationSeconds
 	case strings.HasPrefix(m, "grok-video"):
 		return toapiVideoMinDurationSeconds, toapiVideoMaxDurationSeconds
+	case strings.HasPrefix(m, "kling-v3"):
+		return klingVideoMinDurationSeconds, klingVideoMaxDurationSeconds
 	default:
 		return VideoBillingMinDurationSeconds, VideoBillingMaxDurationSeconds
 	}
@@ -60,10 +68,10 @@ func NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds int) int {
 }
 
 // NormalizeVideoBillingDurationForModel 按模型的上游区间归一化计费时长：
-// 未指定（<=0）按上游默认 8 秒计，超出区间按边界收敛。
+// 未指定（<=0）按该模型上游的默认时长计（kling 5 秒，其余 8 秒），超出区间按边界收敛。
 func NormalizeVideoBillingDurationForModel(model string, durationSeconds int) int {
 	if durationSeconds <= 0 {
-		return VideoBillingDefaultDurationSeconds
+		return videoDefaultDurationForModel(model)
 	}
 	minSeconds, maxSeconds := videoDurationBoundsForModel(model)
 	if durationSeconds < minSeconds {
@@ -73,6 +81,39 @@ func NormalizeVideoBillingDurationForModel(model string, durationSeconds int) in
 		return maxSeconds
 	}
 	return durationSeconds
+}
+
+// videoDefaultDurationForModel 请求没带时长时，上游按多少秒出片。
+//
+// 必须和上游一致：我们按 8 秒收、上游只出 5 秒，就是没带时长的请求每次多收 3 秒。
+func videoDefaultDurationForModel(model string) int {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "kling-v3") {
+		return klingVideoDefaultDurationSeconds
+	}
+	return VideoBillingDefaultDurationSeconds
+}
+
+// videoDefaultResolutionForModel 请求没带分辨率时上游的默认分辨率；不知道就返回空。
+func videoDefaultResolutionForModel(model string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "kling-v3") {
+		return VideoBillingResolution720P
+	}
+	return ""
+}
+
+// NormalizeVideoBillingResolutionForModel 按模型归一化计费分辨率。
+//
+// 请求**没带**分辨率时，上游会按它自己的默认分辨率出片，按最贵档收就是多收——
+// kling-v3-omni 上游默认 720P（成本每秒 42），4K 档成本是 210。所以只要知道该模型的
+// 上游默认值，没带就按它计。带了但认不出来的值仍按最贵档兜底，不放宽。
+// 不认识的模型也照旧按最贵档。
+func NormalizeVideoBillingResolutionForModel(model, resolution string) string {
+	if strings.TrimSpace(resolution) == "" {
+		if def := videoDefaultResolutionForModel(model); def != "" {
+			return def
+		}
+	}
+	return NormalizeVideoBillingResolutionOrDefault(resolution)
 }
 
 func NormalizeVideoBillingResolutionOrDefault(resolution string) string {

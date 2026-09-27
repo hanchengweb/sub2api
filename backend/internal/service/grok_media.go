@@ -144,7 +144,7 @@ func ParseGrokMediaRequest(contentType string, body []byte) GrokMediaRequestInfo
 	// 下一行会把 resolution 改成 480p/720p/1080p，图片的 "1k" 就没了。
 	info.SizeTier = ImageBillingTierWithQuality(
 		ResolveImageBillingTier(info.Size, info.Resolution), info.Quality)
-	info.Resolution = NormalizeVideoBillingResolutionOrDefault(info.Resolution)
+	info.Resolution = NormalizeVideoBillingResolutionForModel(info.Model, info.Resolution)
 	info.DurationSeconds = NormalizeVideoBillingDurationForModel(info.Model, info.DurationSeconds)
 	if info.N <= 0 {
 		info.N = 1

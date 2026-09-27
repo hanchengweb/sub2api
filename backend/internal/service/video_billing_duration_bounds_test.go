@@ -21,6 +21,8 @@ func TestVideoDurationBounds_MatchUpstreamPerModel(t *testing.T) {
 		{"grok-imagine-video", 1, 15},     // 直连 xAI
 		{"grok-imagine-video-1.5", 1, 15}, // 同上，带版本号
 		{"grok-video-1.5", 6, 30},         // toAPI
+		{"kling-v3", 3, 15},               // toAPI，模型说明页参数表
+		{"kling-v3-omni", 3, 15},          // 同上
 	}
 	for _, tc := range cases {
 		gotMin, gotMax := videoDurationBoundsForModel(tc.model)
@@ -78,4 +80,33 @@ func TestVideoBillingDuration_DefaultValidEverywhere(t *testing.T) {
 		require.GreaterOrEqual(t, VideoBillingDefaultDurationSeconds, lo, "%s 默认值低于下限会被上游拒", m)
 		require.LessOrEqual(t, VideoBillingDefaultDurationSeconds, hi, "%s 默认值高于上限", m)
 	}
+}
+
+// 请求没带参数时按上游默认值计费：kling 上游默认 5 秒、720P（toAPI 模型说明页）。
+// 按 8 秒、4K 收就是对没带参数的请求多收（4K 档每秒成本 210，720P 只有 42）。
+func TestVideoBillingDefaultsFollowUpstream(t *testing.T) {
+	require.Equal(t, 5, NormalizeVideoBillingDurationForModel("kling-v3-omni", 0))
+	require.Equal(t, 15, NormalizeVideoBillingDurationForModel("kling-v3-omni", 20))
+	require.Equal(t, 3, NormalizeVideoBillingDurationForModel("kling-v3-omni", 2))
+	require.Equal(t, 8, NormalizeVideoBillingDurationForModel("grok-video-1.5", 0), "其它模型不受影响")
+
+	require.Equal(t, VideoBillingResolution720P, NormalizeVideoBillingResolutionForModel("kling-v3-omni", ""))
+	require.Equal(t, VideoBillingResolution720P, NormalizeVideoBillingResolutionForModel("kling-v3", "  "))
+	require.Equal(t, VideoBillingResolution1080P, NormalizeVideoBillingResolutionForModel("kling-v3-omni", "1080P"))
+	// 带了但认不出来：仍按最贵档兜底，不因为上游有默认值就放宽。
+	require.Equal(t, VideoBillingResolution4K, NormalizeVideoBillingResolutionForModel("kling-v3-omni", "2k"))
+	// 不知道上游默认值的模型照旧按最贵档。
+	require.Equal(t, VideoBillingResolution4K, NormalizeVideoBillingResolutionForModel("grok-video-1.5", ""))
+	require.Equal(t, VideoBillingResolution4K, NormalizeVideoBillingResolutionForModel("", ""))
+}
+
+// 端到端：客户端没带分辨率和时长的 kling 请求，解析出来就是上游默认值。
+func TestParseGrokMediaRequestKlingDefaults(t *testing.T) {
+	info := ParseGrokMediaRequest("application/json", []byte(`{"model":"kling-v3-omni","prompt":"x"}`))
+	require.Equal(t, VideoBillingResolution720P, info.Resolution)
+	require.Equal(t, 5, info.DurationSeconds)
+
+	info = ParseGrokMediaRequest("application/json", []byte(`{"model":"kling-v3-omni","prompt":"x","resolution":"4K","duration":10}`))
+	require.Equal(t, VideoBillingResolution4K, info.Resolution, "显式 4K 照收 4K")
+	require.Equal(t, 10, info.DurationSeconds)
 }

@@ -1462,7 +1462,7 @@ func (s *BillingService) CalculateVideoCost(model string, resolution string, vid
 	if videoCount <= 0 {
 		return &CostBreakdown{}
 	}
-	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
+	resolution = NormalizeVideoBillingResolutionForModel(model, resolution)
 	durationSeconds = NormalizeVideoBillingDurationForModel(model, durationSeconds)
 
 	perSecondPrice := s.getVideoUnitPrice(model, resolution, groupConfig)
