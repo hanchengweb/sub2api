@@ -500,6 +500,20 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 }
 
 // List 获取用户的API Key列表
+// UserBalance 读用户当前余额（积分）。
+//
+// 「在线使用」页决定要不要给用户建钥匙时用：余额为 0 的用户不建，直接提示充值。
+func (s *APIKeyService) UserBalance(ctx context.Context, userID int64) (float64, error) {
+	if s == nil || s.userRepo == nil {
+		return 0, infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "api key service is unavailable")
+	}
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	return user.Balance, nil
+}
+
 func (s *APIKeyService) List(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
 	if normalizedAPIKeySortBy(params.SortBy) == apiKeySortCurrentConcurrency {
 		return s.listByCurrentConcurrency(ctx, userID, params, filters)

@@ -86,10 +86,11 @@
                 <p v-if="msg.error" class="mt-1 text-xs text-red-500">{{ msg.error }}</p>
                 <RouterLink
                   v-if="msg.needsTopUp"
-                  to="/redeem"
+                  :to="topUpRoute"
+                  data-testid="bubble-topup-link"
                   class="mt-1 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-300"
                 >
-                  <Icon name="gift" size="xs" />{{ t('playground.goRedeem') }}
+                  <Icon :name="paymentEnabled ? 'creditCard' : 'gift'" size="xs" />{{ topUpLabel }}
                 </RouterLink>
               </div>
             </div>
@@ -103,6 +104,21 @@
 
         <!-- 输入区 -->
         <footer class="shrink-0 border-t border-gray-100 p-3 dark:border-dark-700">
+          <!-- 余额为 0（注册不送积分）时常驻：先告诉用户该去哪，而不是让他写完提示词、
+               发出去失败了才知道。模型列表照常可看，方便他先挑好再去充值。 -->
+          <div
+            v-if="balanceIsEmpty"
+            data-testid="topup-banner"
+            role="status"
+            class="pg-column pg-topup"
+            :class="{ 'pg-topup--flash': topUpFlash }"
+          >
+            <Icon name="creditCard" size="sm" class="shrink-0 text-primary-500" />
+            <span class="min-w-0 flex-1">{{ t('playground.topUpBanner') }}</span>
+            <RouterLink :to="topUpRoute" data-testid="topup-link" class="btn btn-primary btn-sm shrink-0">
+              {{ topUpLabel }}
+            </RouterLink>
+          </div>
           <div class="pg-column rounded-lg border border-gray-200 p-2 dark:border-dark-600">
             <div v-if="costHint" class="mb-2 px-2 text-right text-xs text-gray-500 dark:text-gray-300">{{ costHint }}</div>
             <textarea
@@ -278,6 +294,7 @@ import {
   type PlaygroundMode
 } from '@/utils/playgroundStore'
 import { useAuthStore } from '@/stores/auth'
+import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { formatCredits } from '@/utils/format'
 import { resolveModelVendor } from '@/utils/modelVendor'
 import { resolveModelLabel } from '@/utils/modelDisplayName'
@@ -286,6 +303,31 @@ import { BILLING_MODE_TOKEN } from '@/constants/channel'
 const { t } = useI18n()
 const authStore = useAuthStore()
 const route = useRoute()
+
+// ---- 余额引导 ----
+// 注册不送积分，余额为 0 是新用户打开这页时最常见的状态。
+// 只拦「余额为 0」这一种肯定用不了的情况；余额不为 0 但不够这一次的，
+// 交给服务端判断（它按真实价格算），前端不按估算误拦。
+function currentBalanceIsEmpty(): boolean {
+  const balance = authStore.user?.balance
+  return typeof balance === 'number' && balance <= 0
+}
+const balanceIsEmpty = computed(() => currentBalanceIsEmpty())
+// 充值关着的站点（只开了兑换码）退回兑换页，不能把人带到一个进不去的页面。
+const paymentEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.payment))
+const topUpRoute = computed(() => (paymentEnabled.value ? '/purchase' : '/redeem'))
+const topUpLabel = computed(() => t(paymentEnabled.value ? 'playground.goRecharge' : 'playground.goRedeem'))
+const topUpFlash = ref(false)
+let topUpFlashTimer: ReturnType<typeof setTimeout> | undefined
+function flashTopUp() {
+  topUpFlash.value = false
+  if (topUpFlashTimer) clearTimeout(topUpFlashTimer)
+  // 先复位再置位，连续点发送时动画也能重新播放一次。
+  void nextTick(() => {
+    topUpFlash.value = true
+    topUpFlashTimer = setTimeout(() => { topUpFlash.value = false }, 1200)
+  })
+}
 
 // as const 是必需的：Icon 的 name 是字面量联合类型，推成宽 string 会类型不匹配。
 const modes = [
@@ -739,6 +781,18 @@ async function submit() {
   const text = draft.value.trim()
   if (!text || busy.value || !selectedModel.value) return
 
+  if (currentBalanceIsEmpty()) {
+    // 先刷一次余额再下结论：用户可能刚在另一个标签页充完值，本页的余额还是旧的，
+    // 这时候拦下来等于把付了钱的人挡在门外。
+    await authStore.refreshUser().catch(() => {})
+    if (currentBalanceIsEmpty()) {
+      // 发出去也只会失败：不发请求、草稿原样保留，把引导条闪一下，
+      // 而不是在对话里多一条失败记录。
+      flashTopUp()
+      return
+    }
+  }
+
   const conv = ensureConversation()
   conv.mode = mode.value
   conv.model = selectedModel.value
@@ -1054,6 +1108,8 @@ async function resumePendingTasks() {
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
+  // 从充值页回来时引导条要立刻消失，不能等顶栏那 60 秒一次的自动刷新。
+  void authStore.refreshUser().catch(() => {})
   // 从模型广场「去体验」跳过来时带着 ?model=&mode=，直接落到那个模型，
   // 省得用户在下拉里再找一遍。模型名对不上就忽略，不要报错吓人。
   const wantedMode = String(route.query.mode ?? '')
@@ -1122,6 +1178,10 @@ onBeforeUnmount(() => {
    宽屏（工作区可达 1500px 以上）下用户气泡贴最右、回复贴最左，中间空出一大片，
    看着不像同一轮对话。输入区共用这个宽度，上下两块边缘才对得齐。 */
 .pg-column { width: 100%; max-width: 56rem; margin-inline: auto; }
+.pg-topup { @apply mb-2 flex items-center gap-2 rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-gray-700 transition-shadow dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-gray-200; }
+/* 点发送被拦下时闪一圈主题色描边：配合 .pg-topup 的 transition-shadow 淡入淡出，减少动效偏好下只有描边没有过渡。 */
+.pg-topup--flash { @apply ring-2 ring-primary-400 ring-offset-1 dark:ring-offset-dark-800; }
+@media (prefers-reduced-motion: reduce) { .pg-topup { transition: none; } }
 .pg-ref-add { @apply inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:border-primary-400 hover:text-primary-600 disabled:opacity-50 dark:border-dark-600 dark:text-gray-300; }
 .pg-ref-chip { @apply inline-flex max-w-xs items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 py-1 pl-1 pr-1.5 text-xs text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200; }
 .pg-results { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: 12px; margin-top: 8px; }

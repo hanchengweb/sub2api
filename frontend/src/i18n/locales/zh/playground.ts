@@ -51,6 +51,8 @@ export default {
     openOriginal: '查看原图',
     insufficientBalance: '积分余额不足，无法发起本次调用',
     goRedeem: '去兑换积分',
+    goRecharge: '去充值',
+    topUpBanner: '账户积分为 0，充值后即可使用在线对话、画图和视频',
     paramQuality: '质量',
     qualityLow: '低',
     qualityMedium: '中',

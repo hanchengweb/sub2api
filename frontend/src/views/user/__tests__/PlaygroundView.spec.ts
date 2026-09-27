@@ -5,7 +5,7 @@ import { nextTick } from 'vue'
 import PlaygroundView from '../PlaygroundView.vue'
 import Select from '@/components/common/Select.vue'
 
-const { listModels, streamChat, createImageTask, getImageTask, createVideoTask, getVideoTask, getModelPlaza, refreshUser, fetchMediaBlob } =
+const { listModels, streamChat, createImageTask, getImageTask, createVideoTask, getVideoTask, getModelPlaza, refreshUser, fetchMediaBlob, authUser, appSettings } =
   vi.hoisted(() => ({
     listModels: vi.fn(),
     streamChat: vi.fn(),
@@ -16,6 +16,9 @@ const { listModels, streamChat, createImageTask, getImageTask, createVideoTask, 
     getModelPlaza: vi.fn(),
     refreshUser: vi.fn(),
     fetchMediaBlob: vi.fn(),
+    // 余额和功能开关做成可变的，余额引导那几条用例要改它们。
+    authUser: { balance: 1000 } as { balance: number },
+    appSettings: { payment_enabled: true } as Record<string, unknown>,
   }))
 
 vi.mock('@/api/playground', async () => {
@@ -42,7 +45,12 @@ vi.mock('vue-router', async () => {
 })
 
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ user: { balance: 1000 }, refreshUser }),
+  useAuthStore: () => ({ user: authUser, refreshUser }),
+}))
+
+// 功能开关读 appStore（Pinia），测试没装 Pinia，给个只带公开设置的桩。
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => ({ cachedPublicSettings: appSettings }),
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -107,6 +115,8 @@ async function send(wrapper: ReturnType<typeof mountView>, text: string) {
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  authUser.balance = 1000
+  appSettings.payment_enabled = true
   refreshUser.mockResolvedValue({})
   fetchMediaBlob.mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
   URL.createObjectURL = vi.fn(() => 'blob:authenticated-result')
@@ -258,6 +268,8 @@ describe('PlaygroundView', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    // 挂载时本来就会刷一次；清掉它，这条只验证「调用结束后」那一次。
+    refreshUser.mockClear()
     await send(wrapper, '在吗')
 
     expect(refreshUser).toHaveBeenCalled()
@@ -267,7 +279,7 @@ describe('PlaygroundView', () => {
    * 注册不再自动送积分后，新用户第一次调用几乎必然撞上这条。
    * 网关回的是英文 "Insufficient account balance"，不能原样丢给用户看。
    */
-  it('余额不足给中文引导和兑换入口，不是英文原文', async () => {
+  it('余额不足给中文引导和充值入口，不是英文原文', async () => {
     const err = Object.assign(new Error('Insufficient account balance'), {
       code: 'INSUFFICIENT_BALANCE',
     })
@@ -279,7 +291,69 @@ describe('PlaygroundView', () => {
 
     expect(wrapper.text()).toContain('playground.insufficientBalance')
     expect(wrapper.text()).not.toContain('Insufficient account balance')
-    expect(wrapper.find('a[href="/redeem"]').exists()).toBe(true)
+    const link = wrapper.find('[data-testid="bubble-topup-link"]')
+    expect(link.attributes('href')).toBe('/purchase')
+    expect(link.text()).toContain('playground.goRecharge')
+  })
+
+  describe('余额引导', () => {
+    it('余额为 0：输入框上方常驻充值引导，指向充值页', async () => {
+      authUser.balance = 0
+      const wrapper = mountView()
+      await flushPromises()
+
+      const banner = wrapper.find('[data-testid="topup-banner"]')
+      expect(banner.exists()).toBe(true)
+      expect(banner.text()).toContain('playground.topUpBanner')
+      expect(wrapper.find('[data-testid="topup-link"]').attributes('href')).toBe('/purchase')
+    })
+
+    it('余额为 0 时点发送：不发请求、草稿保留、引导条闪一下', async () => {
+      authUser.balance = 0
+      const wrapper = mountView()
+      await flushPromises()
+
+      await send(wrapper, '画一只猫')
+
+      expect(streamChat).not.toHaveBeenCalled()
+      expect(createImageTask).not.toHaveBeenCalled()
+      expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('画一只猫')
+      expect(wrapper.find('[data-testid="topup-banner"]').classes()).toContain('pg-topup--flash')
+    })
+
+    it('刚在别处充完值（本页余额还是旧的）：刷新后照常发送', async () => {
+      authUser.balance = 0
+      let calls = 0
+      // 第一次是挂载时的刷新，第二次才是点发送时那次——只有它把余额刷上来。
+      refreshUser.mockImplementation(async () => {
+        calls += 1
+        if (calls >= 2) authUser.balance = 500
+      })
+      streamChat.mockResolvedValue(undefined)
+      const wrapper = mountView()
+      await flushPromises()
+
+      await send(wrapper, '在吗')
+
+      expect(streamChat).toHaveBeenCalledTimes(1)
+    })
+
+    it('有余额时不显示引导条', async () => {
+      const wrapper = mountView()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="topup-banner"]').exists()).toBe(false)
+    })
+
+    it('充值没开的站点退回兑换页，不把人带到进不去的页面', async () => {
+      authUser.balance = 0
+      appSettings.payment_enabled = false
+      const wrapper = mountView()
+      await flushPromises()
+
+      const link = wrapper.find('[data-testid="topup-link"]')
+      expect(link.attributes('href')).toBe('/redeem')
+      expect(link.text()).toContain('playground.goRedeem')
+    })
   })
 
   it('调用失败时把错误显示在消息流里，而不是静默吞掉', async () => {

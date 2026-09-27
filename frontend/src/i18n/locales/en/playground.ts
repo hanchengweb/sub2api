@@ -51,6 +51,8 @@ export default {
     openOriginal: 'Open original',
     insufficientBalance: 'Not enough credits to make this request',
     goRedeem: 'Redeem credits',
+    goRecharge: 'Top up',
+    topUpBanner: 'Your credit balance is 0. Top up to use chat, image and video here.',
     paramQuality: 'Quality',
     qualityLow: 'Low',
     qualityMedium: 'Medium',

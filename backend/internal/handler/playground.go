@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -47,7 +48,7 @@ const playgroundUploadMaxBody = (10 << 20) + 64<<10
 // 两套计费口径，而同一件事两套口径正是这个项目反复出问题的根源。
 type PlaygroundHandler struct {
 	engine         *gin.Engine
-	apiKeyService  *service.APIKeyService
+	apiKeyService  playgroundKeyStore
 	settingService *service.SettingService
 	mediaService   *service.PlaygroundMediaService
 	convService    *service.PlaygroundConversationService
@@ -60,24 +61,45 @@ func NewPlaygroundHandler(
 	mediaService *service.PlaygroundMediaService,
 	convService *service.PlaygroundConversationService,
 ) *PlaygroundHandler {
-	return &PlaygroundHandler{
+	h := &PlaygroundHandler{
 		engine:         engine,
-		apiKeyService:  apiKeyService,
 		settingService: settingService,
 		mediaService:   mediaService,
 		convService:    convService,
 	}
+	// 空指针不能直接赋给接口字段：接口会变成「非 nil 但里面是 nil」，
+	// 后面的 nil 判断拦不住，一调方法就 panic。
+	if apiKeyService != nil {
+		h.apiKeyService = apiKeyService
+	}
+	return h
 }
+
+// playgroundKeyStore 在线使用页取钥匙要用到的密钥能力，由 *service.APIKeyService 实现。
+type playgroundKeyStore interface {
+	List(ctx context.Context, userID int64, params pagination.PaginationParams, filters service.APIKeyListFilters) ([]service.APIKey, *pagination.PaginationResult, error)
+	Create(ctx context.Context, userID int64, req service.CreateAPIKeyRequest) (*service.APIKey, error)
+	UserBalance(ctx context.Context, userID int64) (float64, error)
+}
+
+// errPlaygroundNeedsTopUp 没有可用钥匙，而且余额为 0。
+//
+// 这不是故障，是新用户最常见的状态（注册不送积分）。对外回的码和网关余额不足
+// 一致（INSUFFICIENT_BALANCE），前端用同一套「去充值」引导接住。
+var errPlaygroundNeedsTopUp = errors.New("playground: balance required")
 
 // resolveUserKey 取该用户可用于在线体验的密钥。
 //
 // 选取规则：状态正常、未过期、额度未耗尽的第一把，不偏向「在线使用」那把——
 // 用户自己建的密钥同样可用，体验页不该强制绑定某一把。
-func (h *PlaygroundHandler) resolveUserKey(c *gin.Context, userID int64) (*service.APIKey, bool) {
+func (h *PlaygroundHandler) resolveUserKey(c *gin.Context, userID int64) (*service.APIKey, error) {
+	if h.apiKeyService == nil {
+		return nil, errors.New("api key service is unavailable")
+	}
 	keys, _, err := h.apiKeyService.List(c.Request.Context(), userID,
 		pagination.PaginationParams{Page: 1, PageSize: 50}, service.APIKeyListFilters{})
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	for i := range keys {
 		k := &keys[i]
@@ -87,16 +109,47 @@ func (h *PlaygroundHandler) resolveUserKey(c *gin.Context, userID int64) (*servi
 		if strings.TrimSpace(k.Key) == "" {
 			continue
 		}
-		return k, true
+		return k, nil
 	}
-	// 一把可用的都没有——建一把「在线使用」专用的。
-	//
-	// 这页的卖点是「开箱即用」，而网页端又必须拿用户自己的某把密钥走网关计费：
-	// 一把都没有时模型列表是空的，发什么都失败。让新用户先去密钥页建一把再回来不合理。
-	return h.ensurePlaygroundKey(c, userID)
+
+	// 一把可用的都没有。余额为 0 就不建：钥匙本身不送任何额度，建了也用不了，
+	// 只会在密钥列表里多出一把用户没建过的钥匙——注册送「试用密钥」被删掉
+	// 正是因为这个。直接告诉前端去充值。
+	balance, err := h.apiKeyService.UserBalance(c.Request.Context(), userID)
+	if err != nil {
+		return nil, err
+	}
+	if balance <= 0 {
+		return nil, errPlaygroundNeedsTopUp
+	}
+
+	// 有余额、只是没有钥匙（充了值但没去建过）：建一把「在线使用」专用的。
+	// 这页的卖点是开箱即用，让付费用户先去密钥页建钥匙再回来不合理。
+	key, ok := h.ensurePlaygroundKey(c, userID)
+	if !ok {
+		return nil, errors.New("create playground key failed")
+	}
+	return key, nil
 }
 
-// ensurePlaygroundKey 给没有任何可用密钥的用户建一把「在线使用」密钥。
+// writePlaygroundKeyError 取不到钥匙时的响应。都是业务状态不是故障，前端据码引导：
+//   - INSUFFICIENT_BALANCE：余额为 0，引导去充值（与网关余额不足同一个码）
+//   - NO_USABLE_API_KEY：有余额但钥匙全部过期/停用/额度耗尽且建不出新的
+func writePlaygroundKeyError(c *gin.Context, err error) {
+	if errors.Is(err, errPlaygroundNeedsTopUp) {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
+			"code":    "INSUFFICIENT_BALANCE",
+			"message": "积分余额不足，充值后即可使用",
+		}})
+		return
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
+		"code":    "NO_USABLE_API_KEY",
+		"message": "没有可用的 API 密钥，请先创建或充值",
+	}})
+}
+
+// ensurePlaygroundKey 给有余额、但没有任何可用密钥的用户建一把「在线使用」密钥。
 //
 // 不设额度上限（quota=0）：花的就是用户余额，余额才是真正的上限。
 //
@@ -106,7 +159,7 @@ func (h *PlaygroundHandler) resolveUserKey(c *gin.Context, userID int64) (*servi
 //
 // 失败只记日志并返回 false，由调用方回 4xx，不把内部错误细节抛给前端。
 func (h *PlaygroundHandler) ensurePlaygroundKey(c *gin.Context, userID int64) (*service.APIKey, bool) {
-	if h.apiKeyService == nil || h.settingService == nil {
+	if h.apiKeyService == nil {
 		return nil, false
 	}
 	key, err := h.apiKeyService.Create(c.Request.Context(), userID, service.CreateAPIKeyRequest{
@@ -143,14 +196,9 @@ func (h *PlaygroundHandler) proxyToGatewayLimited(c *gin.Context, gatewayPath st
 		return
 	}
 
-	key, ok := h.resolveUserKey(c, subject.UserID)
-	if !ok {
-		// 没有可用密钥（全部过期/停用/额度耗尽）——这是业务状态不是错误，
-		// 前端据此引导用户去创建密钥或充值。
-		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
-			"code":    "NO_USABLE_API_KEY",
-			"message": "没有可用的 API 密钥，请先创建或充值",
-		}})
+	key, err := h.resolveUserKey(c, subject.UserID)
+	if err != nil {
+		writePlaygroundKeyError(c, err)
 		return
 	}
 
