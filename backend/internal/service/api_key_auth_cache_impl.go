@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 19 // v19: reload snapshots created before the auth query selected per-model video prices
+const apiKeyAuthSnapshotVersion = 20 // v20: carry the user's organization identity for B-end model overrides
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -365,6 +365,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			BalanceNotifyExtraEmails:   apiKey.User.BalanceNotifyExtraEmails,
 			TotalRecharged:             apiKey.User.TotalRecharged,
 			RPMLimit:                   apiKey.User.RPMLimit,
+			OrganizationID:             apiKey.User.OrganizationID,
 		},
 	}
 
@@ -461,6 +462,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			TotalRecharged:             snapshot.User.TotalRecharged,
 			RPMLimit:                   snapshot.User.RPMLimit,
 			UserGroupRPMOverride:       snapshot.User.UserGroupRPMOverride,
+			OrganizationID:             snapshot.User.OrganizationID,
 		},
 	}
 	if snapshot.Group != nil {

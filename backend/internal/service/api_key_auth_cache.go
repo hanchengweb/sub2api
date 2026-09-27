@@ -52,6 +52,11 @@ type APIKeyAuthUserSnapshot struct {
 	// UserGroupRPMOverride 该 API Key 对应的 (user, group) 专属 RPM 覆盖值。
 	// nil = 无 override（回退到 group/user 级）；0 = 不限流；>0 = 专属上限。
 	UserGroupRPMOverride *int `json:"user_group_rpm_override,omitempty"`
+
+	// OrganizationID 组织服务身份，只有 B 端组织的 WindHub 账号才有。
+	// 网关据此改道（见 organization_model_override.go），必须进快照：
+	// 不进的话走缓存的请求永远认不出组织身份，改道静默失效。
+	OrganizationID string `json:"organization_id,omitempty"`
 }
 
 // APIKeyAuthGroupSnapshot 分组快照

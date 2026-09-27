@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"mime"
@@ -39,7 +40,7 @@ func RegisterGatewayRoutes(
 	clientRequestID := middleware.ClientRequestID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
 	endpointNorm := handler.InboundEndpointMiddleware()
-	compositeTarget := compositeTargetPlatformMiddleware(compositeResolver)
+	compositeTarget := compositeTargetPlatformMiddleware(compositeResolver, settingService)
 	compositeGeminiTarget := compositeGeminiTargetPlatformMiddleware(compositeResolver)
 
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
@@ -394,7 +395,7 @@ func getGroupPlatform(c *gin.Context) string {
 	return apiKey.Group.Platform
 }
 
-func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver) gin.HandlerFunc {
+func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver, overrides organizationModelOverrider) gin.HandlerFunc {
 	if resolver == nil {
 		resolver = service.NewCompositeRouteResolver(nil)
 	}
@@ -425,6 +426,7 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 
 		model := compositeRequestModelFromBody(c.GetHeader("Content-Type"), body)
 		if model != "" {
+			model, body = applyOrganizationModelOverride(c.Request.Context(), overrides, apiKey, model, body)
 			decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, compositeRouteEndpointForPath(c.Request.URL.Path))
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
@@ -443,6 +445,42 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 		resetRequestBody(c, body)
 		c.Next()
 	}
+}
+
+// organizationModelOverrider 组织（B 端）请求的模型改道表，由 *service.SettingService 实现。
+type organizationModelOverrider interface {
+	OrganizationModelOverride(ctx context.Context, model string) (service.OrganizationModelOverride, bool)
+}
+
+// applyOrganizationModelOverride 把 B 端组织的请求改写到组织专用的模型上。
+//
+// 必须放在组合路由解析之前：改写后的名字才是之后路由、账号调度、计费、日志
+// 看到的名字。只认 API Key 所属用户的 organization_id——C 端用户没有这个字段，
+// 永远走不进来。
+//
+// 只改 JSON 请求体。multipart（图片编辑）没有可靠的原位改写方式，照常走原模型，
+// 不会因为改写失败而打挂请求。
+func applyOrganizationModelOverride(ctx context.Context, overrides organizationModelOverrider, apiKey *service.APIKey, model string, body []byte) (string, []byte) {
+	if overrides == nil || apiKey == nil || apiKey.User == nil || strings.TrimSpace(apiKey.User.OrganizationID) == "" {
+		return model, body
+	}
+	if !gjson.ValidBytes(body) {
+		return model, body
+	}
+	override, ok := overrides.OrganizationModelOverride(ctx, model)
+	if !ok {
+		return model, body
+	}
+	rewritten, err := sjson.SetBytes(body, "model", override.Model)
+	if err != nil {
+		return model, body
+	}
+	if size, ok := override.SizeFor(gjson.GetBytes(rewritten, "size").String()); ok {
+		if withSize, err := sjson.SetBytes(rewritten, "size", size); err == nil {
+			rewritten = withSize
+		}
+	}
+	return override.Model, rewritten
 }
 
 func compositeRequestModelFromBody(contentType string, body []byte) string {

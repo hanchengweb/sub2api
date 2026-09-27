@@ -61,7 +61,7 @@ func TestCompositeTargetPlatformMiddlewareResolvesModelAndRestoresBody(t *testin
 		})
 		c.Next()
 	})))
-	router.Use(compositeTargetPlatformMiddleware(nil))
+	router.Use(compositeTargetPlatformMiddleware(nil, nil))
 	router.POST("/", func(c *gin.Context) {
 		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 		require.True(t, ok)
@@ -108,7 +108,7 @@ func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteAndRewritesBody(t *te
 		})
 		c.Next()
 	})))
-	router.Use(compositeTargetPlatformMiddleware(resolver))
+	router.Use(compositeTargetPlatformMiddleware(resolver, nil))
 	router.POST("/v1/chat/completions", func(c *gin.Context) {
 		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 		require.True(t, ok)
@@ -159,7 +159,7 @@ func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteForMultipartImages(t 
 		})
 		c.Next()
 	})))
-	router.Use(compositeTargetPlatformMiddleware(resolver))
+	router.Use(compositeTargetPlatformMiddleware(resolver, nil))
 	router.POST("/v1/images/edits", func(c *gin.Context) {
 		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 		require.True(t, ok)
