@@ -71,7 +71,7 @@ func NewPlaygroundHandler(
 
 // resolveUserKey 取该用户可用于在线体验的密钥。
 //
-// 选取规则：状态正常、未过期、额度未耗尽的第一把。优先试用密钥没有特殊处理——
+// 选取规则：状态正常、未过期、额度未耗尽的第一把，不偏向「在线使用」那把——
 // 用户自己建的密钥同样可用，体验页不该强制绑定某一把。
 func (h *PlaygroundHandler) resolveUserKey(c *gin.Context, userID int64) (*service.APIKey, bool) {
 	keys, _, err := h.apiKeyService.List(c.Request.Context(), userID,
@@ -89,38 +89,37 @@ func (h *PlaygroundHandler) resolveUserKey(c *gin.Context, userID int64) (*servi
 		}
 		return k, true
 	}
-	// 一把可用的都没有——补发试用密钥。
+	// 一把可用的都没有——建一把「在线使用」专用的。
 	//
-	// 试用密钥功能上线前注册的老用户手上一把钥匙都没有，整个在线使用页对他们
-	// 完全不可用：模型列表是空的，发什么都失败。让他们自己先去建密钥不合理，
-	// 这页的卖点就是「开箱即用」。
-	return h.ensureTrialKey(c, userID)
+	// 这页的卖点是「开箱即用」，而网页端又必须拿用户自己的某把密钥走网关计费：
+	// 一把都没有时模型列表是空的，发什么都失败。让新用户先去密钥页建一把再回来不合理。
+	return h.ensurePlaygroundKey(c, userID)
 }
 
-// ensureTrialKey 给没有任何可用密钥的用户补发一把试用密钥。
+// ensurePlaygroundKey 给没有任何可用密钥的用户建一把「在线使用」密钥。
 //
-// 复用注册时那套配置（signup_trial_key_*），额度口径完全一致；开关关闭时不补发。
+// 不设额度上限（quota=0）：花的就是用户余额，余额才是真正的上限。
+//
+// 以前这里补发的是带 1000 积分上限的「试用密钥」，有两个问题：
+//   - 注册送积分停了之后，「额度 0.00 / 1000.00 积分」只会让人以为账上有 1000 积分
+//   - 付费用户在网页端用满 1000 会被拦住，这里再补一把新的，密钥列表越堆越多
+//
 // 失败只记日志并返回 false，由调用方回 4xx，不把内部错误细节抛给前端。
-func (h *PlaygroundHandler) ensureTrialKey(c *gin.Context, userID int64) (*service.APIKey, bool) {
+func (h *PlaygroundHandler) ensurePlaygroundKey(c *gin.Context, userID int64) (*service.APIKey, bool) {
 	if h.apiKeyService == nil || h.settingService == nil {
 		return nil, false
 	}
-	enabled, quota, groupID := h.settingService.SignupTrialKeyConfig(c.Request.Context())
-	if !enabled || quota <= 0 {
-		return nil, false
-	}
 	key, err := h.apiKeyService.Create(c.Request.Context(), userID, service.CreateAPIKeyRequest{
-		Name:    service.SignupTrialKeyName,
-		GroupID: groupID,
-		Quota:   quota,
+		Name:    service.PlaygroundKeyName,
+		GroupID: h.settingService.PlaygroundKeyGroupID(c.Request.Context()),
 	})
 	if err != nil {
 		logger.LegacyPrintf("handler.playground",
-			"[Playground] backfill trial key failed user=%d err=%v", userID, err)
+			"[Playground] create playground key failed user=%d err=%v", userID, err)
 		return nil, false
 	}
 	logger.LegacyPrintf("handler.playground",
-		"[Playground] backfilled trial key user=%d key_id=%d quota=%.2f", userID, key.ID, quota)
+		"[Playground] created playground key user=%d key_id=%d", userID, key.ID)
 	return key, true
 }
 

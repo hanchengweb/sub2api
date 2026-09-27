@@ -79,8 +79,6 @@ type AuthService struct {
 	affiliateService      *AffiliateService
 	defaultSubAssigner    DefaultSubscriptionAssigner
 	userPlatformQuotaRepo UserPlatformQuotaRepository
-	// 可选：注册后发放试用密钥。未注入时该功能静默跳过。
-	trialKeyIssuer SignupTrialKeyIssuer
 }
 
 type DefaultSubscriptionAssigner interface {
@@ -908,9 +906,10 @@ func (s *AuthService) postAuthUserBootstrap(ctx context.Context, user *User, sig
 	}
 	s.updateUserSignupSource(ctx, user.ID, signupSource)
 
-	// 放在这里而不是邮箱注册分支：本函数是邮箱注册与三处 OAuth 登录的共同入口，
-	// 写在分支里会漏掉 OAuth 注册的新用户。
-	s.issueSignupTrialKey(ctx, user.ID)
+	// 注册不再发「试用密钥」。注册送的积分早就停了（default_balance=0），
+	// 留一把花不了钱、还标着「1000 积分」额度的钥匙只会让人以为账上有钱。
+	// 网页端「在线使用」需要的钥匙改为用户第一次打开时再建，
+	// 见 handler/playground.go 的 ensurePlaygroundKey。
 
 	if touchLogin {
 		s.touchUserLogin(ctx, user.ID)
