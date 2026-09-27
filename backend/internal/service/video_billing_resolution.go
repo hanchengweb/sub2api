@@ -53,7 +53,8 @@ type videoUpstreamLimit struct {
 	AutoIsMax         bool
 }
 
-// videoUpstreamLimits 按模型前缀匹配，顺序敏感：grok-imagine-video 要排在 grok-video 前面，
+// videoUpstreamLimits 按模型前缀匹配，取第一个命中的，顺序敏感：长前缀必须排在它的短前缀前面
+// （grok-imagine-video 在 grok-video 前，seedance-2-fast / seedance-2-5 在 seedance-2 前），
 // 否则会被误匹配。toAPI 的默认值来自 toapis.com/model-guide/<模型> 的参数表（2026-09-27 核对）。
 var videoUpstreamLimits = []videoUpstreamLimit{
 	// 直连 xAI。
@@ -66,6 +67,8 @@ var videoUpstreamLimits = []videoUpstreamLimit{
 	{Prefix: "seedance-2-fast", MinSeconds: 4, MaxSeconds: 15, DefaultSeconds: 5, DefaultResolution: VideoBillingResolution720P, AutoIsMax: true},
 	// seedance-2-5：4-30 秒，默认 **30 秒**、720p，-1 为自动。没带时长按 8 秒收会每条少收 22 秒。
 	{Prefix: "seedance-2-5", MinSeconds: 4, MaxSeconds: 30, DefaultSeconds: 30, DefaultResolution: VideoBillingResolution720P, AutoIsMax: true},
+	// seedance-2：4-15 秒，默认 5 秒、720p，-1 为自动。是上面两个的短前缀，必须排在它们后面。
+	{Prefix: "seedance-2", MinSeconds: 4, MaxSeconds: 15, DefaultSeconds: 5, DefaultResolution: VideoBillingResolution720P, AutoIsMax: true},
 }
 
 func videoUpstreamLimitForModel(model string) (videoUpstreamLimit, bool) {

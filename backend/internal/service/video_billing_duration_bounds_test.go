@@ -3,6 +3,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,7 @@ func TestVideoDurationBounds_MatchUpstreamPerModel(t *testing.T) {
 		{"kling-v3-omni", 3, 15},          // 同上
 		{"seedance-2-fast", 4, 15},        // toAPI，模型说明页参数表
 		{"seedance-2-5", 4, 30},           // 同上
+		{"seedance-2", 4, 15},             // 同上
 	}
 	for _, tc := range cases {
 		gotMin, gotMax := videoDurationBoundsForModel(tc.model)
@@ -41,6 +43,20 @@ func TestVideoDurationBounds_PrefixOrderNotConfused(t *testing.T) {
 	require.NotEqual(t, [2]int{xaiMin, xaiMax}, [2]int{toapiMin, toapiMax},
 		"两个上游区间不同，前缀匹配不能把它们混为一谈")
 	require.Equal(t, 1, xaiMin, "grok-imagine-video 被 grok-video 前缀吃掉了")
+}
+
+// 表里任何一条都不能被排在它前面的短前缀截胡——那条就永远匹配不到，
+// 该模型会静默按别的模型的区间和默认值计费。以后加模型排错了位置，这里直接报出来。
+func TestVideoUpstreamLimits_NoEntryShadowed(t *testing.T) {
+	for j, later := range videoUpstreamLimits {
+		for _, earlier := range videoUpstreamLimits[:j] {
+			require.Falsef(t, strings.HasPrefix(later.Prefix, earlier.Prefix),
+				"%q 排在 %q 后面，永远匹配不到：长前缀要排在短前缀前面", later.Prefix, earlier.Prefix)
+		}
+		got, ok := videoUpstreamLimitForModel(later.Prefix)
+		require.True(t, ok)
+		require.Equal(t, later.Prefix, got.Prefix)
+	}
 }
 
 // toAPI 上游允许 30 秒，就必须按 30 秒收钱。
@@ -130,9 +146,12 @@ func TestVideoBillingSeedanceDefaultsFollowUpstream(t *testing.T) {
 	require.Equal(t, 5, NormalizeVideoBillingDurationForModel("kling-v3-omni", -1))
 	require.Equal(t, 8, NormalizeVideoBillingDurationForModel("grok-video-1.5", -1))
 
-	// seedance-2 基础款没有核对过上游默认值，维持兜底。
-	require.Equal(t, 8, NormalizeVideoBillingDurationForModel("seedance-2", 0))
-	require.Equal(t, VideoBillingResolution4K, NormalizeVideoBillingResolutionForModel("seedance-2", ""))
+	// seedance-2 基础款：默认 5 秒、720p，-1 按 15 秒；显式 4k 照收 4k。
+	require.Equal(t, 5, NormalizeVideoBillingDurationForModel("seedance-2", 0))
+	require.Equal(t, 15, NormalizeVideoBillingDurationForModel("seedance-2", -1))
+	require.Equal(t, 4, NormalizeVideoBillingDurationForModel("seedance-2", 2))
+	require.Equal(t, VideoBillingResolution720P, NormalizeVideoBillingResolutionForModel("seedance-2", ""))
+	require.Equal(t, VideoBillingResolution4K, NormalizeVideoBillingResolutionForModel("seedance-2", "4k"))
 }
 
 // 端到端：B 端租户发的 seedance-2-fast 请求不带分辨率和时长，解析出来是 720p、5 秒。
@@ -143,4 +162,8 @@ func TestParseGrokMediaRequestSeedanceDefaults(t *testing.T) {
 
 	info = ParseGrokMediaRequest("application/json", []byte(`{"model":"seedance-2-5","prompt":"x","duration":-1}`))
 	require.Equal(t, 30, info.DurationSeconds)
+
+	info = ParseGrokMediaRequest("application/json", []byte(`{"model":"seedance-2","prompt":"x"}`))
+	require.Equal(t, VideoBillingResolution720P, info.Resolution)
+	require.Equal(t, 5, info.DurationSeconds)
 }
