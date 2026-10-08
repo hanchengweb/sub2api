@@ -71,20 +71,22 @@ func generateRandomString(n int) string {
 }
 
 type CreateOrderRequest struct {
-	UserID          int64
-	Amount          float64
-	PaymentType     string
-	OpenID          string
-	ClientIP        string
-	IsMobile        bool
-	IsWeChatBrowser bool
-	SrcHost         string
-	SrcURL          string
-	ReturnURL       string
-	PaymentSource   string
-	OrderType       string
-	PlanID          int64
-	Locale          string
+	DesktopAPIKeyID  int64 // Server-only attribution for the narrow desktop recharge capability.
+	DesktopRequestID string
+	UserID           int64
+	Amount           float64
+	PaymentType      string
+	OpenID           string
+	ClientIP         string
+	IsMobile         bool
+	IsWeChatBrowser  bool
+	SrcHost          string
+	SrcURL           string
+	ReturnURL        string
+	PaymentSource    string
+	OrderType        string
+	PlanID           int64
+	Locale           string
 }
 
 type CreateOrderResponse struct {

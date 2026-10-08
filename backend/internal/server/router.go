@@ -150,6 +150,7 @@ func registerRoutes(
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService)
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg)
 	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, auditLog, settingService)
+	routes.RegisterDesktopRechargeRoutes(r, h.Payment, apiKeyAuth)
 	routes.RegisterToAPIsWebhookRoutes(v1, h)
 	// 在线使用代理。必须在网关路由注册之后：它靠 engine 内部重派发到 /v1/*。
 	// 在这里就地构造而不放进 Handlers：它需要 *gin.Engine，而 Handlers 在 wire 里
