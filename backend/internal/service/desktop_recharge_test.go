@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +10,56 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/stretchr/testify/require"
 )
+
+type desktopProfileUserRepo struct {
+	UserRepository
+	user   *User
+	avatar *UserAvatar
+}
+
+func (r *desktopProfileUserRepo) GetByID(_ context.Context, id int64) (*User, error) {
+	if id != r.user.ID {
+		return nil, ErrUserNotFound
+	}
+	return r.user, nil
+}
+
+func (r *desktopProfileUserRepo) GetUserAvatar(_ context.Context, id int64) (*UserAvatar, error) {
+	if id != r.user.ID {
+		return nil, ErrUserNotFound
+	}
+	return r.avatar, nil
+}
+
+func TestDesktopCheckoutReadsCurrentDisplayIdentityOnly(t *testing.T) {
+	client := newPaymentConfigServiceTestClient(t)
+	repo := &desktopProfileUserRepo{user: &User{ID: 17, Username: "真实昵称", Email: "private@example.test", PasswordHash: "private-hash", Notes: "private-note", Status: StatusActive}, avatar: &UserAvatar{URL: "https://example.test/avatar.png"}}
+	svc := &PaymentService{userRepo: repo, configService: &PaymentConfigService{entClient: client, settingRepo: &paymentConfigSettingRepoStub{}}}
+	key := &APIKey{UserID: 17, User: &User{Username: "旧缓存昵称"}}
+	for _, withAvatar := range []bool{true, false} {
+		if !withAvatar {
+			repo.avatar = nil
+			repo.user.Username = "更新昵称"
+		}
+		result, err := svc.DesktopRechargeCheckout(context.Background(), key)
+		require.NoError(t, err)
+		account := result["account"].(map[string]any)
+		require.Equal(t, repo.user.Username, account["nickname"])
+		if withAvatar {
+			require.Equal(t, "https://example.test/avatar.png", account["avatar_url"])
+		} else {
+			require.Equal(t, "", account["avatar_url"])
+		}
+		encoded, err := json.Marshal(result)
+		require.NoError(t, err)
+		for _, secret := range []string{"private@example.test", "private-hash", "private-note", "旧缓存昵称"} {
+			require.NotContains(t, string(encoded), secret)
+		}
+	}
+	key.UserID = 18
+	_, err := svc.DesktopRechargeCheckout(context.Background(), key)
+	require.ErrorIs(t, err, ErrUserNotFound)
+}
 
 func TestDesktopRechargeKeyBoundary(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
