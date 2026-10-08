@@ -43,7 +43,8 @@ func TestDesktopCheckoutReadsCurrentDisplayIdentityOnly(t *testing.T) {
 		}
 		result, err := svc.DesktopRechargeCheckout(context.Background(), key)
 		require.NoError(t, err)
-		account := result["account"].(map[string]any)
+		account, ok := result["account"].(map[string]any)
+		require.True(t, ok)
 		require.Equal(t, repo.user.Username, account["nickname"])
 		if withAvatar {
 			require.Equal(t, "https://example.test/avatar.png", account["avatar_url"])
