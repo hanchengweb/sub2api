@@ -35,6 +35,11 @@ func (s *PaymentService) DesktopRechargeCheckout(ctx context.Context, key *APIKe
 	if !user.IsActive() || !user.CanLogin() {
 		return nil, ErrServiceAccountLogin
 	}
+	avatar, err := s.userRepo.GetUserAvatar(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	applyUserAvatar(user, avatar)
 	cfg, err := s.configService.GetPaymentConfig(ctx)
 	if err != nil {
 		return nil, err
@@ -50,14 +55,16 @@ func (s *PaymentService) DesktopRechargeCheckout(ctx context.Context, key *APIKe
 		}
 	}
 	// A stable account reference and masked address make the credit destination
-	// visible without exposing the complete email or other profile information.
+	// visible without exposing the complete email. Only display identity is
+	// shared with the desktop; this does not grant profile-management access.
 	address := strings.SplitN(user.Email, "@", 2)
 	label := "个人账户"
 	if len(address) == 2 && len([]rune(address[0])) > 0 {
 		label = string([]rune(address[0])[:1]) + "***@" + address[1]
 	}
 	return map[string]any{
-		"account": map[string]any{"reference": fmt.Sprintf("WH-%d", user.ID), "label": label, "balance": user.Balance, "connection": key.Name},
+		"account": map[string]any{"reference": fmt.Sprintf("WH-%d", user.ID), "label": label, "balance": user.Balance, "connection": key.Name,
+			"nickname": user.Username, "avatar_url": user.AvatarURL},
 		"methods": methods, "balance_disabled": !cfg.Enabled || cfg.BalanceDisabled,
 		"recharge_fee_rate": cfg.RechargeFeeRate, "balance_recharge_multiplier": cfg.BalanceRechargeMultiplier,
 	}, nil
