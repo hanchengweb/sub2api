@@ -106,9 +106,13 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	}
 	resp, err := s.invokeProvider(ctx, order, req, cfg, limitAmount, payAmountStr, payAmount, plan, sel)
 	if err != nil {
-		_, _ = s.entClient.PaymentOrder.UpdateOneID(order.ID).
-			SetStatus(OrderStatusFailed).
-			Save(ctx)
+		// A desktop request may have reached the payment provider even if its
+		// response was lost. Leave it pending for reconciliation, never reissue.
+		if req.DesktopAPIKeyID == 0 {
+			_, _ = s.entClient.PaymentOrder.UpdateOneID(order.ID).
+				SetStatus(OrderStatusFailed).
+				Save(ctx)
+		}
 		return nil, err
 	}
 	return resp, nil
@@ -261,6 +265,11 @@ func buildPaymentOrderProviderSnapshot(sel *payment.InstanceSelection, req Creat
 
 	snapshot := map[string]any{}
 	snapshot["schema_version"] = 2
+	if req.DesktopAPIKeyID > 0 && req.DesktopRequestID != "" {
+		snapshot["desktop_api_key_id"] = strconv.FormatInt(req.DesktopAPIKeyID, 10)
+		snapshot["desktop_request_id"] = req.DesktopRequestID
+		snapshot["desktop_amount"] = fmt.Sprintf("%.2f", req.Amount)
+	}
 
 	instanceID := strings.TrimSpace(sel.InstanceID)
 	if instanceID != "" {
