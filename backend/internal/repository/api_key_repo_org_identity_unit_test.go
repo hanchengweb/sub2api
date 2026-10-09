@@ -33,6 +33,8 @@ func TestAPIKeyRepository_GetByKeyForAuth_LoadsOrganizationID_SQLite(t *testing.
 	require.NoError(t, err)
 	require.NotNil(t, got.User)
 	require.Equal(t, "org-auth-test", got.User.OrganizationID)
+	require.Equal(t, service.AccountTypeOrganizationService, got.User.AccountType,
+		"media quota guards must recognize the organization after the narrow auth query")
 }
 
 // 「在线使用」是系统替用户建的内部钥匙：用户的密钥列表看不到它，
