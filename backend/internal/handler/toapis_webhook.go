@@ -68,6 +68,14 @@ func (h *OpenAIGatewayHandler) ToAPIsTaskWebhook(c *gin.Context) {
 		return
 	}
 
+	// Quantity settlement is independently idempotent and must remain retryable
+	// if the database is unavailable before recording the webhook receipt.
+	if event.IsTerminalFailure() && h.mediaQuota != nil {
+		if err := h.mediaQuota.FailVerifiedTask(ctx, event.Data.TaskID); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "retry later"}})
+			return
+		}
+	}
 	// 先落幂等记录再退款：上游是「至少一次」投递，同一事件重试时 id 不变，
 	// 顺序反了就意味着一次重投等于一次重复退款。
 	first, err := h.gatewayService.RecordWebhookEventOnce(ctx, toAPIsWebhookProvider, eventID, event.Type, event.Data.TaskID)
