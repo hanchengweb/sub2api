@@ -1,6 +1,44 @@
 package service
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestAPIKeyService_AuthSnapshotPreservesAccountType(t *testing.T) {
+	for _, accountType := range []string{AccountTypeOrganizationService, AccountTypePersonal} {
+		t.Run(accountType, func(t *testing.T) {
+			svc := &APIKeyService{}
+			user := &User{ID: 2, Status: StatusActive, AccountType: accountType}
+			if accountType == AccountTypeOrganizationService {
+				user.OrganizationID = "campus-test"
+			}
+			snapshot := svc.snapshotFromAPIKey(context.Background(), &APIKey{ID: 1, UserID: user.ID, Status: StatusActive, User: user})
+			encoded, err := json.Marshal(&APIKeyAuthCacheEntry{Snapshot: snapshot})
+			require.NoError(t, err)
+			var cached APIKeyAuthCacheEntry
+			require.NoError(t, json.Unmarshal(encoded, &cached))
+			key, ok, err := svc.applyAuthCacheEntry("test-key", &cached)
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, accountType, key.User.AccountType)
+			require.Equal(t, user.OrganizationID, key.User.OrganizationID)
+		})
+	}
+}
+
+func TestAPIKeyService_RejectsV20AuthSnapshotWithoutAccountType(t *testing.T) {
+	svc := &APIKeyService{}
+	key, ok, err := svc.applyAuthCacheEntry("test-key", &APIKeyAuthCacheEntry{
+		Snapshot: &APIKeyAuthSnapshot{Version: 20},
+	})
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, key)
+}
 
 func TestAPIKeyService_RejectsV10AuthSnapshotWithoutModelsListConfig(t *testing.T) {
 	groupID := int64(9)

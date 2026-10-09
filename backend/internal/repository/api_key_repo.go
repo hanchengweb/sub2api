@@ -161,6 +161,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				user.FieldLastLoginAt,
 				user.FieldLastActiveAt,
 				user.FieldRpmLimit,
+				user.FieldAccountType,
 				// 网关按它把 B 端组织的请求改道到组织专用上游；漏选的话
 				// 所有请求都认不出组织身份，改道静默失效。
 				user.FieldOrganizationID,

@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 20 // v20: carry the user's organization identity for B-end model overrides
+const apiKeyAuthSnapshotVersion = 21 // v21: preserve account type for organization media quota enforcement
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -366,6 +366,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			TotalRecharged:             apiKey.User.TotalRecharged,
 			RPMLimit:                   apiKey.User.RPMLimit,
 			OrganizationID:             apiKey.User.OrganizationID,
+			AccountType:                apiKey.User.AccountType,
 		},
 	}
 
@@ -463,6 +464,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			RPMLimit:                   snapshot.User.RPMLimit,
 			UserGroupRPMOverride:       snapshot.User.UserGroupRPMOverride,
 			OrganizationID:             snapshot.User.OrganizationID,
+			AccountType:                snapshot.User.AccountType,
 		},
 	}
 	if snapshot.Group != nil {
