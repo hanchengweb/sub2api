@@ -1170,7 +1170,7 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 }
 
 // GetAvailableModels returns the list of models available for a group
-// It aggregates model_mapping keys from all schedulable accounts in the group
+// Catalog membership follows persistent configuration, not transient health.
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
@@ -1183,14 +1183,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	}
 	modelsListCacheMissTotal.Add(1)
 
-	var accounts []Account
-	var err error
-
-	if groupID != nil {
-		accounts, err = s.accountRepo.ListSchedulableByGroupID(ctx, *groupID)
-	} else {
-		accounts, err = s.accountRepo.ListSchedulable(ctx)
-	}
+	accounts, err := s.configuredModelAccounts(ctx, groupID, platform)
 
 	if err != nil || len(accounts) == 0 {
 		return nil
@@ -1244,21 +1237,14 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	return cloneStringSlice(models)
 }
 
-// GetSchedulablePlatforms returns the concrete platforms that currently have
-// schedulable accounts in the target group.
-func (s *GatewayService) GetSchedulablePlatforms(ctx context.Context, groupID *int64) map[string]struct{} {
+// GetConfiguredPlatforms keeps temporarily busy providers in the catalog.
+func (s *GatewayService) GetConfiguredPlatforms(ctx context.Context, groupID *int64) map[string]struct{} {
 	platforms := make(map[string]struct{})
 	if s == nil || s.accountRepo == nil {
 		return platforms
 	}
 
-	var accounts []Account
-	var err error
-	if groupID != nil {
-		accounts, err = s.accountRepo.ListSchedulableByGroupID(ctx, *groupID)
-	} else {
-		accounts, err = s.accountRepo.ListSchedulable(ctx)
-	}
+	accounts, err := s.configuredModelAccounts(ctx, groupID, "")
 	if err != nil {
 		return platforms
 	}
@@ -1270,6 +1256,15 @@ func (s *GatewayService) GetSchedulablePlatforms(ctx context.Context, groupID *i
 		}
 	}
 	return platforms
+}
+
+func (s *GatewayService) configuredModelAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
+	platforms := []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok}
+	if platform != "" {
+		platforms = []string{platform}
+	}
+	// The previous ungrouped catalog used ListSchedulable (all accounts).
+	return s.accountRepo.ListModelAvailabilityCandidates(ctx, groupID, platforms, groupID == nil)
 }
 
 func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform string) {

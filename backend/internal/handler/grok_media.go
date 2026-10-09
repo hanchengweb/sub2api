@@ -186,14 +186,18 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("grok_media.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	// A paid task must remain retrievable after its charge exhausts the balance.
+	// Read requests still pass API-key authentication and the owner binding below.
+	if !endpoint.IsVideoLookupRequest() {
+		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+			reqLog.Info("grok_media.billing_eligibility_check_failed", zap.Error(err))
+			status, code, message, retryAfter := billingErrorDetails(err)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.errorResponse(c, status, code, message)
+			return
 		}
-		h.errorResponse(c, status, code, message)
-		return
 	}
 
 	sessionSeed := body
@@ -201,18 +205,6 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		sessionSeed = []byte(requestID)
 	}
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, sessionSeed)
-	boundLookupAccountID := int64(0)
-	if endpoint.IsVideoLookupRequest() {
-		sessionHash = service.GrokMediaVideoRequestSessionHash(requestID, subject.UserID, apiKey.ID)
-		boundLookupAccountID, err = h.gatewayService.ResolveGrokMediaVideoRequestAccount(
-			c.Request.Context(), apiKey.GroupID, requestID, subject.UserID, apiKey.ID,
-		)
-		if err != nil || boundLookupAccountID <= 0 {
-			reqLog.Info("grok_media.video_lookup_owner_binding_missing", zap.Error(err))
-			h.errorResponse(c, http.StatusNotFound, "not_found_error", "Video request not found")
-			return
-		}
-	}
 	requestCtx := c.Request.Context()
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
@@ -231,20 +223,36 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		if failoverClientGone(c) {
 			return
 		}
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			requestCtx,
-			apiKey.GroupID,
-			"",
-			sessionHash,
-			routingModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportHTTPSSE,
-			requiredCapability,
-			false,
-			false,
-			false,
-			service.PlatformGrok,
-		)
+		var selection *service.AccountSelectionResult
+		var scheduleDecision service.OpenAIAccountScheduleDecision
+		if endpoint.IsVideoLookupRequest() {
+			selection, err = h.gatewayService.SelectGrokMediaVideoLookupAccount(requestCtx, apiKey.GroupID, requestID, subject.UserID, apiKey.ID)
+			scheduleDecision.Layer = "video_owner_binding"
+			if err != nil {
+				if errors.Is(err, service.ErrGrokVideoBindingNotFound) {
+					h.errorResponse(c, http.StatusNotFound, "not_found_error", "Video request not found")
+				} else {
+					c.Header("Retry-After", "15")
+					h.errorResponse(c, http.StatusServiceUnavailable, "video_status_temporarily_unavailable", "Video status is temporarily unavailable; continue querying the original task")
+				}
+				return
+			}
+		} else {
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				requestCtx,
+				apiKey.GroupID,
+				"",
+				sessionHash,
+				routingModel,
+				failedAccountIDs,
+				service.OpenAIUpstreamTransportHTTPSSE,
+				requiredCapability,
+				false,
+				false,
+				false,
+				service.PlatformGrok,
+			)
+		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("grok_media.account_select_aborted_client_disconnected", zap.Error(err))
@@ -288,14 +296,6 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 			return
 		}
-		if boundLookupAccountID > 0 && selection.Account.ID != boundLookupAccountID {
-			reqLog.Warn("grok_media.video_lookup_bound_account_unavailable",
-				zap.Int64("bound_account_id", boundLookupAccountID),
-				zap.Int64("selected_account_id", selection.Account.ID),
-			)
-			h.errorResponse(c, http.StatusNotFound, "not_found_error", "Video request not found")
-			return
-		}
 
 		reqLog.Debug("grok_media.account_schedule_decision",
 			zap.String("layer", scheduleDecision.Layer),
@@ -327,6 +327,11 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			}
 		}
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		if endpoint.IsVideoLookupRequest() {
+			// Queue acquisition must not replace the durable task binding with
+			// a short-lived sticky session or mutate it on a failed lookup.
+			sessionHash = ""
+		}
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		accountReleaseFunc, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
@@ -378,6 +383,11 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				}
 				if c.Writer.Size() != writerSizeBeforeForward {
 					h.handleFailoverExhausted(c, failoverErr, true)
+					return
+				}
+				if endpoint.IsVideoLookupRequest() && failoverErr.StatusCode >= 500 {
+					c.Header("Retry-After", "15")
+					h.errorResponse(c, http.StatusServiceUnavailable, "video_status_temporarily_unavailable", "Video status is temporarily unavailable; continue querying the original task")
 					return
 				}
 				if !failoverErr.ShouldRetryNextAccount() {
