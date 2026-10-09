@@ -12,8 +12,13 @@ import (
 
 // AdminAPIKeyHandler handles admin API key management
 type AdminAPIKeyHandler struct {
+	mediaQuota    service.OrganizationMediaQuotaRepository
 	adminService  service.AdminService
 	apiKeyService *service.APIKeyService
+}
+
+func (h *AdminAPIKeyHandler) SetMediaQuotaRepository(repo service.OrganizationMediaQuotaRepository) {
+	h.mediaQuota = repo
 }
 
 // NewAdminAPIKeyHandler creates a new admin API key handler

@@ -109,6 +109,13 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 
 	pollURL := imageTaskPollURL(c.Request.URL.Path, task.ID)
+	if _, guarded := c.Get(mediaQuotaClaimKey); guarded && h.openAI.mediaQuota != nil {
+		if err := h.openAI.mediaQuota.Bind(c.Request.Context(), apiKey.UserID, c.GetHeader("X-Client-Request-ID"), task.ID); err != nil {
+			cancel()
+			imageTaskError(c, service.ErrImageTaskUnavailable)
+			return
+		}
+	}
 	c.Header("Cache-Control", "no-store")
 	c.Header("Location", pollURL)
 	c.Header("Retry-After", "3")
@@ -236,6 +243,10 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 		return
 	}
 	statusCode := recorder.Code
+	if raw, guarded := taskCtx.Get(mediaQuotaClaimKey); guarded && h.openAI != nil {
+		claim := raw.(service.MediaQuotaClaim)
+		h.openAI.recordMediaQuotaOutcome(taskCtx, claim.UserID, claim.RequestID, "", "image", statusCode, body, false)
+	}
 	if statusCode == 0 {
 		statusCode = http.StatusOK
 	}
