@@ -168,6 +168,13 @@ func (s *modelsListAccountRepoStub) ListSchedulable(ctx context.Context) ([]Acco
 	return out, nil
 }
 
+func (s *modelsListAccountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, _ []string, _ bool) ([]Account, error) {
+	if groupID != nil {
+		return s.ListSchedulableByGroupID(ctx, *groupID)
+	}
+	return s.ListSchedulable(ctx)
+}
+
 func resetGatewayHotpathStatsForTest() {
 	windowCostPrefetchCacheHitTotal.Store(0)
 	windowCostPrefetchCacheMissTotal.Store(0)

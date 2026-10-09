@@ -433,20 +433,21 @@ type OpenAIGatewayService struct {
 	openaiModelTransient          *openAIAccountModelTransientState
 	openaiProxyStreamCircuit      *openAIProxyStreamCircuit
 
-	openaiWSFallbackUntil               sync.Map // key: int64(accountID), value: time.Time
-	openaiAccountRuntimeBlockUntil      sync.Map // key: int64(accountID), value: time.Time
-	openaiAccountRuntimeBlockLocks      sync.Map // key: int64(accountID), value: *sync.Mutex
-	openaiAccountRuntimeBlockGeneration sync.Map // key: int64(accountID), value: uint64
-	openaiAccountRuntimeBlockSequence   atomic.Uint64
-	grokCredentialMutationLocks         sync.Map // key: int64(accountID), value: *sync.Mutex
-	openaiOAuth429WindowStartUnixNano   atomic.Int64
-	openaiOAuth429WindowCount           atomic.Int64
-	openaiWSRetryMetrics                openAIWSRetryMetrics
-	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
-	codexSnapshotThrottle               *accountWriteThrottle
-	codexModelsManifestCache            codexModelsManifestCache
-	openaiCompatSessionResponses        sync.Map
-	openaiCompatAnthropicDigestSessions sync.Map
+	openaiWSFallbackUntil                sync.Map // key: int64(accountID), value: time.Time
+	openaiAccountRuntimeBlockUntil       sync.Map // key: int64(accountID), value: time.Time
+	openaiAccountRuntimeVideoReadAllowed sync.Map // guarded by the account runtime block lock
+	openaiAccountRuntimeBlockLocks       sync.Map // key: int64(accountID), value: *sync.Mutex
+	openaiAccountRuntimeBlockGeneration  sync.Map // key: int64(accountID), value: uint64
+	openaiAccountRuntimeBlockSequence    atomic.Uint64
+	grokCredentialMutationLocks          sync.Map // key: int64(accountID), value: *sync.Mutex
+	openaiOAuth429WindowStartUnixNano    atomic.Int64
+	openaiOAuth429WindowCount            atomic.Int64
+	openaiWSRetryMetrics                 openAIWSRetryMetrics
+	responseHeaderFilter                 *responseheaders.CompiledHeaderFilter
+	codexSnapshotThrottle                *accountWriteThrottle
+	codexModelsManifestCache             codexModelsManifestCache
+	openaiCompatSessionResponses         sync.Map
+	openaiCompatAnthropicDigestSessions  sync.Map
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService

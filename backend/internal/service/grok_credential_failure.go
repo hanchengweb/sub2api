@@ -569,6 +569,7 @@ func (s *OpenAIGatewayService) blockGrokCredentialRuntime(account *Account, unti
 	mu := s.openAIAccountRuntimeBlockLock(account.ID)
 	mu.Lock()
 	before, hadBefore := s.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	_, readsAllowedBefore := s.openaiAccountRuntimeVideoReadAllowed.Load(account.ID)
 	installedGeneration, changed := s.blockAccountSchedulingLocked(account, until, reason)
 	installed, installedOK := s.openaiAccountRuntimeBlockUntil.Load(account.ID)
 	installedUntil, isTime := installed.(time.Time)
@@ -595,10 +596,14 @@ func (s *OpenAIGatewayService) blockGrokCredentialRuntime(account *Account, unti
 		}
 		if hadBefore {
 			s.openaiAccountRuntimeBlockUntil.Store(account.ID, before)
+			if readsAllowedBefore {
+				s.openaiAccountRuntimeVideoReadAllowed.Store(account.ID, true)
+			}
 			s.openaiAccountRuntimeBlockGeneration.Store(account.ID, s.openaiAccountRuntimeBlockSequence.Add(1))
 			return
 		}
 		s.openaiAccountRuntimeBlockUntil.Delete(account.ID)
+		s.openaiAccountRuntimeVideoReadAllowed.Delete(account.ID)
 		s.openaiAccountRuntimeBlockGeneration.Store(account.ID, s.openaiAccountRuntimeBlockSequence.Add(1))
 	}
 }

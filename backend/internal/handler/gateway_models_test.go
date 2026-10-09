@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -49,6 +50,42 @@ func (s *gatewayModelsAccountRepoStub) ListSchedulableByGroupID(ctx context.Cont
 	out := make([]service.Account, len(accounts))
 	copy(out, accounts)
 	return out, nil
+}
+
+func (s *gatewayModelsAccountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, _ bool) ([]service.Account, error) {
+	if groupID == nil {
+		return nil, nil
+	}
+	accounts, err := s.ListSchedulableByGroupID(ctx, *groupID)
+	var candidates []service.Account
+	for _, account := range accounts {
+		for _, platform := range platforms {
+			if account.Platform == platform {
+				candidates = append(candidates, account)
+				break
+			}
+		}
+	}
+	return candidates, err
+}
+
+func TestGatewayModels_CompositeKeepsVideoCatalogDuringCooldown(t *testing.T) {
+	groupID := int64(4)
+	until := time.Now().Add(2 * time.Minute)
+	repo := &gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{groupID: {
+		{ID: 6, Platform: service.PlatformGrok, TempUnschedulableUntil: &until, RateLimitResetAt: &until,
+			Credentials: map[string]any{"model_mapping": map[string]any{"kling-v3": "kling-v3", "kling-v3-omni": "kling-v3-omni"}}},
+	}}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{ID: groupID, Platform: service.PlatformComposite}})
+	newGatewayModelsHandlerForTest(repo).Models(c)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &got))
+	require.Contains(t, modelIDsForTest(got.Data), "kling-v3")
+	require.Contains(t, modelIDsForTest(got.Data), "kling-v3-omni")
 }
 
 func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHandler {

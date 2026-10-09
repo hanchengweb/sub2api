@@ -167,10 +167,15 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		c.Request = c.Request.WithContext(ctx)
 		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
 		rechargeRequest := isDesktopRechargeRequest(c.Request.Method, c.FullPath())
-		// Async image task polling only reads data that already belongs to the
+		// Media task polling only reads data that already belongs to the
 		// authenticated key and must remain available after the completed
 		// generation consumes the key's remaining balance.
-		mediaRead := c.Request.Method == http.MethodGet && (c.FullPath() == "/v1/organization/media-quota" || c.FullPath() == "/v1/videos/:request_id" || c.FullPath() == "/videos/:request_id")
+		videoRead := c.Request.Method == http.MethodGet && (c.FullPath() == "/v1/videos/:request_id" || c.FullPath() == "/videos/:request_id" || c.FullPath() == "/v1/videos/:request_id/content" || c.FullPath() == "/videos/:request_id/content")
+		if videoRead && (apiKey.Status == service.StatusAPIKeyExpired || apiKey.IsExpired()) {
+			AbortWithError(c, 403, "API_KEY_EXPIRED", "API key 已过期")
+			return
+		}
+		mediaRead := videoRead || c.Request.Method == http.MethodGet && c.FullPath() == "/v1/organization/media-quota"
 		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || rechargeRequest || mediaRead || isImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
