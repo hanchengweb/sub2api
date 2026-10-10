@@ -90,15 +90,29 @@ disk_used_percent() { ssh_do "df -h / | tail -1 | awk '{print \$5}' | tr -d '%'"
 #
 # 仍然不用 -a：那会连带删掉这台机器上其它项目（wxm-tenant / wxm-platform /
 # wxm-college）未在运行的镜像。
+#
+# 2026-10-09 起改为调用主机保留脚本（deploy/wxm-host-retention.py，服务器上那份
+# 才是实际运行的）。只清悬空镜像不够：有 tag 的旧镜像从来没人删，三周攒到 276 个
+# tag、磁盘 99%。保留脚本按「在用 + 最近备份引用 + 每条镜像线最近 2 个不同版本」
+# 删旧镜像、旧发布目录和上传包，也会顺带做上面这两步。脚本不在时退回原来的做法。
+RETENTION="/srv/wxm/platform/shared/ops/wxm-host-retention.py"
+
 prune_build_cache() {
   local used
   used=$(disk_used_percent)
   echo "  磁盘占用: ${used}%"
-  ssh_do "docker builder prune -f --filter until=24h 2>&1 | tail -1" | sed 's/^/  /'
-  ssh_do "docker image prune -f 2>&1 | tail -1" | sed 's/^/  悬空镜像 /'
-  if [ "${used:-0}" -ge "$DISK_PRUNE_THRESHOLD" ]; then
-    echo "  超过 ${DISK_PRUNE_THRESHOLD}% 阈值，清空全部构建缓存"
-    ssh_do "docker builder prune -a -f 2>&1 | tail -1" | sed 's/^/  /'
+  if ssh_do "test -f $RETENTION"; then
+    # 只打印汇总和执行结果，逐项明细在服务器 ops/logs/retention-*.log。
+    # 清理失败不影响发布结果：服务已经换好并通过了健康检查。
+    ssh_do "python3 $RETENTION --apply --keep 2 2>&1 | sed -n '/^== 汇总/,\$p'" | sed 's/^/  /' \
+      || echo "  ⚠ 保留脚本执行失败，发布本身不受影响；cron 每天 04:30 还会再跑"
+  else
+    ssh_do "docker builder prune -f --filter until=24h 2>&1 | tail -1" | sed 's/^/  /'
+    ssh_do "docker image prune -f 2>&1 | tail -1" | sed 's/^/  悬空镜像 /'
+    if [ "${used:-0}" -ge "$DISK_PRUNE_THRESHOLD" ]; then
+      echo "  超过 ${DISK_PRUNE_THRESHOLD}% 阈值，清空全部构建缓存"
+      ssh_do "docker builder prune -a -f 2>&1 | tail -1" | sed 's/^/  /'
+    fi
   fi
   ssh_do "df -h / | tail -1 | awk '{printf \"  清理后: %s / %s (%s)\n\", \$3, \$2, \$5}'"
 }
@@ -392,7 +406,7 @@ ssh_do "curl -s -o /dev/null -w '  /health: %{http_code}\n' http://127.0.0.1:180
 ssh_do "rm -rf $WORK $LOG"
 
 # 只在发布成功后清理：失败/回滚时留着缓存，重试才快。
-echo "== 构建缓存维护 =="
+echo "== 磁盘保留策略 =="
 prune_build_cache
 
 echo "== 完成 =="
