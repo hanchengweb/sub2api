@@ -14,6 +14,9 @@ backend/migrations/*.sql text eol=lf
 # Shell 脚本
 *.sh text eol=lf
 
+# 部署用的 Python 脚本：要原样上传到 Linux 服务器执行
+deploy/*.py text eol=lf
+
 # YAML/YML 配置文件
 *.yaml text eol=lf
 *.yml text eol=lf
