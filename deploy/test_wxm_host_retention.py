@@ -78,6 +78,15 @@ class ClassifyTagsTest(unittest.TestCase):
         self.assertNotIn('docker.m.daocloud.io/library/alpine:3.21', got)
 
 
+class HeldLocksTest(unittest.TestCase):
+    def test_reads_holders_and_waiters_from_proc_locks(self):
+        text = ('1: FLOCK  ADVISORY  WRITE 3801770 fd:03:2753597 0 EOF\n'
+                '2: POSIX  ADVISORY  READ 1234 00:1a:99 0 EOF\n'
+                '2: -> FLOCK  ADVISORY  WRITE 3801999 fd:03:2753597 0 EOF\n')
+        self.assertEqual(retention.held_locks(text), {(0xfd, 3, 2753597), (0, 0x1a, 99)})
+        self.assertEqual(retention.held_locks(''), set())
+
+
 class ExtractRefsTest(unittest.TestCase):
     def test_recognizes_every_manifest_format_on_the_host(self):
         digest = 'sha256:' + 'a' * 64

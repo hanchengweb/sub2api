@@ -207,18 +207,41 @@ def classify_tags(images, created, top, protected, in_use, keep, min_age, anchor
     return result
 
 
+def held_locks(text: str) -> set[tuple[int, int, int]]:
+    """解析 /proc/locks，返回被持有（或有人在等）的锁所在文件的 (主设备号, 次设备号, inode)。
+
+    每行形如 `1: FLOCK  ADVISORY  WRITE 3801770 fd:03:2753597 0 EOF`，等待者行多一个 `->`。
+    """
+    held = set()
+    for line in text.splitlines():
+        for part in line.split():
+            bits = part.split(':')
+            if len(bits) == 3 and bits[2].isdigit():
+                try:
+                    held.add((int(bits[0], 16), int(bits[1], 16), int(bits[2])))
+                except ValueError:
+                    pass
+                break
+    return held
+
+
 def check_quiet() -> str | None:
-    """有发布在跑就返回原因；空表示可以动手。"""
-    import fcntl  # 只在 Linux 上有；放这里让单测在别的平台也能导入本模块
+    """有发布在跑就返回原因；空表示可以动手。
+
+    只读 /proc/locks 判断锁有没有被持有，**不去抢锁**：哪怕只抢一微秒，撞上发布脚本启动时的
+    flock(LOCK_EX | LOCK_NB) 也会让它直接报错退出——Codex 的 deploy-*.py 就是这么拿锁的。
+    """
+    try:
+        held = held_locks(Path('/proc/locks').read_text())
+    except OSError:
+        return '读不了 /proc/locks，保守起见跳过'
     for lock in LOCKS:
-        if not os.path.exists(lock):
+        try:
+            st = os.stat(lock)
+        except OSError:
             continue
-        with open(lock, 'a') as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                fcntl.flock(handle, fcntl.LOCK_UN)
-            except BlockingIOError:
-                return f'发布锁被占用：{lock}'
+        if (os.major(st.st_dev), os.minor(st.st_dev), st.st_ino) in held:
+            return f'发布锁被占用：{lock}'
     procs = subprocess.run(['pgrep', '-af', r'docker (build|buildx|compose .*build)|buildctl build'],
                            capture_output=True, text=True).stdout.splitlines()
     procs = [p for p in procs if 'pgrep' not in p]
