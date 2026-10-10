@@ -4,8 +4,8 @@
 # 用法:
 #   deploy/wxm-release.sh <slug> [commit-ish]
 #   deploy/wxm-release.sh test [commit-ish]   # 只跑 gofmt + vet + 单测，不发布
-#   deploy/wxm-release.sh rollback            # 回滚到上一个镜像
-#   deploy/wxm-release.sh status              # 只看当前状态
+#   deploy/wxm-release.sh rollback [备份]     # 回滚到上一版（两套发布流程的备份都认）
+#   deploy/wxm-release.sh status              # 只看当前状态，含 rollback 会回到哪一版
 #
 # 环境变量 
 #   WXM_SKIP_TESTS=1   发布前不跑测试（不推荐；这是个计费服务）
@@ -129,6 +129,26 @@ health_wait() {
     case \"\$S\" in */healthy) echo \"healthy @ \$((i*10))s\"; exit 0;; esac; done; echo 'TIMEOUT'; exit 1"
 }
 
+# 回滚候选：两套发布流程各自留的 compose 备份，合在一起按修改时间从新到旧排。
+#   本脚本：               $STACK/docker-compose.yml.bak-<slug>-<日期>-<sha>
+#   Codex 的 media-deploy：$STACK/backups/<名字>-<UTC 时间>/docker-compose.yml
+# 两边都保留了被备份那份 compose 的修改时间（cp -p / copy2），合并排序就是发布先后。
+#
+# 原先只看 .bak-*。2026-10-09 Codex 连发三版都没写 .bak，rollback 会一下退回三个
+# 版本之前的 desktop-recharge，把 media-quota 和 media-recovery 一起回滚掉。
+ROLLBACK_GLOBS="docker-compose.yml.bak-* backups/*/docker-compose.yml"
+
+rollback_candidates() { ssh_do "cd $STACK && ls -1t $ROLLBACK_GLOBS 2>/dev/null"; }
+
+# 回滚目标：候选里第一份内容与当前 compose 不同的。不直接取最新一份，是因为回滚之后
+# 最新那份就是当前状态，再执行一次会原地不动；这样连回两次就是退两个版本。
+rollback_target() {
+  ssh_do "cd $STACK && for f in \$(ls -1t $ROLLBACK_GLOBS 2>/dev/null); do
+    cmp -s \"\$f\" docker-compose.yml || { echo \"\$f\"; exit 0; }; done; exit 1"
+}
+
+compose_image() { ssh_do "grep -m1 -oE 'sub2api:[^[:space:]]+' '$STACK/$1'"; }
+
 # run_tests 在服务器的 golang 容器里跑校验。
 #
 # 为什么在服务器上跑：开发机（Windows）没装 Go 工具链，而生产机已经有构建用的
@@ -230,19 +250,44 @@ case "${1:-}" in
   status)
     echo "== 运行镜像 =="; ssh_do "docker ps --filter name=^sub2api\$ --format '{{.Image}}  {{.Status}}'"
     echo "== /health ==";  ssh_do "curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18082/health"
-    echo "== 可回滚的备份 =="; ssh_do "ls -1t $STACK/docker-compose.yml.bak-* 2>/dev/null | head -5"
+    echo "== rollback 会回到 =="
+    if T=$(rollback_target); then
+      I=$(compose_image "$T" || true)
+      if [ -n "$I" ] && ssh_do "docker image inspect '$I' >/dev/null 2>&1"; then S="本机有"; else S="⚠ 本机没有，回滚会被拒绝"; fi
+      echo "  $T"; echo "  ${I:-?}（$S）"
+    else
+      echo "  无"
+    fi
+    echo "== 最近的 compose 备份（两套发布流程合并，新→旧，可作为 rollback 的参数）=="
+    ssh_do "cd $STACK && for f in \$(ls -1t $ROLLBACK_GLOBS 2>/dev/null | head -5); do
+      printf '  %-60s %s\n' \"\$(grep -m1 -oE 'sub2api:[^[:space:]]+' \"\$f\")\" \"\$f\"; done"
     exit 0
     ;;
   rollback)
-    LAST=$(ssh_do "ls -1t $STACK/docker-compose.yml.bak-* 2>/dev/null | head -1")
-    [ -n "$LAST" ] || { echo "没有可回滚的备份" >&2; exit 1; }
-    echo "回滚到: $LAST"
-    ssh_do "cd $STACK && cp -p '$LAST' docker-compose.yml && docker compose up -d >/dev/null"
-    health_wait; ssh_do "docker ps --filter name=^sub2api\$ --format '{{.Image}}  {{.Status}}'"
+    if [ -n "${2:-}" ]; then
+      TARGET="${2#"$STACK"/}"
+      rollback_candidates | grep -Fxq "$TARGET" || { echo "不认识的备份：$2（status 里列出的才行）" >&2; exit 1; }
+    else
+      TARGET=$(rollback_target) || { echo "没有内容与当前不同的 compose 备份，无从回滚" >&2; exit 1; }
+    fi
+    IMG=$(compose_image "$TARGET" || true)
+    echo "当前:   $(current_image)"
+    echo "回滚到: $STACK/$TARGET"
+    echo "  镜像: ${IMG:-?}"
+    # 镜像不在本机时 compose 会去 Docker Hub 拉，生产机连不上，服务就卡在拉取上
+    [ -n "$IMG" ] && ssh_do "docker image inspect '$IMG' >/dev/null 2>&1" \
+      || { echo "镜像 ${IMG:-?} 不在本机，不回滚" >&2; exit 1; }
+    # 先留一份当前 compose，回滚错了能原样恢复；名字不带 .bak-，不会混进回滚候选。
+    # 不用 -p：让 compose 的修改时间是回滚时刻，下次发布备份它时排序才对。
+    PRE="docker-compose.yml.pre-rollback-$(date +%Y%m%d%H%M%S)"
+    ssh_do "cd $STACK && cp --preserve=mode docker-compose.yml '$PRE' && cp --preserve=mode '$TARGET' docker-compose.yml && docker compose up -d >/dev/null"
+    health_wait || { echo "回滚后健康检查未通过；回滚前的 compose 在 $STACK/$PRE" >&2; exit 1; }
+    ssh_do "docker ps --filter name=^sub2api\$ --format '{{.Image}}  {{.Status}}'"
+    echo "  回滚前的 compose 留在 $STACK/$PRE"
     exit 0
     ;;
   "")
-    echo "用法: $0 <slug> [commit-ish] | test [commit-ish] | rollback | status" >&2; exit 1
+    echo "用法: $0 <slug> [commit-ish] | test [commit-ish] | rollback [compose 备份] | status" >&2; exit 1
     ;;
 esac
 
