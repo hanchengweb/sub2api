@@ -87,7 +87,9 @@ func (h *AdminAPIKeyHandler) EnsureOrganizationKey(c *gin.Context) {
 	executeAdminIdempotentJSON(c, "admin.organization.key", payload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		u, err := h.organization(ctx, f)
 		if errors.Is(err, service.ErrUserNotFound) {
-			u, err = h.adminService.CreateUser(ctx, &service.CreateUserInput{AccountType: f.AccountType, OrganizationIssuer: f.OrganizationIssuer, OrganizationID: f.OrganizationID, OrganizationEnvironment: f.OrganizationEnvironment, Email: req.Email, Username: req.Name, Concurrency: 1, AllowedGroups: []int64{req.GroupID}})
+			// A service identity is shared by the whole organization. Let upstream
+			// account limits protect capacity without serializing all its members.
+			u, err = h.adminService.CreateUser(ctx, &service.CreateUserInput{AccountType: f.AccountType, OrganizationIssuer: f.OrganizationIssuer, OrganizationID: f.OrganizationID, OrganizationEnvironment: f.OrganizationEnvironment, Email: req.Email, Username: req.Name, Concurrency: 0, AllowedGroups: []int64{req.GroupID}})
 			if err != nil { // Recover an identity created by a concurrent/delayed request.
 				existing, lookupErr := h.organization(ctx, f)
 				if lookupErr == nil {
