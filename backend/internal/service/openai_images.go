@@ -956,6 +956,12 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	if err != nil {
 		return nil, err
 	}
+	forwardBody, err = normalizeSeedreamArkRequest(forwardBody, forwardContentType, account.GetOpenAIBaseURL())
+	if err != nil {
+		invalid := &OpenAIImagesUpstreamError{StatusCode: http.StatusBadRequest, ErrorType: "invalid_request_error", Code: "invalid_parameter", Message: err.Error()}
+		writeOpenAIImagesUpstreamErrorResponse(c, invalid)
+		return nil, invalid
+	}
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, parsed.Stream)
 	defer releaseUpstreamCtx()
 
