@@ -147,3 +147,26 @@ func TestOrganizationMediaQuotaBoundsAndPersonalUnaffected(t *testing.T) {
 	require.Equal(t, 1, calls)
 	require.Empty(t, s.claims)
 }
+
+func TestOrganizationMediaQuotaAcceptsSeedreamWatermarkWithoutChangingCount(t *testing.T) {
+	for _, flag := range []string{"true", "false"} {
+		s := &mediaQuotaStub{enabled: true}
+		r := quotaRouter(s, "organization_service", func(h *OpenAIGatewayHandler, c *gin.Context) {
+			require.True(t, h.beginMediaQuotaDispatch(c))
+			c.JSON(200, gin.H{"data": []gin.H{{"url": "https://fixture/image"}}})
+		})
+		body := `{"model":"doubao-seedream-5-0-pro","prompt":"fixture","n":1,"size":"1:1","metadata":{"resolution":"1K","watermark":` + flag + `}}`
+		require.Equal(t, 200, quotaRequest(r, "/v1/images/generations", body).Code)
+		require.Len(t, s.claims, 1)
+		require.Equal(t, int64(1), s.claims[0].Units)
+		require.Equal(t, []int64{1}, s.settlements)
+	}
+	s := &mediaQuotaStub{enabled: true}
+	r := quotaRouter(s, "organization_service", func(_ *OpenAIGatewayHandler, _ *gin.Context) {
+		t.Fatal("invalid metadata reached the supplier")
+	})
+	for _, metadata := range []string{`{"watermark":"false"}`, `{"watermark":1}`, `{"watermark":false,"sequential_image_generation":"auto"}`} {
+		require.Equal(t, 422, quotaRequest(r, "/v1/images/generations", `{"model":"doubao-seedream-5-0-pro","n":1,"metadata":`+metadata+`}`).Code)
+	}
+	require.Empty(t, s.claims)
+}

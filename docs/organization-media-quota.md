@@ -26,6 +26,9 @@ use a known model's fixed duration. Automatic duration, auto multi-image modes,
 batch generation, video edit/extension and native image tools on chat endpoints
 are rejected for configured organizations. WebSocket requests are rejected because
 later frames could enable unaccounted image tools; HTTP text chat is unchanged.
+Seedream may set `metadata.resolution` and boolean `metadata.watermark`; the
+watermark flag does not change reserved image units. Other metadata keys, including
+automatic multi-image controls, remain rejected.
 
 ## Ledger and recovery
 

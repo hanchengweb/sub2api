@@ -148,7 +148,9 @@ func (h *OpenAIGatewayHandler) OrganizationMediaQuotaMiddleware() gin.HandlerFun
 				return true
 			})
 			gjson.GetBytes(body, "metadata").ForEach(func(k, v gjson.Result) bool {
-				if k.String() != "resolution" {
+				// Seedream places its watermark flag in metadata; it cannot change output count.
+				watermark := k.String() == "watermark" && (v.Type == gjson.True || v.Type == gjson.False)
+				if k.String() != "resolution" && !watermark {
 					validFields = false
 				}
 				return true
