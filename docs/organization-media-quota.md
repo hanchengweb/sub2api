@@ -29,6 +29,12 @@ later frames could enable unaccounted image tools; HTTP text chat is unchanged.
 Seedream may set `metadata.resolution` and boolean `metadata.watermark`; the
 watermark flag does not change reserved image units. Other metadata keys, including
 automatic multi-image controls, remain rejected.
+Organization model overrides may route the public Seedream model to Volcengine
+Ark. At that provider boundary, aspect ratios and resolution become pixel sizes,
+`metadata.watermark` becomes `watermark`, and `image_urls` becomes `image`.
+Seedream Pro remains one image per request. The personal ToAPIs route keeps its
+original request contract. Native parameter reference (checked 2026-10-11):
+https://docs.volcengine.com/docs/ark/image-generation-api?lang=zh
 
 ## Ledger and recovery
 
