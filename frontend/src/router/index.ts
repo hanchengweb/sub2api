@@ -616,6 +616,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/digital-teachers',
+    name: 'AdminDigitalTeachers',
+    component: () => import('@/views/admin/DigitalTeachersView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: '数字老师' }
+  },
+  {
     path: '/admin/agent-pricing',
     name: 'AdminAgentPricing',
     component: () => import('@/views/admin/AgentPricingPlansView.vue'),
