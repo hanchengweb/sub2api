@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -164,30 +163,49 @@ func (g *Gateway) unseal(s string) (string, error) {
 	p, err := g.box.Open(nil, b[:g.box.NonceSize()], b[g.box.NonceSize():], nil)
 	return string(p), err
 }
+
+type capabilityClaims struct {
+	ID        string `json:"sub"`
+	Nonce     string `json:"jti"`
+	Expires   int64  `json:"exp"`
+	Audience  string `json:"aud"`
+	StartData struct {
+		Mode      string `json:"mode"`
+		AgentType string `json:"agent_type"`
+	} `json:"start_session_data"`
+}
+
 func (g *Gateway) capability(s *Session) string {
-	body := s.ID + "." + s.Nonce + "." + strconv.FormatInt(s.Deadline.Add(10*time.Minute).Unix(), 10)
+	claims := capabilityClaims{ID: s.ID, Nonce: s.Nonce, Expires: s.Deadline.Add(10 * time.Minute).Unix(), Audience: "windhub-digital-teacher"}
+	claims.StartData.Mode = "FULL"
+	claims.StartData.AgentType = "FULL"
+	payload, _ := json.Marshal(claims)
+	// The SDK reads these public mode claims. This is still a WindHub-only
+	// credential and contains no supplier session token or teacher prompt.
+	body := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." + base64.RawURLEncoding.EncodeToString(payload)
 	m := hmac.New(sha256.New, g.secret)
 	m.Write([]byte(body))
 	return body + "." + base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
 func (g *Gateway) ResolveCapability(ctx context.Context, token string) (*Session, error) {
 	p := strings.Split(token, ".")
-	if len(p) != 4 || !validUUID(p[0]) {
+	if len(token) > 1024 || len(p) != 3 || p[0] != "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" {
 		return nil, ErrNotFound
 	}
-	body := strings.Join(p[:3], ".")
+	body := strings.Join(p[:2], ".")
 	m := hmac.New(sha256.New, g.secret)
 	m.Write([]byte(body))
-	signature, err := base64.RawURLEncoding.DecodeString(p[3])
+	signature, err := base64.RawURLEncoding.DecodeString(p[2])
 	if err != nil || !hmac.Equal(signature, m.Sum(nil)) {
 		return nil, ErrNotFound
 	}
-	expires, err := strconv.ParseInt(p[2], 10, 64)
-	if err != nil || g.now().Unix() > expires {
+	payload, err := base64.RawURLEncoding.DecodeString(p[1])
+	var claims capabilityClaims
+	if err != nil || json.Unmarshal(payload, &claims) != nil || !validUUID(claims.ID) || claims.Audience != "windhub-digital-teacher" || claims.StartData.Mode != "FULL" || claims.StartData.AgentType != "FULL" || g.now().Unix() > claims.Expires {
 		return nil, ErrNotFound
 	}
-	s, err := g.session(ctx, p[0])
-	if err != nil || !hmac.Equal([]byte(s.Nonce), []byte(p[1])) {
+	s, err := g.session(ctx, claims.ID)
+	if err != nil || !hmac.Equal([]byte(s.Nonce), []byte(claims.Nonce)) {
 		return nil, ErrNotFound
 	}
 	return s, nil

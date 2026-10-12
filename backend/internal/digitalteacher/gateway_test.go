@@ -3,6 +3,7 @@ package digitalteacher
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -200,6 +201,16 @@ func TestGatewayPostgres(t *testing.T) {
 		require.Equal(t, "ready", s.Phase)
 		totals(o, 4, 6, 6)
 		require.NotContains(t, g.capability(s), "synthetic-provider")
+		capability := g.capability(s)
+		payload, err := base64.RawURLEncoding.DecodeString(strings.Split(capability, ".")[1])
+		require.NoError(t, err)
+		var claims capabilityClaims
+		require.NoError(t, json.Unmarshal(payload, &claims))
+		require.Equal(t, "FULL", claims.StartData.Mode)
+		require.Equal(t, "FULL", claims.StartData.AgentType)
+		resolved, err := g.ResolveCapability(ctx, capability)
+		require.NoError(t, err)
+		require.Equal(t, s.ID, resolved.ID)
 		require.NotContains(t, s.UpstreamToken, "synthetic-provider")
 		_, err = g.ResolveCapability(ctx, g.capability(s)+"x")
 		require.Error(t, err)
