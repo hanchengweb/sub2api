@@ -812,6 +812,7 @@ const adminNavItems = computed((): NavItem[] => {
     // 审一条申请、看这个人开通成了什么模式、再配他的价。
     { path: '/admin/agency-applications', label: t('nav.agencyApplications'), icon: UsersIcon },
     { path: '/admin/agents', label: t('nav.agents'), icon: UsersIcon, hideInSimpleMode: true },
+    { path: '/admin/digital-teachers', label: '数字老师', icon: UsersIcon, hideInSimpleMode: true },
     { path: '/admin/agent-pricing', label: t('nav.agentPricing'), icon: PriceTagIcon, hideInSimpleMode: true },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },

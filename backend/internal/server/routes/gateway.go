@@ -34,6 +34,7 @@ func RegisterGatewayRoutes(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 ) {
+	registerDigitalTeacherGateway(r, h.DigitalTeacher, apiKeyAuth)
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	imageUploadBodyLimit := middleware.RequestBodyLimit(service.GrokMediaImageUploadMaxBytes + 64*1024)

@@ -66,6 +66,21 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		origin := strings.TrimSpace(c.GetHeader("Origin"))
+		// Electron file pages use a null origin. Only capability-authenticated
+		// SDK lifecycle routes accept it; account/admin cookie routes do not.
+		if origin == "null" && isDigitalTeacherSDKPath(c.Request.URL.Path) {
+			c.Header("Access-Control-Allow-Origin", "null")
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			c.Header("Access-Control-Allow-Methods", "POST, OPTIONS")
+			c.Header("Vary", "Origin")
+			if c.Request.Method == http.MethodOptions {
+				c.AbortWithStatus(http.StatusNoContent)
+				return
+			}
+			c.Next()
+			return
+		}
 		originAllowed := allowAll
 		if origin != "" && !allowAll {
 			_, originAllowed = allowedSet[origin]

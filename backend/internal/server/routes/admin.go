@@ -24,6 +24,7 @@ func RegisterAdminRoutes(
 	admin.Use(gin.HandlerFunc(auditLog))
 	admin.Use(middleware.AdminComplianceGuard(settingService))
 	{
+		registerDigitalTeacherAdmin(admin, h.DigitalTeacher)
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
 

@@ -176,7 +176,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 		mediaRead := videoRead || c.Request.Method == http.MethodGet && c.FullPath() == "/v1/organization/media-quota"
-		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || rechargeRequest || mediaRead || isImageTaskRead(c.Request.Method, c.Request.URL.Path)
+		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || rechargeRequest || mediaRead || isDigitalTeacherRequest(c.Request.Method, c.FullPath()) || isImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
