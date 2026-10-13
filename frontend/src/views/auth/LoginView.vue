@@ -7,10 +7,10 @@
         </div>
         <div class="min-w-0 pt-0.5">
           <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
-            {{ t('auth.desktopAuthorization.title') }}
+            {{ isRemoteAuthorization ? '连接微末智学手机遥控' : t('auth.desktopAuthorization.title') }}
           </h2>
           <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-dark-400">
-            {{ t('auth.desktopAuthorization.description') }}
+            {{ isRemoteAuthorization ? '允许 app.wemoreai.com 确认你的个人身份。连接电脑仍需在电脑上核对并同意。' : t('auth.desktopAuthorization.description') }}
           </p>
         </div>
       </div>
@@ -51,7 +51,7 @@
           </div>
           <div class="flex items-center gap-2.5 px-3.5 py-3 text-sm text-gray-700 dark:text-gray-200">
             <Icon name="checkCircle" size="sm" class="shrink-0 text-emerald-600 dark:text-emerald-400" />
-            <span>{{ t('auth.desktopAuthorization.useModelService') }}</span>
+            <span>{{ isRemoteAuthorization ? '连接本人电脑，发任务、确认操作和领取共享文件' : t('auth.desktopAuthorization.useModelService') }}</span>
           </div>
         </div>
       </div>
@@ -432,6 +432,7 @@ function resumeDesktopAuthorizationIfAuthenticated(): void {
 }
 
 const desktopAuthorizationRequest = computed(() => getDesktopAuthorizationRequest())
+const isRemoteAuthorization = computed(() => desktopAuthorizationRequest.value?.client_id === 'wxm-mobile-remote')
 const desktopAuthorizationVisible = computed(
   () => Boolean(desktopAuthorizationRequest.value && showDesktopAuthorization.value && authStore.isAuthenticated),
 )

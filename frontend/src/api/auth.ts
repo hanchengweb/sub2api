@@ -304,7 +304,8 @@ export interface DesktopAuthorizationResponse {
 export async function createDesktopAuthorizationCode(
   request: DesktopAuthorizationRequest,
 ): Promise<DesktopAuthorizationResponse> {
-  const { data } = await apiClient.post<DesktopAuthorizationResponse>('/auth/desktop/authorize', request)
+  const path = request.client_id === 'wxm-mobile-remote' ? '/auth/remote/authorize' : '/auth/desktop/authorize'
+  const { data } = await apiClient.post<DesktopAuthorizationResponse>(path, request)
   return data
 }
 

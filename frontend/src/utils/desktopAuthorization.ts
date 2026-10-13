@@ -1,5 +1,7 @@
 export const FENGXING_DESKTOP_CLIENT_ID = 'com.fengxingzhonghe.desktop'
 export const FENGXING_DESKTOP_REDIRECT_URI = 'fengxingzhonghe://auth/callback'
+export const REMOTE_CLIENT_ID = 'wxm-mobile-remote'
+export const REMOTE_REDIRECT_URI = 'https://app.wemoreai.com/remote/v1/personal/callback'
 
 export interface DesktopAuthorizationRequest {
   client_id: string
@@ -32,13 +34,14 @@ export function parseDesktopAuthorizationRequest(
     code_challenge_method: queryString(query, 'code_challenge_method'),
   }
   if (
-    request.client_id !== FENGXING_DESKTOP_CLIENT_ID ||
-    request.redirect_uri !== FENGXING_DESKTOP_REDIRECT_URI ||
+    !((request.client_id === FENGXING_DESKTOP_CLIENT_ID && request.redirect_uri === FENGXING_DESKTOP_REDIRECT_URI) ||
+      (request.client_id === REMOTE_CLIENT_ID && request.redirect_uri === REMOTE_REDIRECT_URI &&
+        /^[A-Za-z0-9_-]{43}$/.test(request.state) && /^[A-Za-z0-9_-]{43}$/.test(request.code_challenge))) ||
     !request.state ||
     !request.code_challenge ||
     request.code_challenge_method !== 'S256'
   ) {
-    throw new Error('桌面授权请求无效，请从风合智联重新发起授权。')
+    throw new Error('授权请求无效，请返回原应用重新发起授权。')
   }
 
   return request as DesktopAuthorizationRequest
