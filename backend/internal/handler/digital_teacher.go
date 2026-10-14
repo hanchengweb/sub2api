@@ -43,7 +43,7 @@ func NewDigitalTeacherHandler(db *sql.DB, cfg *config.Config, billing *service.B
 		}
 		simliKey = strings.TrimSpace(string(data))
 	}
-	g, err := digitalteacher.New(db, digitalteacher.Options{APIKey: key, SimliAPIKey: simliKey, Provider: os.Getenv("DIGITAL_TEACHER_PROVIDER"), CryptoSecret: cfg.JWT.Secret, Invalidate: func(ctx context.Context, userID, keyID int64) {
+	g, err := digitalteacher.New(db, digitalteacher.Options{APIKey: key, SimliAPIKey: simliKey, Provider: os.Getenv("DIGITAL_TEACHER_PROVIDER"), StudioUsers: os.Getenv("DIGITAL_TEACHER_SIMLI_STUDIO_USERS"), CryptoSecret: cfg.JWT.Secret, Invalidate: func(ctx context.Context, userID, keyID int64) {
 		_ = billing.InvalidateUserBalance(ctx, userID)
 		_ = billing.InvalidateAPIKeyRateLimit(ctx, keyID)
 		keys.InvalidateAuthCacheByUserID(ctx, userID)
@@ -97,7 +97,7 @@ func (h *DigitalTeacherHandler) CreateAvatar(c *gin.Context) {
 		response.BadRequest(c, "照片读取失败")
 		return
 	}
-	v, e := h.gateway.CreateAvatar(c.Request.Context(), o, c.PostForm("request_id"), c.PostForm("name"), c.PostForm("consent") == "true", photo)
+	v, e := h.gateway.CreateAvatar(c.Request.Context(), o, c.PostForm("request_id"), c.PostForm("name"), c.PostForm("consent") == "true", photo, c.PostForm("generation"))
 	if !teacherError(c, e) {
 		response.Success(c, v)
 	}
@@ -141,7 +141,7 @@ func teacherOwner(c *gin.Context) (digitalteacher.Owner, bool) {
 		response.Error(c, 403, "请先选择已开通数字老师的算力包")
 		return digitalteacher.Owner{}, false
 	}
-	if (c.Request.Method == "POST" && c.FullPath() != "/v1/digital-teachers/sessions/:id/stop" || c.Request.Method == "PUT") && (key.IsExpired() || key.Status == service.StatusAPIKeyExpired) {
+	if (c.Request.Method == "POST" && c.FullPath() != "/v1/digital-teachers/sessions/:id/stop" && c.FullPath() != "/v1/digital-teachers/studio/sessions/:id/stop" || c.Request.Method == "PUT") && (key.IsExpired() || key.Status == service.StatusAPIKeyExpired) {
 		response.Error(c, 403, "当前连接已过期，请重新连接")
 		return digitalteacher.Owner{}, false
 	}
@@ -193,6 +193,41 @@ func (h *DigitalTeacherHandler) Create(c *gin.Context) {
 		return
 	}
 	v, e := h.gateway.Create(c.Request.Context(), o, r)
+	if !teacherError(c, e) {
+		response.Success(c, v)
+	}
+}
+func (h *DigitalTeacherHandler) StudioCreate(c *gin.Context) {
+	o, ok := teacherOwner(c)
+	if !ok {
+		return
+	}
+	var r digitalteacher.StartRequest
+	if c.ShouldBindJSON(&r) != nil {
+		response.BadRequest(c, "会话参数无效")
+		return
+	}
+	v, e := h.gateway.StudioCreate(c.Request.Context(), o, r)
+	if !teacherError(c, e) {
+		response.Success(c, v)
+	}
+}
+func (h *DigitalTeacherHandler) StudioList(c *gin.Context) {
+	o, ok := teacherOwner(c)
+	if !ok {
+		return
+	}
+	v, e := h.gateway.StudioList(c.Request.Context(), o)
+	if !teacherError(c, e) {
+		response.Success(c, v)
+	}
+}
+func (h *DigitalTeacherHandler) StudioStop(c *gin.Context) {
+	o, ok := teacherOwner(c)
+	if !ok {
+		return
+	}
+	v, e := h.gateway.StudioStop(c.Request.Context(), o, c.Param("id"))
 	if !teacherError(c, e) {
 		response.Success(c, v)
 	}

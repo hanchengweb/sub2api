@@ -65,9 +65,11 @@ type Asset struct {
 	DefaultVoice *Asset `json:"default_voice,omitempty"`
 }
 type Catalog struct {
-	Avatars []map[string]any `json:"avatars"`
-	Voices  []map[string]any `json:"voices"`
-	Jobs    []AvatarJob      `json:"jobs,omitempty"`
+	Models      []string         `json:"models,omitempty"`
+	VoiceModels []string         `json:"voiceModels,omitempty"`
+	Avatars     []map[string]any `json:"avatars"`
+	Voices      []map[string]any `json:"voices"`
+	Jobs        []AvatarJob      `json:"jobs,omitempty"`
 }
 
 func (g *Gateway) Teachers(ctx context.Context, o Owner) ([]Teacher, error) {
@@ -86,7 +88,7 @@ func (g *Gateway) Teachers(ctx context.Context, o Owner) ([]Teacher, error) {
 		if err = json.Unmarshal(data, &t); err != nil {
 			return nil, err
 		}
-		out = append(out, g.currentTeacher(t))
+		out = append(out, g.teacherForOwner(t, o))
 	}
 	return out, rows.Err()
 }
@@ -264,7 +266,7 @@ func (g *Gateway) teacher(ctx context.Context, o Owner, id string) (string, Teac
 		return "", t, ErrNotFound
 	}
 	err = json.Unmarshal(data, &t)
-	return serverID, g.currentTeacher(t), err
+	return serverID, g.teacherForOwner(t, o), err
 }
 func (g *Gateway) context(ctx context.Context, id string, t Teacher) (string, error) {
 	body := map[string]any{"prompt": "你是" + t.Name + "，教授" + t.Subject + "。使用自然、简洁的中文交流，每次解释一个重点，适当提问确认学生理解。\n" + t.Instructions, "opening_text": t.Opening}

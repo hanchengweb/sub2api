@@ -105,7 +105,7 @@ func (g *Gateway) reserve(ctx context.Context, o Owner, req StartRequest, teache
 		return nil, false, e
 	}
 	var active bool
-	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM digital_teacher_sessions WHERE user_id=$1 AND phase NOT IN ('completed','failed'))`, o.UserID).Scan(&active); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM digital_teacher_sessions WHERE user_id=$1 AND phase NOT IN ('completed','failed') UNION ALL SELECT 1 FROM digital_teacher_studio_sessions WHERE user_id=$1 AND closed_at IS NULL AND deadline>NOW())`, o.UserID).Scan(&active); err != nil {
 		return nil, false, err
 	}
 	if active {

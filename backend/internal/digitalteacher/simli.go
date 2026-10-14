@@ -86,6 +86,14 @@ func (g *Gateway) simliCatalog(ctx context.Context, o Owner) (Catalog, error) {
 	for _, v := range speechvoices.Catalog {
 		out.Voices = append(out.Voices, map[string]any{"id": v.ID, "name": v.Name, "language": v.Language, "description": v.Description})
 	}
+	if g.StudioEnabled(o) {
+		out.Voices = g.studioVoices(ctx)
+		out.Models = studioModels
+		out.VoiceModels = studioVoiceModels
+		for _, a := range out.Avatars {
+			a["voiceId"] = studioVoice
+		}
+	}
 	jobs, err := g.AvatarJobs(ctx, o)
 	if err != nil {
 		return out, err

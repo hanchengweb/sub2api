@@ -37,10 +37,14 @@ func testAvatarJobs(t *testing.T, db *sql.DB) {
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "test-simli", r.Header.Get("x-simli-api-key"))
 		switch r.URL.Path {
-		case "/faces/trinity":
+		case "/faces/trinity", "/faces/legacy":
 			calls.Add(1)
 			require.Equal(t, "POST", r.Method)
-			require.Equal(t, "GSA_1.0", r.URL.Query().Get("gsVersion"))
+			if r.URL.Path == "/faces/legacy" {
+				require.Equal(t, "1.5", r.URL.Query().Get("characterVersion"))
+			} else {
+				require.Equal(t, "GSA_1.0", r.URL.Query().Get("gsVersion"))
+			}
 			require.True(t, strings.HasPrefix(r.URL.Query().Get("face_name"), "wxm-"))
 			require.NoError(t, r.ParseMultipartForm(6<<20))
 			defer r.MultipartForm.RemoveAll()
@@ -52,7 +56,7 @@ func testAvatarJobs(t *testing.T, db *sql.DB) {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"face_id": face})
-		case "/faces/trinity/generation_status":
+		case "/faces/trinity/generation_status", "/faces/legacy/generation_status":
 			require.Equal(t, face, r.URL.Query().Get("face_id"))
 			// Provider's top-level latest job belongs to somebody else.
 			_ = json.NewEncoder(w).Encode(map[string]any{"face_id": uuid.NewString(), "status": "failed", "generations": []any{map[string]any{"face_id": face, "status": "completed", "queue_position": 0}}})
@@ -88,11 +92,18 @@ func testAvatarJobs(t *testing.T, db *sql.DB) {
 	require.Equal(t, "ready", j.State)
 	catalog, err := g.simliCatalog(ctx, o)
 	require.NoError(t, err)
-	require.Len(t, catalog.Avatars, 13)
+	require.Len(t, catalog.Avatars, 22)
 	require.Len(t, catalog.Voices, 6)
 	teacher := Teacher{Provider: "simli", ID: uuid.NewString(), Name: "我的老师", Subject: "数学", Instructions: "耐心讲解", AvatarID: face, VoiceID: "steady"}
 	_, err = g.SaveTeacher(ctx, o, teacher)
 	require.NoError(t, err)
+	face = uuid.NewString()
+	legacy, err := g.CreateAvatar(ctx, o, uuid.NewString(), "照片老师", true, photo.Bytes(), "legacy")
+	require.NoError(t, err)
+	require.Equal(t, "legacy", legacy.Generation)
+	legacy, err = g.RefreshAvatar(ctx, o, legacy.ID)
+	require.NoError(t, err)
+	require.Equal(t, "ready", legacy.State)
 	outcome.Store(1)
 	request = uuid.NewString()
 	unknown, err := g.CreateAvatar(ctx, o, request, "结果待确认", true, photo.Bytes())
@@ -100,11 +111,11 @@ func testAvatarJobs(t *testing.T, db *sql.DB) {
 	require.Equal(t, "unknown", unknown.State)
 	_, err = g.CreateAvatar(ctx, o, request, "结果待确认", true, photo.Bytes())
 	require.NoError(t, err)
-	require.EqualValues(t, 2, calls.Load())
+	require.EqualValues(t, 3, calls.Load())
 	_, err = g.CreateAvatar(ctx, o, uuid.NewString(), "重复制作", true, photo.Bytes())
 	require.Error(t, err)
-	require.EqualValues(t, 2, calls.Load())
+	require.EqualValues(t, 3, calls.Load())
 	_, err = g.RefreshAvatar(ctx, o, unknown.ID)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, calls.Load(), "refresh must never repeat a mutating provider call")
+	require.EqualValues(t, 3, calls.Load(), "refresh must never repeat a mutating provider call")
 }

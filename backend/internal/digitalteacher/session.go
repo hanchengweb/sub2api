@@ -441,7 +441,7 @@ func (g *Gateway) Settings(ctx context.Context, o Owner) (map[string]any, error)
 		model = "simli-compose"
 		p.SandboxEnabled = false
 	}
-	return map[string]any{"configured": g.Configured() && p.Enabled && (p.PricePerMinute > 0 || minutes["configured"] == true), "teachers": teachers, "provider": g.provider, "model": model, "plan": p, "minutes": minutes, "billing_unit": "minute", "billing_policy": "开始前预留所选时长的额度，结束后按供应商会话用量结算并释放余量；收费不超过开始前展示的上限。Simli 分钟按历史回执秒数折算，供应商账单金额另行核对"}, nil
+	return map[string]any{"studioEvaluation": g.StudioEnabled(o), "configured": g.Configured() && p.Enabled && (p.PricePerMinute > 0 || minutes["configured"] == true), "teachers": teachers, "provider": g.provider, "model": model, "plan": p, "minutes": minutes, "billing_unit": "minute", "billing_policy": "开始前预留所选时长的额度，结束后按供应商会话用量结算并释放余量；收费不超过开始前展示的上限。Simli 分钟按历史回执秒数折算，供应商账单金额另行核对"}, nil
 }
 func (g *Gateway) Plans(ctx context.Context) ([]Plan, error) {
 	rows, err := g.db.QueryContext(ctx, `SELECT group_id,enabled,sandbox_enabled,price_per_minute,max_minutes,version FROM digital_teacher_plans ORDER BY group_id`)

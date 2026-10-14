@@ -28,23 +28,24 @@ import (
 // Photos are sent only to the configured provider. We retain a small private
 // thumbnail, consented request digest and job state, never the original photo.
 type AvatarJob struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	State     string    `json:"state"`
-	FaceID    string    `json:"faceId,omitempty"`
-	Preview   string    `json:"previewUrl"`
-	Message   string    `json:"message"`
-	Queue     int       `json:"queuePosition"`
-	CreatedAt time.Time `json:"createdAt"`
-	digest    string
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	State      string    `json:"state"`
+	FaceID     string    `json:"faceId,omitempty"`
+	Preview    string    `json:"previewUrl"`
+	Message    string    `json:"message"`
+	Queue      int       `json:"queuePosition"`
+	CreatedAt  time.Time `json:"createdAt"`
+	Generation string    `json:"generation"`
+	digest     string
 }
 
-const avatarColumns = `id::text,name,state,COALESCE(face_id::text,''),preview,message,queue_position,created_at,digest`
+const avatarColumns = `id::text,name,state,COALESCE(face_id::text,''),preview,message,queue_position,created_at,digest,generation`
 
 func scanAvatar(row interface{ Scan(...any) error }) (AvatarJob, error) {
 	var j AvatarJob
 	var preview []byte
-	err := row.Scan(&j.ID, &j.Name, &j.State, &j.FaceID, &preview, &j.Message, &j.Queue, &j.CreatedAt, &j.digest)
+	err := row.Scan(&j.ID, &j.Name, &j.State, &j.FaceID, &preview, &j.Message, &j.Queue, &j.CreatedAt, &j.digest, &j.Generation)
 	if errors.Is(err, sql.ErrNoRows) {
 		return j, ErrNotFound
 	}
@@ -106,9 +107,16 @@ func avatarPreview(photo []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name string, consent bool, photo []byte) (AvatarJob, error) {
+func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name string, consent bool, photo []byte, generations ...string) (AvatarJob, error) {
 	if g.provider != "simli" {
 		return AvatarJob{}, fail(409, "avatar_provider_changed", "请刷新当前数字老师服务")
+	}
+	generation := "trinity"
+	if len(generations) > 0 && generations[0] != "" {
+		generation = generations[0]
+	}
+	if generation != "trinity" && generation != "legacy" {
+		return AvatarJob{}, fail(400, "avatar_generation_invalid", "请选择照片制作方式")
 	}
 	plan, err := g.requirePlan(ctx, o, false)
 	if err != nil {
@@ -130,7 +138,7 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 		return AvatarJob{}, err
 	}
 	sum := sha256.Sum256(photo)
-	dg := digest([]string{name, hex.EncodeToString(sum[:])})
+	dg := digest([]string{name, hex.EncodeToString(sum[:]), generation})
 	tx, err := g.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AvatarJob{}, err
@@ -165,7 +173,7 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 		return AvatarJob{}, fail(429, "avatar_generation_limit", "本账户的形象制作次数已达到限额，请稍后再试")
 	}
 	id := uuid.NewString()
-	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_avatar_jobs(id,user_id,request_id,name,digest,preview,state,message) VALUES($1,$2,$3,$4,$5,$6,'submitting','照片已提交，正在确认制作任务')`, id, o.UserID, requestID, name, dg, preview)
+	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_avatar_jobs(id,user_id,request_id,name,digest,preview,state,message,generation) VALUES($1,$2,$3,$4,$5,$6,'submitting','照片已提交，正在确认制作任务',$7)`, id, o.UserID, requestID, name, dg, preview, generation)
 	if err != nil {
 		return AvatarJob{}, err
 	}
@@ -185,7 +193,11 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 	part, _ := mp.CreatePart(header)
 	_, _ = part.Write(photo)
 	_ = mp.Close()
-	req, _ := http.NewRequestWithContext(work, "POST", g.simliURL+"/faces/trinity?gsVersion=GSA_1.0&face_name="+url.QueryEscape("wxm-"+id), &body)
+	route := "/faces/trinity?gsVersion=GSA_1.0&face_name="
+	if generation == "legacy" {
+		route = "/faces/legacy?characterVersion=1.5&face_name="
+	}
+	req, _ := http.NewRequestWithContext(work, "POST", g.simliURL+route+url.QueryEscape("wxm-"+id), &body)
 	req.Header.Set("x-simli-api-key", g.simliKey)
 	req.Header.Set("Content-Type", mp.FormDataContentType())
 	client := *g.client
@@ -305,7 +317,7 @@ func (g *Gateway) RefreshAvatar(ctx context.Context, o Owner, id string) (Avatar
 			return g.avatar(ctx, o, j.ID)
 		}
 	}
-	raw, err := g.simliCall(ctx, "GET", "/faces/trinity/generation_status?face_id="+url.QueryEscape(j.FaceID), nil)
+	raw, err := g.simliCall(ctx, "GET", "/faces/"+j.Generation+"/generation_status?face_id="+url.QueryEscape(j.FaceID), nil)
 	if err != nil {
 		return j, nil
 	}
