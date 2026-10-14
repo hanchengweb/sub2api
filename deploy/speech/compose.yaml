@@ -9,7 +9,7 @@ services:
     pids_limit: 128
     cpus: 0.5
     mem_limit: 256m
-    tmpfs: [/tmp:size=32m,mode=1777]
+    tmpfs: ["/tmp:size=32m,mode=1777"]
     # Never publish this unauthenticated worker on a host port.
     networks: [speech, egress]
     healthcheck:
