@@ -28,6 +28,17 @@ matching. Legacy is documented but deprecated. Simli also says Auto development
 has stopped. This route is an explicit effect evaluation, not a new SLA. No plan
 purchase, quota upgrade or overage switch is performed.
 
+Live Legacy verification accepted a 304 KB JPEG at the same 1254x1254 dimensions
+after rejecting a 2 MB PNG with HTTP 400 `error parsing the body`. The gateway
+therefore encodes validated Legacy photos as JPEG, preserving dimensions and
+trying quality 95 then 85 under a conservative 900 KiB transport budget. This
+budget is an interoperability choice, not a claimed documented supplier limit.
+Oversized results stop before submission with a clear recovery message.
+Legacy returns `character_uid`, which is its face ID; status polling uses that
+exact ID. The verified original fictional teacher is processing. Generation
+completion and its actual video appearance remain unverified. No duplicate
+generation was submitted after the successful response.
+
 Deploy from merged `fork/main`: build the existing embedded frontend, cross-build
 the gateway, and replace only the gateway image. Preserve speech, PostgreSQL,
 Redis and nginx. Back up compose and the database; verify the prior image and no
