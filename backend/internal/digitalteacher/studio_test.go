@@ -12,7 +12,35 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
+
+func TestStudioVoicesRetainCatalogAcrossTransientFailure(t *testing.T) {
+	g, e := New(nil, Options{SimliAPIKey: "synthetic", Provider: "simli", CryptoSecret: strings.Repeat("s", 32)})
+	require.NoError(t, e)
+	now := time.Now()
+	g.now = func() time.Time { return now }
+	var calls int
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls > 1 {
+			w.WriteHeader(503)
+			return
+		}
+		_, _ = w.Write([]byte(`{"voices":[{"voice_id":"pNInz6obpgDQGcFmaJgB","name":"Adam"}]}`))
+	}))
+	defer fake.Close()
+	g.elevenURL = fake.URL
+	first := g.studioVoices(context.Background())
+	require.Len(t, first, 2)
+	require.Equal(t, first, g.studioVoices(context.Background()))
+	require.Equal(t, 1, calls)
+	now = now.Add(11 * time.Minute)
+	require.Equal(t, first, g.studioVoices(context.Background()))
+	require.Equal(t, 2, calls)
+	require.Equal(t, first, g.studioVoices(context.Background()))
+	require.Equal(t, 2, calls)
+}
 
 func TestStudioRoomBoundary(t *testing.T) {
 	require.True(t, validStudioRoom("https://simli.daily.co/room"))

@@ -65,6 +65,7 @@ type Asset struct {
 	DefaultVoice *Asset `json:"default_voice,omitempty"`
 }
 type Catalog struct {
+	VoiceNotice string           `json:"voiceNotice,omitempty"`
 	Models      []string         `json:"models,omitempty"`
 	VoiceModels []string         `json:"voiceModels,omitempty"`
 	Avatars     []map[string]any `json:"avatars"`

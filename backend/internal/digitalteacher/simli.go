@@ -88,6 +88,9 @@ func (g *Gateway) simliCatalog(ctx context.Context, o Owner) (Catalog, error) {
 	}
 	if g.StudioEnabled(o) {
 		out.Voices = g.studioVoices(ctx)
+		if len(out.Voices) == 1 {
+			out.VoiceNotice = "ElevenLabs 的完整声音列表暂时未加载成功，可以先用 Aria；稍后点击刷新恢复更多声音。"
+		}
 		out.Models = studioModels
 		out.VoiceModels = studioVoiceModels
 		for _, a := range out.Avatars {

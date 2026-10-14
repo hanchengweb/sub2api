@@ -136,6 +136,7 @@ type Gateway struct {
 	simliWSURL  string
 	elevenURL   string
 	studioUsers map[int64]bool
+	voiceCache  studioVoiceCache
 	secret      []byte
 	box         cipher.AEAD
 	client      *http.Client
