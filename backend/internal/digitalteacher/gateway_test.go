@@ -352,5 +352,6 @@ func TestGatewayPostgres(t *testing.T) {
 		totals(o, 10, 0, 0)
 	})
 	t.Run("Simli gateway lifecycle", func(t *testing.T) { testSimliGateway(t, db) })
+	t.Run("Simli official Auto evaluation boundaries", func(t *testing.T) { testStudioGateway(t, db) })
 	t.Run("owned photo creation and recovery", func(t *testing.T) { testAvatarJobs(t, db) })
 }

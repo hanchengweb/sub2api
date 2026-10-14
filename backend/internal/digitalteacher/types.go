@@ -59,10 +59,15 @@ type Teacher struct {
 	Opening      string `json:"opening"`
 	AvatarID     string `json:"avatarId"`
 	VoiceID      string `json:"voiceId"`
+	LLMModel     string `json:"llmModel,omitempty"`
+	VoiceModel   string `json:"voiceModel,omitempty"`
 }
 
 func (t Teacher) Validate() error {
-	voiceValid := validUUID(t.VoiceID) || t.Provider == "simli" && speechvoices.Valid(t.VoiceID)
+	voiceValid := validUUID(t.VoiceID) || t.Provider == "simli" && (speechvoices.Valid(t.VoiceID) || elevenID.MatchString(t.VoiceID))
+	if t.LLMModel != "" && !contains(studioModels, t.LLMModel) || t.VoiceModel != "" && !contains(studioVoiceModels, t.VoiceModel) {
+		return fail(400, "invalid_studio_model", "请选择当前支持的对话与语音模型")
+	}
 	if (t.Provider != "" && t.Provider != "liveavatar" && t.Provider != "simli") || !validUUID(t.ID) || !validUUID(t.AvatarID) || !voiceValid || strings.TrimSpace(t.Name) == "" || len([]rune(t.Name)) > 40 || strings.TrimSpace(t.Subject) == "" || len([]rune(t.Subject)) > 80 || strings.TrimSpace(t.Instructions) == "" || len([]rune(t.Instructions)) > 12000 || len([]rune(t.Opening)) > 500 {
 		return fail(400, "invalid_teacher", "请完整填写老师姓名、形象、声音与授课要求")
 	}
@@ -119,21 +124,24 @@ type Ticket struct {
 type Options struct {
 	APIKey, CryptoSecret  string
 	SimliAPIKey, Provider string
+	StudioUsers           string
 	Invalidate            func(context.Context, int64, int64)
 }
 type Gateway struct {
-	db         *sql.DB
-	key        string
-	simliKey   string
-	provider   string
-	simliURL   string
-	simliWSURL string
-	secret     []byte
-	box        cipher.AEAD
-	client     *http.Client
-	upstream   string
-	invalidate func(context.Context, int64, int64)
-	now        func() time.Time
+	db          *sql.DB
+	key         string
+	simliKey    string
+	provider    string
+	simliURL    string
+	simliWSURL  string
+	elevenURL   string
+	studioUsers map[int64]bool
+	secret      []byte
+	box         cipher.AEAD
+	client      *http.Client
+	upstream    string
+	invalidate  func(context.Context, int64, int64)
+	now         func() time.Time
 }
 
 func New(db *sql.DB, o Options) (*Gateway, error) {
@@ -156,7 +164,7 @@ func New(db *sql.DB, o Options) (*Gateway, error) {
 	if provider != "liveavatar" && provider != "simli" {
 		return nil, errors.New("invalid digital teacher provider")
 	}
-	return &Gateway{db: db, key: strings.TrimSpace(o.APIKey), simliKey: strings.TrimSpace(o.SimliAPIKey), provider: provider, simliURL: "https://api.simli.ai", simliWSURL: "wss://api.simli.ai", secret: sum[:], box: box, upstream: "https://api.liveavatar.com", client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, invalidate: o.Invalidate, now: time.Now}, nil
+	return &Gateway{db: db, key: strings.TrimSpace(o.APIKey), simliKey: strings.TrimSpace(o.SimliAPIKey), provider: provider, simliURL: "https://api.simli.ai", simliWSURL: "wss://api.simli.ai", elevenURL: "https://api.elevenlabs.io", studioUsers: parseStudioUsers(o.StudioUsers), secret: sum[:], box: box, upstream: "https://api.liveavatar.com", client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, invalidate: o.Invalidate, now: time.Now}, nil
 }
 func (g *Gateway) Configured() bool {
 	return g != nil && (g.provider == "simli" && g.simliKey != "" || g.provider == "liveavatar" && g.key != "")
