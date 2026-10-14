@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/speechvoices"
 	"io"
 	"net/http"
 	"net/url"
@@ -83,10 +84,7 @@ func (h *SpeechHandler) Voices(c *gin.Context) {
 		speechError(c, 503, "speech_unavailable", "自然语音正在准备，请稍后重试")
 		return
 	}
-	c.JSON(200, gin.H{"object": "list", "default": "warm", "max_input_characters": 200, "data": []gin.H{
-		{"id": "warm", "name": "温柔女声", "description": "自然清晰的女声"},
-		{"id": "bright", "name": "清朗男声", "description": "清朗自然的男声"},
-	}})
+	c.JSON(200, gin.H{"object": "list", "default": "warm", "max_input_characters": 200, "data": speechvoices.Catalog})
 }
 
 // Reservations are per account, not per key, so issuing another key does not
@@ -129,7 +127,7 @@ func (h *SpeechHandler) Synthesize(c *gin.Context) {
 	if data.ResponseFormat == "" {
 		data.ResponseFormat = "mp3"
 	}
-	if n < 1 || n > 200 || !utf8.ValidString(data.Input) || (data.Voice != "warm" && data.Voice != "bright") || data.ResponseFormat != "mp3" || (data.Model != "" && data.Model != "speech-v1") {
+	if n < 1 || n > 200 || !utf8.ValidString(data.Input) || !speechvoices.Valid(data.Voice) || data.ResponseFormat != "mp3" || (data.Model != "" && data.Model != "speech-v1") {
 		speechError(c, 400, "speech_request_invalid", "请输入 1 至 200 个字符，并选择可用音色")
 		return
 	}

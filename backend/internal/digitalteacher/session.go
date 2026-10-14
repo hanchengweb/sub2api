@@ -418,6 +418,7 @@ func (g *Gateway) Run(ctx context.Context) {
 		case <-tick.C:
 			work, cancel := context.WithTimeout(ctx, 50*time.Second)
 			_ = g.Reconcile(work)
+			g.reconcileAvatars(work)
 			cancel()
 		}
 	}

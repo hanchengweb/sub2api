@@ -67,6 +67,7 @@ type Asset struct {
 type Catalog struct {
 	Avatars []map[string]any `json:"avatars"`
 	Voices  []map[string]any `json:"voices"`
+	Jobs    []AvatarJob      `json:"jobs,omitempty"`
 }
 
 func (g *Gateway) Teachers(ctx context.Context, o Owner) ([]Teacher, error) {

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/speechvoices"
 	"github.com/google/uuid"
 )
 
@@ -61,7 +62,7 @@ type Teacher struct {
 }
 
 func (t Teacher) Validate() error {
-	voiceValid := validUUID(t.VoiceID) || t.Provider == "simli" && t.VoiceID == SimliVoice
+	voiceValid := validUUID(t.VoiceID) || t.Provider == "simli" && speechvoices.Valid(t.VoiceID)
 	if (t.Provider != "" && t.Provider != "liveavatar" && t.Provider != "simli") || !validUUID(t.ID) || !validUUID(t.AvatarID) || !voiceValid || strings.TrimSpace(t.Name) == "" || len([]rune(t.Name)) > 40 || strings.TrimSpace(t.Subject) == "" || len([]rune(t.Subject)) > 80 || strings.TrimSpace(t.Instructions) == "" || len([]rune(t.Instructions)) > 12000 || len([]rune(t.Opening)) > 500 {
 		return fail(400, "invalid_teacher", "请完整填写老师姓名、形象、声音与授课要求")
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -72,6 +73,53 @@ func (h *DigitalTeacherHandler) Close() {
 	if h != nil {
 		h.cancel()
 		h.done.Wait()
+	}
+}
+
+func (h *DigitalTeacherHandler) CreateAvatar(c *gin.Context) {
+	o, ok := teacherOwner(c)
+	if !ok {
+		return
+	}
+	if err := c.Request.ParseMultipartForm(6 << 20); err != nil {
+		response.BadRequest(c, "照片上传未完成，请选择小于 5 MB 的照片")
+		return
+	}
+	defer c.Request.MultipartForm.RemoveAll()
+	file, _, err := c.Request.FormFile("image")
+	if err != nil {
+		response.BadRequest(c, "请选择照片")
+		return
+	}
+	defer file.Close()
+	photo, err := io.ReadAll(io.LimitReader(file, 5<<20))
+	if err != nil {
+		response.BadRequest(c, "照片读取失败")
+		return
+	}
+	v, e := h.gateway.CreateAvatar(c.Request.Context(), o, c.PostForm("request_id"), c.PostForm("name"), c.PostForm("consent") == "true", photo)
+	if !teacherError(c, e) {
+		response.Success(c, v)
+	}
+}
+func (h *DigitalTeacherHandler) AvatarJobs(c *gin.Context) {
+	o, ok := teacherOwner(c)
+	if !ok {
+		return
+	}
+	v, e := h.gateway.AvatarJobs(c.Request.Context(), o)
+	if !teacherError(c, e) {
+		response.Success(c, v)
+	}
+}
+func (h *DigitalTeacherHandler) RefreshAvatar(c *gin.Context) {
+	o, ok := teacherOwner(c)
+	if !ok {
+		return
+	}
+	v, e := h.gateway.RefreshAvatar(c.Request.Context(), o, c.Param("id"))
+	if !teacherError(c, e) {
+		response.Success(c, v)
 	}
 }
 func teacherError(c *gin.Context, err error) bool {
