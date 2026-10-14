@@ -176,7 +176,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 		mediaRead := videoRead || c.Request.Method == http.MethodGet && c.FullPath() == "/v1/organization/media-quota"
-		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || rechargeRequest || mediaRead || isDigitalTeacherRequest(c.Request.Method, c.FullPath()) || isImageTaskRead(c.Request.Method, c.Request.URL.Path)
+		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || rechargeRequest || mediaRead || isSpeechRequest(c.Request.Method, c.FullPath()) || isDigitalTeacherRequest(c.Request.Method, c.FullPath()) || isImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
@@ -299,6 +299,12 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 func isDesktopRechargeRequest(method, route string) bool {
 	return method == "GET" && (route == "/v1/desktop/recharge/checkout" || route == "/v1/desktop/recharge/orders/:request_id") ||
 		method == "POST" && (route == "/v1/desktop/recharge/orders" || route == "/v1/desktop/recharge/orders/:request_id/cancel")
+}
+
+// Free synthesis has its own account budget in SpeechHandler. Authentication,
+// group membership and disabled-user checks still apply before this exception.
+func isSpeechRequest(method, route string) bool {
+	return method == http.MethodGet && route == "/v1/audio/voices" || method == http.MethodPost && route == "/v1/audio/speech"
 }
 
 func apiKeyHeadersTooLarge(c *gin.Context) bool {

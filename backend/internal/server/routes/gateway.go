@@ -35,6 +35,7 @@ func RegisterGatewayRoutes(
 	cfg *config.Config,
 ) {
 	registerDigitalTeacherGateway(r, h.DigitalTeacher, apiKeyAuth)
+	registerSpeechGateway(r, h.Speech, apiKeyAuth)
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	imageUploadBodyLimit := middleware.RequestBodyLimit(service.GrokMediaImageUploadMaxBytes + 64*1024)

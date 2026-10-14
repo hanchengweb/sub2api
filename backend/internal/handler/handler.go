@@ -45,6 +45,7 @@ type AdminHandlers struct {
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
+	Speech           *SpeechHandler
 	DigitalTeacher   *DigitalTeacherHandler
 	Auth             *AuthHandler
 	User             *UserHandler
