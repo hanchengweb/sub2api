@@ -1,4 +1,4 @@
-// Package digitalteacher owns the bounded LiveAvatar session lifecycle. It does
+// Package digitalteacher owns the bounded digital teacher session lifecycle. It does
 // not expose provider credentials, account-wide catalogs, or management tokens.
 package digitalteacher
 
@@ -50,6 +50,7 @@ type Plan struct {
 	Version        int64   `json:"version"`
 }
 type Teacher struct {
+	Provider     string `json:"provider,omitempty"`
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	Subject      string `json:"subject"`
@@ -60,13 +61,15 @@ type Teacher struct {
 }
 
 func (t Teacher) Validate() error {
-	if !validUUID(t.ID) || !validUUID(t.AvatarID) || !validUUID(t.VoiceID) || strings.TrimSpace(t.Name) == "" || len([]rune(t.Name)) > 40 || strings.TrimSpace(t.Subject) == "" || len([]rune(t.Subject)) > 80 || strings.TrimSpace(t.Instructions) == "" || len([]rune(t.Instructions)) > 12000 || len([]rune(t.Opening)) > 500 {
+	voiceValid := validUUID(t.VoiceID) || t.Provider == "simli" && t.VoiceID == SimliVoice
+	if (t.Provider != "" && t.Provider != "liveavatar" && t.Provider != "simli") || !validUUID(t.ID) || !validUUID(t.AvatarID) || !voiceValid || strings.TrimSpace(t.Name) == "" || len([]rune(t.Name)) > 40 || strings.TrimSpace(t.Subject) == "" || len([]rune(t.Subject)) > 80 || strings.TrimSpace(t.Instructions) == "" || len([]rune(t.Instructions)) > 12000 || len([]rune(t.Opening)) > 500 {
 		return fail(400, "invalid_teacher", "请完整填写老师姓名、形象、声音与授课要求")
 	}
 	return nil
 }
 
 type Session struct {
+	Provider        string          `json:"provider"`
 	ID              string          `json:"id"`
 	UserID          int64           `json:"-"`
 	KeyID           int64           `json:"-"`
@@ -104,6 +107,7 @@ type StartRequest struct {
 	Minutes   int    `json:"minutes"`
 }
 type Ticket struct {
+	Provider     string  `json:"provider"`
 	SessionToken string  `json:"sessionToken"`
 	SessionID    string  `json:"sessionId"`
 	Seconds      int     `json:"seconds"`
@@ -112,12 +116,17 @@ type Ticket struct {
 	Reserved     float64 `json:"reserved_credits"`
 }
 type Options struct {
-	APIKey, CryptoSecret string
-	Invalidate           func(context.Context, int64, int64)
+	APIKey, CryptoSecret  string
+	SimliAPIKey, Provider string
+	Invalidate            func(context.Context, int64, int64)
 }
 type Gateway struct {
 	db         *sql.DB
 	key        string
+	simliKey   string
+	provider   string
+	simliURL   string
+	simliWSURL string
 	secret     []byte
 	box        cipher.AEAD
 	client     *http.Client
@@ -139,10 +148,19 @@ func New(db *sql.DB, o Options) (*Gateway, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Gateway{db: db, key: strings.TrimSpace(o.APIKey), secret: sum[:], box: box, upstream: "https://api.liveavatar.com", client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, invalidate: o.Invalidate, now: time.Now}, nil
+	provider := o.Provider
+	if provider == "" {
+		provider = "liveavatar"
+	}
+	if provider != "liveavatar" && provider != "simli" {
+		return nil, errors.New("invalid digital teacher provider")
+	}
+	return &Gateway{db: db, key: strings.TrimSpace(o.APIKey), simliKey: strings.TrimSpace(o.SimliAPIKey), provider: provider, simliURL: "https://api.simli.ai", simliWSURL: "wss://api.simli.ai", secret: sum[:], box: box, upstream: "https://api.liveavatar.com", client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, invalidate: o.Invalidate, now: time.Now}, nil
 }
-func (g *Gateway) Configured() bool { return g != nil && g.key != "" }
-func validUUID(s string) bool       { _, err := uuid.Parse(s); return err == nil && len(s) == 36 }
+func (g *Gateway) Configured() bool {
+	return g != nil && (g.provider == "simli" && g.simliKey != "" || g.provider == "liveavatar" && g.key != "")
+}
+func validUUID(s string) bool { _, err := uuid.Parse(s); return err == nil && len(s) == 36 }
 func digest(v any) string {
 	b, _ := json.Marshal(v)
 	s := sha256.Sum256(b)
@@ -237,7 +255,11 @@ func (g *Gateway) requirePlan(ctx context.Context, o Owner, sandbox bool) (Plan,
 	return p, nil
 }
 func (g *Gateway) Ticket(s *Session) Ticket {
-	return Ticket{g.capability(s), s.ID, s.MaxSeconds, "https://windhub.online/v1/digital-teachers/sdk", s.Price, s.Held}
+	api := "https://windhub.online/v1/digital-teachers/sdk"
+	if s.Provider == "simli" {
+		api = "wss://windhub.online/v1/digital-teachers/sdk"
+	}
+	return Ticket{Provider: s.Provider, SessionToken: g.capability(s), SessionID: s.ID, Seconds: s.MaxSeconds, APIURL: api, Price: s.Price, Reserved: s.Held}
 }
 func internalError(err error) error {
 	var typed *Error
@@ -247,7 +269,11 @@ func internalError(err error) error {
 	return &Error{Status: 503, Code: "digital_teacher_unavailable", Message: "数字老师服务暂不可用，请稍后查看原会话", cause: err}
 }
 func (g *Gateway) Health() map[string]any {
-	return map[string]any{"provider_configured": g.Configured(), "model": Model, "billing_unit": "minute"}
+	model := Model
+	if g.provider == "simli" {
+		model = "simli-compose"
+	}
+	return map[string]any{"provider_configured": g.Configured(), "provider": g.provider, "model": model, "billing_unit": "minute"}
 }
 func positive(v float64) bool { return v > 0 && v < 1e12 }
 func (g *Gateway) owned(ctx context.Context, o Owner, id string) (*Session, error) {

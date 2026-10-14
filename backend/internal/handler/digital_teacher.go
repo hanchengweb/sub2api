@@ -34,7 +34,15 @@ func NewDigitalTeacherHandler(db *sql.DB, cfg *config.Config, billing *service.B
 		}
 		key = strings.TrimSpace(string(data))
 	}
-	g, err := digitalteacher.New(db, digitalteacher.Options{APIKey: key, CryptoSecret: cfg.JWT.Secret, Invalidate: func(ctx context.Context, userID, keyID int64) {
+	simliKey := os.Getenv("SIMLI_API_KEY")
+	if file := os.Getenv("SIMLI_API_KEY_FILE"); file != "" {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return nil, errors.New("cannot read configured Simli secret file")
+		}
+		simliKey = strings.TrimSpace(string(data))
+	}
+	g, err := digitalteacher.New(db, digitalteacher.Options{APIKey: key, SimliAPIKey: simliKey, Provider: os.Getenv("DIGITAL_TEACHER_PROVIDER"), CryptoSecret: cfg.JWT.Secret, Invalidate: func(ctx context.Context, userID, keyID int64) {
 		_ = billing.InvalidateUserBalance(ctx, userID)
 		_ = billing.InvalidateAPIKeyRateLimit(ctx, keyID)
 		keys.InvalidateAuthCacheByUserID(ctx, userID)
@@ -47,6 +55,18 @@ func NewDigitalTeacherHandler(db *sql.DB, cfg *config.Config, billing *service.B
 	h.done.Add(1)
 	go func() { defer h.done.Done(); g.Run(ctx) }()
 	return h, nil
+}
+func (h *DigitalTeacherHandler) SimliStream(c *gin.Context) {
+	token := c.Query("session_token")
+	c.Request.URL.RawQuery = "" // Access/audit middleware must not retain capabilities.
+	c.Request.RequestURI = c.Request.URL.Path
+	s, err := h.gateway.ResolveCapability(c.Request.Context(), token)
+	if teacherError(c, err) {
+		return
+	}
+	if err = h.gateway.ServeSimli(c.Writer, c.Request, s); err != nil && !c.Writer.Written() {
+		teacherError(c, err)
+	}
 }
 func (h *DigitalTeacherHandler) Close() {
 	if h != nil {

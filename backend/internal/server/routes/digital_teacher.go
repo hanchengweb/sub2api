@@ -11,6 +11,7 @@ func registerDigitalTeacherGateway(r *gin.Engine, h *handler.DigitalTeacherHandl
 		return
 	}
 	sdk := r.Group("/v1/digital-teachers/sdk", middleware.RequestBodyLimit(4096))
+	sdk.GET("/compose/webrtc/livekit", h.SimliStream)
 	sdk.POST("/v1/sessions/start", h.SDK)
 	sdk.POST("/v1/sessions/stop", h.SDK)
 	sdk.POST("/v1/sessions/keep-alive", h.SDK)

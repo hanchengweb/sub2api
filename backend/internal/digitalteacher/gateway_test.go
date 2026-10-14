@@ -351,4 +351,5 @@ func TestGatewayPostgres(t *testing.T) {
 		require.Equal(t, before, created.Load())
 		totals(o, 10, 0, 0)
 	})
+	t.Run("Simli gateway lifecycle", func(t *testing.T) { testSimliGateway(t, db) })
 }
