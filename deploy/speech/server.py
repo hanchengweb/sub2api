@@ -10,7 +10,9 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
-VOICES = {"warm": "zh-CN-XiaoxiaoNeural", "bright": "zh-CN-YunxiNeural"}
+VOICES = {"warm": "zh-CN-XiaoxiaoNeural", "bright": "zh-CN-YunxiNeural",
+          "gentle": "zh-CN-XiaoyiNeural", "steady": "zh-CN-YunyangNeural",
+          "lively": "zh-CN-YunxiaNeural", "story": "zh-CN-YunjianNeural"}
 LIMIT = 4 * 1024 * 1024
 
 
@@ -45,7 +47,7 @@ class SpeechRoute(APIRoute):
 class SpeechInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     input: str = Field(min_length=1, max_length=200)
-    voice: Literal["warm", "bright"] = "warm"
+    voice: Literal["warm", "bright", "gentle", "steady", "lively", "story"] = "warm"
     response_format: Literal["mp3"] = "mp3"
 
 

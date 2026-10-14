@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/speechvoices"
 	"io"
 	"math"
 	"net/http"
@@ -14,13 +15,16 @@ import (
 )
 
 const SimliAvatar = "cace3ef7-a4c4-425d-a8cf-a5358eb0c427"
-const SimliVoice = "windows-zh-cn"
+const SimliVoice = "warm"
 
 // Keep existing lesson settings when switching the supplier. Supplier-specific
 // likenesses are never silently presented as an equivalent cloned person.
 func (g *Gateway) currentTeacher(t Teacher) Teacher {
 	if g.provider == "simli" && t.Provider != "simli" {
 		t.Provider, t.AvatarID, t.VoiceID = "simli", SimliAvatar, SimliVoice
+	}
+	if t.Provider == "simli" && t.VoiceID == "windows-zh-cn" {
+		t.VoiceID = SimliVoice
 	}
 	return t
 }
@@ -76,8 +80,24 @@ func (g *Gateway) simliCatalog(ctx context.Context, o Owner) (Catalog, error) {
 	if _, err := g.requirePlan(ctx, o, false); err != nil {
 		return out, err
 	}
-	out.Avatars = append(out.Avatars, map[string]any{"id": SimliAvatar, "name": "Tina · 公共老师", "ready": true, "custom": false, "voiceId": SimliVoice, "previewUrl": ""})
-	out.Voices = append(out.Voices, map[string]any{"id": SimliVoice, "name": "本机中文朗读", "language": "zh-CN"})
+	for _, a := range simliPresets {
+		out.Avatars = append(out.Avatars, map[string]any{"id": a.id, "name": a.name, "ready": true, "custom": false, "voiceId": a.voice, "previewUrl": "https://mintcdn.com/simli/NELbEX-teJCHwcnx/images/" + a.image})
+	}
+	for _, v := range speechvoices.Catalog {
+		out.Voices = append(out.Voices, map[string]any{"id": v.ID, "name": v.Name, "language": v.Language, "description": v.Description})
+	}
+	jobs, err := g.AvatarJobs(ctx, o)
+	if err != nil {
+		return out, err
+	}
+	out.Jobs = jobs
+	ready := map[string]bool{}
+	for _, j := range jobs {
+		if j.State == "ready" {
+			ready[j.FaceID] = true
+			out.Avatars = append(out.Avatars, map[string]any{"id": j.FaceID, "name": j.Name, "ready": true, "custom": true, "voiceId": SimliVoice, "previewUrl": j.Preview})
+		}
+	}
 	rows, err := g.db.QueryContext(ctx, `SELECT asset_id::text FROM digital_teacher_assets WHERE user_id=$1 AND provider='simli' AND kind='avatar'`, o.UserID)
 	if err != nil {
 		return out, err
@@ -89,7 +109,9 @@ func (g *Gateway) simliCatalog(ctx context.Context, o Owner) (Catalog, error) {
 			rows.Close()
 			return out, err
 		}
-		ids = append(ids, id)
+		if !ready[id] {
+			ids = append(ids, id)
+		}
 	}
 	err = rows.Err()
 	rows.Close()
@@ -118,7 +140,7 @@ func (g *Gateway) simliCatalog(ctx context.Context, o Owner) (Catalog, error) {
 }
 func (g *Gateway) bindSimliAsset(ctx context.Context, userID int64, kind, id string) error {
 	if kind != "avatar" {
-		return fail(400, "simli_local_voice", "当前 Simli 方案使用本机中文声音，只需绑定老师形象")
+		return fail(400, "simli_voice_catalog", "请在应用中选择自然中文声音，只需绑定老师形象")
 	}
 	faces, err := g.simliFaces(ctx)
 	if err != nil {

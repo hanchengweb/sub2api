@@ -18,11 +18,15 @@ func registerDigitalTeacherGateway(r *gin.Engine, h *handler.DigitalTeacherHandl
 	own := r.Group("/v1/digital-teachers", middleware.RequestBodyLimit(64*1024), gin.HandlerFunc(auth))
 	own.GET("/settings", h.Settings)
 	own.GET("/catalog", h.Catalog)
+	own.GET("/avatars", h.AvatarJobs)
+	own.GET("/avatars/:id", h.RefreshAvatar)
 	own.PUT("/teachers", h.Save)
 	own.POST("/sessions", h.Create)
 	own.GET("/sessions", h.List)
 	own.GET("/sessions/:id", h.Get)
 	own.POST("/sessions/:id/stop", h.Stop)
+	upload := r.Group("/v1/digital-teachers", middleware.RequestBodyLimit(6*1024*1024), gin.HandlerFunc(auth))
+	upload.POST("/avatars", h.CreateAvatar)
 }
 func registerDigitalTeacherAdmin(r *gin.RouterGroup, h *handler.DigitalTeacherHandler) {
 	if h == nil {
