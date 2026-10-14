@@ -107,6 +107,29 @@ func avatarPreview(photo []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+// Legacy rejected a valid 2 MB PNG at multipart parsing, but accepted the same
+// pixel dimensions as a 304 KB JPEG. Stay below a conservative 900 KiB transport
+// budget without reducing dimensions. This is not a documented provider limit.
+func legacyPhoto(photo []byte) ([]byte, error) {
+	if http.DetectContentType(photo) == "image/jpeg" && len(photo) < 900<<10 {
+		return photo, nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(photo))
+	if err != nil {
+		return nil, err
+	}
+	for _, quality := range []int{95, 85} {
+		var out bytes.Buffer
+		if err = jpeg.Encode(&out, img, &jpeg.Options{Quality: quality}); err != nil {
+			return nil, err
+		}
+		if out.Len() < 900<<10 {
+			return out.Bytes(), nil
+		}
+	}
+	return nil, fail(400, "avatar_legacy_photo_large", "这张照片压缩后仍偏大。请裁为清晰的正脸近景，或使用小于 900 KB 的 JPG 再制作 Legacy 形象")
+}
+
 func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name string, consent bool, photo []byte, generations ...string) (AvatarJob, error) {
 	if g.provider != "simli" {
 		return AvatarJob{}, fail(409, "avatar_provider_changed", "请刷新当前数字老师服务")
@@ -136,6 +159,14 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 	preview, err := avatarPreview(photo)
 	if err != nil {
 		return AvatarJob{}, err
+	}
+	upload, filename := photo, "portrait.png"
+	if generation == "legacy" {
+		upload, err = legacyPhoto(photo)
+		if err != nil {
+			return AvatarJob{}, err
+		}
+		filename = "portrait.jpg"
 	}
 	sum := sha256.Sum256(photo)
 	dg := digest([]string{name, hex.EncodeToString(sum[:]), generation})
@@ -188,10 +219,10 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 	var body bytes.Buffer
 	mp := multipart.NewWriter(&body)
 	header := textproto.MIMEHeader{}
-	header.Set("Content-Disposition", `form-data; name="image"; filename="portrait.png"`)
-	header.Set("Content-Type", http.DetectContentType(photo))
+	header.Set("Content-Disposition", `form-data; name="image"; filename="`+filename+`"`)
+	header.Set("Content-Type", http.DetectContentType(upload))
 	part, _ := mp.CreatePart(header)
-	_, _ = part.Write(photo)
+	_, _ = part.Write(upload)
 	_ = mp.Close()
 	route := "/faces/trinity?gsVersion=GSA_1.0&face_name="
 	if generation == "legacy" {
@@ -209,13 +240,17 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 		raw, readErr := io.ReadAll(io.LimitReader(res.Body, 65537))
 		if res.StatusCode >= 200 && res.StatusCode < 300 && readErr == nil && len(raw) <= 65536 {
 			var result struct {
-				FaceID string `json:"face_id"`
-				ID     string `json:"id"`
+				FaceID       string `json:"face_id"`
+				ID           string `json:"id"`
+				CharacterUID string `json:"character_uid"`
 			}
 			if json.Unmarshal(raw, &result) == nil {
 				face = result.FaceID
 				if face == "" {
 					face = result.ID
+				}
+				if face == "" && generation == "legacy" {
+					face = result.CharacterUID
 				}
 				if validUUID(face) {
 					phase, message = "pending", "照片已接收，正在排队制作"
@@ -232,6 +267,9 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 				message = "服务方制作队列已满，请稍后重新提交"
 			case 400, 422:
 				message = "服务方未接受这张照片，请换用清晰正脸、无遮挡的单人照片；若仍失败，请核对制作名额"
+				if bytes.Contains(raw, []byte("error parsing the body")) {
+					message = "服务方未能解析照片上传，请稍后重试或联系管理员；这不代表照片不合格或名额不足"
+				}
 			default:
 				message = "形象制作服务未接受请求，请联系服务管理员检查配置"
 			}
