@@ -1,4 +1,31 @@
-# Digital teachers (LiveAvatar FULL)
+# Digital teachers (Simli or LiveAvatar FULL)
+
+## Simli rollout
+
+Set `DIGITAL_TEACHER_PROVIDER=simli` and `SIMLI_API_KEY_FILE=/app/data/simli-api-key`
+using a server-only 0600 secret file. Keep the old LiveAvatar credential for
+reconciling old sessions. Migration 240 adds provider identity without rewriting
+old sessions. All existing account/group gates and bounded minute grants remain.
+
+The desktop receives a WindHub capability with
+`apiUrl=wss://windhub.online/v1/digital-teachers/sdk`. The Simli SDK connects to
+`/compose/webrtc/livekit?session_token=...`; WindHub atomically permits one
+upstream WebSocket, relays PCM/signaling, and closes it on stop, revoked access
+or deadline. The supplier token stays encrypted in WindHub. LiveKit room media
+travels directly to the desktop. Install `nginx-digital-teacher-simli.conf` in the
+WindHub TLS server to suppress capability query strings from access logs.
+
+Each supplier token uses the WindHub session UUID as `sessionAggregator`.
+Exactly one complete matching history record, observed twice, settles minutes
+as `sessionTotalTime / 60`. Missing/ambiguous histories retain the hold. Simli
+history is usage evidence, not a supplier dollar invoice; `provider_credits`
+stays null. Simli has no free sandbox path. Model questions use the existing
+personal model route and its separate accounting. Chinese TTS/ASR run locally.
+
+Existing teachers retain their lesson settings and use the public Tina face
+until saved or assigned a Simli face. LiveAvatar likeness IDs are not portable.
+Create an authorized face in Simli and bind it to the selected account; only
+that owner's assignments appear. This edition uses a local Chinese voice.
 
 WindHub owns the provider credential, account-scoped teacher configuration,
 short-lived SDK capabilities, minute grants, reservations and settlement.

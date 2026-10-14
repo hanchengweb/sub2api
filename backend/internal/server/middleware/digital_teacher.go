@@ -14,5 +14,5 @@ func isDigitalTeacherRequest(method, route string) bool {
 	return false
 }
 func isDigitalTeacherSDKPath(path string) bool {
-	return path == "/v1/digital-teachers/sdk/v1/sessions/start" || path == "/v1/digital-teachers/sdk/v1/sessions/stop" || path == "/v1/digital-teachers/sdk/v1/sessions/keep-alive"
+	return path == "/v1/digital-teachers/sdk/v1/sessions/start" || path == "/v1/digital-teachers/sdk/v1/sessions/stop" || path == "/v1/digital-teachers/sdk/v1/sessions/keep-alive" || path == "/v1/digital-teachers/sdk/compose/webrtc/livekit"
 }

@@ -27,12 +27,12 @@ func TestDigitalTeacherNullOriginOnlyAllowsCapabilitySDK(t *testing.T) {
 	r := gin.New()
 	r.Use(CORS(config.CORSConfig{}))
 	r.POST("/v1/digital-teachers/sdk/v1/sessions/start", func(c *gin.Context) { c.Status(401) })
-	for _, path := range []string{"/v1/digital-teachers/sdk/v1/sessions/start", "/api/v1/admin/digital-teachers", "/v1/digital-teachers/sessions", "/v1/digital-teachers/sdk/unknown"} {
+	for _, path := range []string{"/v1/digital-teachers/sdk/v1/sessions/start", "/v1/digital-teachers/sdk/compose/webrtc/livekit", "/api/v1/admin/digital-teachers", "/v1/digital-teachers/sessions", "/v1/digital-teachers/sdk/unknown"} {
 		req := httptest.NewRequest("OPTIONS", path, nil)
 		req.Header.Set("Origin", "null")
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
-		if path == "/v1/digital-teachers/sdk/v1/sessions/start" {
+		if isDigitalTeacherSDKPath(path) {
 			require.Equal(t, http.StatusNoContent, w.Code)
 			require.Equal(t, "null", w.Header().Get("Access-Control-Allow-Origin"))
 			require.Equal(t, "true", w.Header().Get("Access-Control-Allow-Credentials"))
