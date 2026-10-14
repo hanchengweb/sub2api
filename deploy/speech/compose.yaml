@@ -1,0 +1,27 @@
+services:
+  speech:
+    image: ${SPEECH_IMAGE:?Use a verified source-commit image}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    cpus: 0.5
+    mem_limit: 256m
+    tmpfs: [/tmp:size=32m,mode=1777]
+    # Never publish this unauthenticated worker on a host port.
+    networks: [speech, egress]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/healthz', timeout=2)"]
+      interval: 30s
+      timeout: 4s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '2'}
+networks:
+  speech:
+    internal: true
+  egress: {}

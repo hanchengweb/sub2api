@@ -171,6 +171,7 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	digitalTeacher *DigitalTeacherHandler,
+	speech *SpeechHandler,
 	authHandler *AuthHandler,
 	userHandler *UserHandler,
 	apiKeyHandler *APIKeyHandler,
@@ -194,6 +195,7 @@ func ProvideHandlers(
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
 	return &Handlers{
+		Speech:           speech,
 		DigitalTeacher:   digitalTeacher,
 		Auth:             authHandler,
 		User:             userHandler,
@@ -219,6 +221,7 @@ func ProvideHandlers(
 
 // ProviderSet is the Wire provider set for all handlers
 var ProviderSet = wire.NewSet(
+	NewSpeechHandler,
 	NewDigitalTeacherHandler,
 	// Top-level handlers
 	NewAuthHandler,
