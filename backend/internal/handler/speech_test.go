@@ -46,7 +46,7 @@ func speechRequest(r *gin.Engine, input string) *httptest.ResponseRecorder {
 func TestSpeechRejectsUntrustedInputsBeforeInference(t *testing.T) {
 	calls := 0
 	_, _, key, r := speechFixture(t, func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(500) })
-	for _, input := range []string{`{}`, `{"input":" "}`, `{"input":"hi","voice":"Serena"}`, `{"input":"hi","model":"private-model"}`, `{"input":"hi","url":"https://example.com"}`, `{"input":"hi","response_format":"mp3"}`, `{"input":"hi"} {}`, fmt.Sprintf(`{"input":%q}`, strings.Repeat("你", 201)), strings.Repeat("x", 8193)} {
+	for _, input := range []string{`{}`, `{"input":" "}`, `{"input":"hi","voice":"Serena"}`, `{"input":"hi","model":"private-model"}`, `{"input":"hi","url":"https://example.com"}`, `{"input":"hi","response_format":"wav"}`, `{"input":"hi"} {}`, fmt.Sprintf(`{"input":%q}`, strings.Repeat("你", 201)), strings.Repeat("x", 8193)} {
 		w := speechRequest(r, input)
 		require.Contains(t, []int{400, 413}, w.Code, input)
 	}
@@ -60,19 +60,19 @@ func TestSpeechRejectsUntrustedInputsBeforeInference(t *testing.T) {
 }
 
 func TestSpeechAudioNoCredentialsOrInternalNames(t *testing.T) {
-	wave := append([]byte("RIFF0000WAVE"), make([]byte, 32)...)
+	mp3 := append([]byte{0xff, 0xfb, 0x90, 0}, make([]byte, 128)...)
 	_, _, _, r := speechFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		require.Empty(t, r.Header.Get("Authorization"))
 		var body map[string]any
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-		require.Equal(t, map[string]any{"input": "你好", "voice": "warm", "response_format": "wav"}, body)
-		_, _ = w.Write(wave)
+		require.Equal(t, map[string]any{"input": "你好", "voice": "warm", "response_format": "mp3"}, body)
+		_, _ = w.Write(mp3)
 	})
 	w := speechRequest(r, `{"input":"你好","model":"speech-v1"}`)
 	require.Equal(t, 200, w.Code)
-	require.Equal(t, wave, w.Body.Bytes())
+	require.Equal(t, mp3, w.Body.Bytes())
 	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
-	require.Equal(t, "audio/wav", w.Header().Get("Content-Type"))
+	require.Equal(t, "audio/mpeg", w.Header().Get("Content-Type"))
 }
 
 func TestSpeechFailureAndBudgetAreBounded(t *testing.T) {

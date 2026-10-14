@@ -84,8 +84,8 @@ func (h *SpeechHandler) Voices(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"object": "list", "default": "warm", "max_input_characters": 200, "data": []gin.H{
-		{"id": "warm", "name": "温柔", "description": "温暖自然的女声"},
-		{"id": "bright", "name": "明亮", "description": "轻快清晰的女声"},
+		{"id": "warm", "name": "温柔女声", "description": "自然清晰的女声"},
+		{"id": "bright", "name": "清朗男声", "description": "清朗自然的男声"},
 	}})
 }
 
@@ -127,9 +127,9 @@ func (h *SpeechHandler) Synthesize(c *gin.Context) {
 		data.Voice = "warm"
 	}
 	if data.ResponseFormat == "" {
-		data.ResponseFormat = "wav"
+		data.ResponseFormat = "mp3"
 	}
-	if n < 1 || n > 200 || !utf8.ValidString(data.Input) || (data.Voice != "warm" && data.Voice != "bright") || data.ResponseFormat != "wav" || (data.Model != "" && data.Model != "speech-v1") {
+	if n < 1 || n > 200 || !utf8.ValidString(data.Input) || (data.Voice != "warm" && data.Voice != "bright") || data.ResponseFormat != "mp3" || (data.Model != "" && data.Model != "speech-v1") {
 		speechError(c, 400, "speech_request_invalid", "请输入 1 至 200 个字符，并选择可用音色")
 		return
 	}
@@ -148,7 +148,7 @@ func (h *SpeechHandler) Synthesize(c *gin.Context) {
 		speechError(c, 429, "speech_limit", "语音使用较频繁，请稍后重试")
 		return
 	}
-	body, _ := json.Marshal(gin.H{"input": data.Input, "voice": data.Voice, "response_format": "wav"})
+	body, _ := json.Marshal(gin.H{"input": data.Input, "voice": data.Voice, "response_format": "mp3"})
 	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, h.endpoint+"/synthesize", bytes.NewReader(body))
 	if err != nil {
 		speechError(c, 503, "speech_unavailable", "自然语音暂时不可用")
@@ -170,10 +170,10 @@ func (h *SpeechHandler) Synthesize(c *gin.Context) {
 		return
 	}
 	wave, err := io.ReadAll(io.LimitReader(res.Body, 4*1024*1024+1))
-	if err != nil || len(wave) < 44 || len(wave) > 4*1024*1024 || string(wave[:4]) != "RIFF" || string(wave[8:12]) != "WAVE" {
+	if err != nil || len(wave) < 4 || len(wave) > 4*1024*1024 || !(string(wave[:3]) == "ID3" || wave[0] == 255 && wave[1]&224 == 224) {
 		speechError(c, 503, "speech_unavailable", "语音生成未完成，请稍后重试")
 		return
 	}
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.Data(200, "audio/wav", wave)
+	c.Data(200, "audio/mpeg", wave)
 }

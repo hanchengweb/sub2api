@@ -1,19 +1,21 @@
-"""Private inference worker. Public authentication and quotas belong to WindHub."""
+"""Private online speech adapter; account authentication stays in WindHub."""
 import asyncio
-import io
-import os
-import threading
-import time
-from contextlib import asynccontextmanager
+from typing import Literal
 
+import anyio
+import edge_tts
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Literal
 
-VOICES = {"warm": "Serena", "bright": "Vivian"}
+VOICES = {"warm": "zh-CN-XiaoxiaoNeural", "bright": "zh-CN-YunxiNeural"}
+LIMIT = 4 * 1024 * 1024
+
+
+def valid_mp3(data):
+    return len(data) >= 4 and (data[:3] == b"ID3" or data[0] == 255 and data[1] & 224 == 224)
 
 
 class SpeechRoute(APIRoute):
@@ -21,92 +23,51 @@ class SpeechRoute(APIRoute):
         handler = super().get_route_handler()
 
         async def limited(request):
-            try:
-                length = int(request.headers.get("content-length", "0"))
-            except ValueError:
-                return JSONResponse({"error": "invalid_speech_request"}, status_code=400)
-            if request.method == "POST" and (length < 1 or length > 8192 or request.headers.get("transfer-encoding")):
-                return JSONResponse({"error": "invalid_speech_request"}, status_code=413)
+            if request.method == "POST":
+                try:
+                    length = int(request.headers.get("content-length", "0"))
+                except ValueError:
+                    length = 0
+                if length < 1 or length > 8192 or request.headers.get("transfer-encoding"):
+                    return JSONResponse({"error": "invalid_speech_request"}, status_code=413)
             try:
                 response = await handler(request)
-            except HTTPException as exc:
-                exc.headers = {**(exc.headers or {}), "Cache-Control": "no-store"}
+            except HTTPException as error:
+                error.headers = {**(error.headers or {}), "Cache-Control": "no-store"}
                 raise
             response.headers["Cache-Control"] = "no-store"
             return response
 
-        # Keep the raw ASGI receive channel: BaseHTTPMiddleware can hide disconnects.
+        # Preserve the ASGI receive channel so HTTP disconnects reach the handler.
         return limited
 
 
 class SpeechInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     input: str = Field(min_length=1, max_length=200)
     voice: Literal["warm", "bright"] = "warm"
-    response_format: Literal["wav"] = "wav"
+    response_format: Literal["mp3"] = "mp3"
 
 
 class Engine:
-    def __init__(self):
-        self.model = None
-        self.lock = threading.Lock()
-
-    def load(self):
-        import torch
-        from qwen_tts import Qwen3TTSModel
-        torch.set_num_threads(int(os.environ.get("SPEECH_CPU_THREADS", "2")))
-        torch.set_num_interop_threads(1)
-        device = os.environ.get("SPEECH_DEVICE", "cpu")
-        dtype = torch.float32
-        if device.startswith("cuda"):
-            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        self.model = Qwen3TTSModel.from_pretrained(
-            os.environ.get("SPEECH_MODEL_PATH", "/models"), device_map=device,
-            dtype=dtype,
-            attn_implementation="sdpa",
-        )
-
-    def generate(self, data, cancelled):
-        import soundfile
-        import torch
-        deadline = time.monotonic() + 45
-        hook = None
-
-        def interrupt(module, args):
-            if cancelled.is_set() or time.monotonic() > deadline:
-                raise TimeoutError()
-
-        try:
-            # qwen-tts 0.1.1 drops stopping_criteria before talker.generate().
-            # A request-scoped PyTorch hook interrupts at the next decode step
-            # and skips waveform decoding. The worker admits only one request.
-            hook = self.model.model.talker.register_forward_pre_hook(interrupt)
-            with torch.inference_mode():
-                waves, rate = self.model.generate_custom_voice(
-                    text=data.input.strip(), language="Auto", speaker=VOICES[data.voice],
-                    max_new_tokens=720,
-                )
-            if cancelled.is_set() or time.monotonic() > deadline:
-                raise TimeoutError()
-            buffer = io.BytesIO()
-            soundfile.write(buffer, waves[0], rate, format="WAV", subtype="PCM_16")
-            return buffer.getvalue()
-        finally:
-            if hook is not None:
-                hook.remove()
-            # The slot stays held until inference actually stops, including disconnects.
-            self.lock.release()
+    async def generate(self, data):
+        chunks, size = [], 0
+        voice = edge_tts.Communicate(data.input, VOICES[data.voice], connect_timeout=5, receive_timeout=20)
+        async for chunk in voice.stream():
+            if chunk.get("type") != "audio":
+                continue
+            audio = chunk["data"]
+            size += len(audio)
+            if size > LIMIT:
+                raise ValueError("audio_limit")
+            chunks.append(audio)
+        return b"".join(chunks)
 
 
-def create_app(engine=None):
+def create_app(engine=None, timeout=25):
     engine = engine or Engine()
-
-    @asynccontextmanager
-    async def lifespan(app):
-        await asyncio.to_thread(engine.load)
-        yield
-
-    app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    slots = asyncio.Semaphore(2)
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.router.route_class = SpeechRoute
 
     @app.exception_handler(RequestValidationError)
@@ -115,38 +76,41 @@ def create_app(engine=None):
 
     @app.get("/healthz")
     async def health():
-        if engine.model is None:
-            raise HTTPException(503, "not_ready")
         return {"ready": True}
 
     @app.post("/synthesize")
     async def synthesize(data: SpeechInput, request: Request):
-        if not data.input.strip():
-            raise HTTPException(400, "invalid_speech_request")
-        if engine.model is None:
-            raise HTTPException(503, "not_ready")
-        if not engine.lock.acquire(blocking=False):
+        if slots.locked():
             raise HTTPException(429, "speech_busy", headers={"Retry-After": "3"})
-        cancelled = threading.Event()
-        task = asyncio.create_task(asyncio.to_thread(engine.generate, data, cancelled))
+        await slots.acquire()
+        audio, failure = None, None
+
+        async def disconnected(scope):
+            while not await request.is_disconnected():
+                await anyio.sleep(.05)
+            scope.cancel()
+
         try:
-            while not task.done():
-                if await request.is_disconnected():
-                    cancelled.set()
-                await asyncio.sleep(0.1)
-            result = await task
-            if cancelled.is_set():
-                return Response(status_code=499)
-            return Response(result, media_type="audio/wav")
-        except asyncio.CancelledError:
-            cancelled.set()
-            # Retrieve worker exceptions without cancelling the underlying thread.
-            task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
-            raise
-        except TimeoutError:
-            raise HTTPException(504, "speech_timeout") from None
-        except Exception:
-            raise HTTPException(503, "speech_unavailable") from None
+            async with anyio.create_task_group() as group:
+                group.start_soon(disconnected, group.cancel_scope)
+                try:
+                    with anyio.fail_after(timeout):
+                        audio = await engine.generate(data)
+                except TimeoutError:
+                    failure = HTTPException(504, "speech_timeout")
+                except Exception:
+                    failure = HTTPException(503, "speech_unavailable")
+                finally:
+                    group.cancel_scope.cancel()
+        finally:
+            slots.release()
+        if failure:
+            raise failure
+        if audio is None:
+            return Response(status_code=499)
+        if len(audio) > LIMIT or not valid_mp3(audio):
+            raise HTTPException(503, "speech_unavailable")
+        return Response(audio, media_type="audio/mpeg", headers={"X-Content-Type-Options": "nosniff"})
 
     return app
 
