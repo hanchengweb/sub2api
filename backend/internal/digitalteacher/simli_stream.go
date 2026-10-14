@@ -21,7 +21,10 @@ func (g *Gateway) ServeSimli(w http.ResponseWriter, r *http.Request, s *Session)
 		return fail(400, "websocket_required", "请从数字老师页面连接视频")
 	}
 	origin := r.Header.Get("Origin")
-	if origin != "null" && origin != "https://windhub.online" {
+	// Chromium serializes a top-level Electron file page as file:// for WS,
+	// while opaque iframe and fetch callers use null. Both still require the
+	// single-use WindHub capability; no owner/admin endpoint accepts file://.
+	if origin != "null" && origin != "file://" && origin != "https://windhub.online" {
 		return fail(403, "invalid_video_origin", "视频页面来源无效")
 	}
 	providerToken, err := g.unseal(s.UpstreamToken)

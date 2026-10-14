@@ -157,7 +157,7 @@ func testSimliGateway(t *testing.T, db *sql.DB) {
 	_, _, err = websocket.DefaultDialer.Dial(wsURL, http.Header{"Origin": []string{"https://untrusted.invalid"}})
 	require.Error(t, err)
 	require.EqualValues(t, 0, connects.Load())
-	client, _, err := websocket.DefaultDialer.Dial(wsURL, http.Header{"Origin": []string{"null"}})
+	client, _, err := websocket.DefaultDialer.Dial(wsURL, http.Header{"Origin": []string{"file://"}})
 	require.NoError(t, err)
 	defer client.Close()
 	_, ready, err := client.ReadMessage()

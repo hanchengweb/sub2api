@@ -14,6 +14,9 @@ upstream WebSocket, relays PCM/signaling, and closes it on stop, revoked access
 or deadline. The supplier token stays encrypted in WindHub. LiveKit room media
 travels directly to the desktop. Install `nginx-digital-teacher-simli.conf` in the
 WindHub TLS server to suppress capability query strings from access logs.
+The precise WebSocket route accepts Electron's `file://` origin as well as opaque
+`null` origins; both require the one-shot capability. This does not add CORS
+access to account or admin endpoints.
 
 Each supplier token uses the WindHub session UUID as `sessionAggregator`.
 Exactly one complete matching history record, observed twice, settles minutes
