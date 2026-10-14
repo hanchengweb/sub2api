@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,12 @@ const studioVoice = "9BWtsMINqrJLrRacOk9x" // Aria, verified in Simli Studio and
 var elevenID = regexp.MustCompile(`^[A-Za-z0-9]{20}$`)
 var studioModels = []string{"gpt-4o-mini", "gpt-4.1-mini", "gpt-4o", "gpt-4.1"}
 var studioVoiceModels = []string{"eleven_multilingual_v2", "eleven_flash_v2_5"}
+
+type studioVoiceCache struct {
+	sync.Mutex
+	until  time.Time
+	voices []map[string]any
+}
 
 func contains(list []string, v string) bool {
 	for _, x := range list {
@@ -50,15 +57,26 @@ func (g *Gateway) teacherForOwner(t Teacher, o Owner) Teacher {
 
 // This is the public ElevenLabs catalog. No supplier key is sent to ElevenLabs.
 func (g *Gateway) studioVoices(ctx context.Context) []map[string]any {
+	g.voiceCache.Lock()
+	defer g.voiceCache.Unlock()
+	if g.now().Before(g.voiceCache.until) && len(g.voiceCache.voices) > 0 {
+		return g.voiceCache.voices
+	}
 	out := []map[string]any{{"id": studioVoice, "name": "Aria · Studio 示例声音", "language": "中文 / 多语种", "description": "ElevenLabs · 已实测中文"}}
+	fallback := out
+	if len(g.voiceCache.voices) > 0 {
+		fallback = g.voiceCache.voices
+	}
+	g.voiceCache.voices = fallback
+	g.voiceCache.until = g.now().Add(30 * time.Second)
 	req, _ := http.NewRequestWithContext(ctx, "GET", g.elevenURL+"/v1/voices", nil)
 	res, err := g.client.Do(req)
 	if err != nil {
-		return out
+		return fallback
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return out
+		return fallback
 	}
 	var data struct {
 		Voices []struct {
@@ -68,7 +86,7 @@ func (g *Gateway) studioVoices(ctx context.Context) []map[string]any {
 		} `json:"voices"`
 	}
 	if json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&data) != nil {
-		return out
+		return fallback
 	}
 	for _, v := range data.Voices {
 		if !elevenID.MatchString(v.ID) || v.ID == studioVoice || len(v.Name) > 160 {
@@ -84,6 +102,8 @@ func (g *Gateway) studioVoices(ctx context.Context) []map[string]any {
 			break
 		}
 	}
+	g.voiceCache.voices = out
+	g.voiceCache.until = g.now().Add(10 * time.Minute)
 	return out
 }
 
