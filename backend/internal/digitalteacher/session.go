@@ -15,6 +15,9 @@ import (
 const groupAccessSQL = `SELECT EXISTS(SELECT 1 FROM groups g WHERE g.id=$2 AND g.status='active' AND g.deleted_at IS NULL AND (CASE WHEN g.subscription_type='subscription' THEN EXISTS(SELECT 1 FROM user_subscriptions sub WHERE sub.user_id=$1 AND sub.group_id=g.id AND sub.status='active' AND sub.expires_at>NOW() AND sub.deleted_at IS NULL) ELSE NOT g.is_exclusive OR EXISTS(SELECT 1 FROM user_allowed_groups a WHERE a.user_id=$1 AND a.group_id=g.id) END))`
 
 func (g *Gateway) Create(ctx context.Context, o Owner, req StartRequest) (Ticket, error) {
+	if g.provider == "simli" && req.Sandbox {
+		return Ticket{}, fail(400, "simli_no_sandbox", "Simli 视频会话使用分钟额度，请选择开始对话")
+	}
 	if _, err := g.requirePlan(ctx, o, req.Sandbox); err != nil {
 		return Ticket{}, err
 	}
@@ -36,6 +39,9 @@ func (g *Gateway) Create(ctx context.Context, o Owner, req StartRequest) (Ticket
 			return g.Ticket(s), nil
 		}
 		return Ticket{}, ErrConflict
+	}
+	if s.Provider == "simli" {
+		return g.createSimli(ctx, s, teacher)
 	}
 	// Finish recording the dispatched attempt even if the caller disconnects.
 	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), 55*time.Second)
@@ -113,6 +119,9 @@ func (g *Gateway) allowedToStart(ctx context.Context, s *Session) bool {
 	return err == nil && allowed
 }
 func (g *Gateway) SDKStart(ctx context.Context, s *Session) (json.RawMessage, error) {
+	if s.Provider != "liveavatar" {
+		return nil, ErrNotFound
+	}
 	if !g.allowedToStart(ctx, s) || s.StopRequested || !g.now().Before(s.Deadline) {
 		return nil, fail(403, "session_cannot_start", "此会话已结束、超时或权限已失效")
 	}
@@ -190,6 +199,9 @@ func internalOrNil(err error) error {
 	return internalError(err)
 }
 func (g *Gateway) SDKKeepAlive(ctx context.Context, s *Session) error {
+	if s.Provider != "liveavatar" {
+		return ErrNotFound
+	}
 	if s.Phase != "running" || s.StopRequested || !g.now().Before(s.Deadline) || !g.allowedToStart(ctx, s) {
 		return fail(409, "session_has_ended", "此会话已结束或到达时长上限")
 	}
@@ -277,6 +289,9 @@ func (g *Gateway) reconcileOne(ctx context.Context, id string, requestStop bool)
 	if s.SettledAt != nil {
 		return nil
 	}
+	if s.Provider == "simli" {
+		return g.reconcileSimli(ctx, s)
+	}
 	if s.UpstreamID == "" {
 		if g.now().After(s.Deadline) {
 			// A provider token is never sent to the browser. Without a recorded
@@ -333,7 +348,7 @@ func (g *Gateway) reconcileOne(ctx context.Context, id string, requestStop bool)
 	return err
 }
 func (g *Gateway) Reconcile(ctx context.Context) error {
-	if !g.Configured() {
+	if g.key == "" && g.simliKey == "" {
 		return nil
 	}
 	rows, err := g.db.QueryContext(ctx, `SELECT id::text FROM digital_teacher_sessions WHERE settled_at IS NULL ORDER BY updated_at LIMIT 20`)
@@ -420,7 +435,12 @@ func (g *Gateway) Settings(ctx context.Context, o Owner) (map[string]any, error)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"configured": g.Configured() && p.Enabled && (p.PricePerMinute > 0 || minutes["configured"] == true), "teachers": teachers, "model": Model, "plan": p, "minutes": minutes, "billing_unit": "minute", "billing_policy": "开始前预留所选时长的额度，结束后按实际用量结算并释放余量；收费不超过开始前展示的上限"}, nil
+	model := Model
+	if g.provider == "simli" {
+		model = "simli-compose"
+		p.SandboxEnabled = false
+	}
+	return map[string]any{"configured": g.Configured() && p.Enabled && (p.PricePerMinute > 0 || minutes["configured"] == true), "teachers": teachers, "provider": g.provider, "model": model, "plan": p, "minutes": minutes, "billing_unit": "minute", "billing_policy": "开始前预留所选时长的额度，结束后按供应商会话用量结算并释放余量；收费不超过开始前展示的上限。Simli 分钟按历史回执秒数折算，供应商账单金额另行核对"}, nil
 }
 func (g *Gateway) Plans(ctx context.Context) ([]Plan, error) {
 	rows, err := g.db.QueryContext(ctx, `SELECT group_id,enabled,sandbox_enabled,price_per_minute,max_minutes,version FROM digital_teacher_plans ORDER BY group_id`)

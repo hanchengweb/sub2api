@@ -85,7 +85,7 @@ func (g *Gateway) Teachers(ctx context.Context, o Owner) ([]Teacher, error) {
 		if err = json.Unmarshal(data, &t); err != nil {
 			return nil, err
 		}
-		out = append(out, t)
+		out = append(out, g.currentTeacher(t))
 	}
 	return out, rows.Err()
 }
@@ -116,6 +116,9 @@ func (g *Gateway) list(ctx context.Context, path string) ([]Asset, error) {
 	return nil, errors.New("provider catalog too large")
 }
 func (g *Gateway) Catalog(ctx context.Context, o Owner) (Catalog, error) {
+	if g.provider == "simli" {
+		return g.simliCatalog(ctx, o)
+	}
 	out := Catalog{Avatars: []map[string]any{}, Voices: []map[string]any{}}
 	p, err := g.Plan(ctx, o.GroupID)
 	if err != nil {
@@ -133,7 +136,7 @@ func (g *Gateway) Catalog(ctx context.Context, o Owner) (Catalog, error) {
 		return out, internalError(err)
 	}
 	custom := map[string]bool{}
-	rows, err := g.db.QueryContext(ctx, `SELECT kind,asset_id::text FROM digital_teacher_assets WHERE user_id=$1`, o.UserID)
+	rows, err := g.db.QueryContext(ctx, `SELECT kind,asset_id::text FROM digital_teacher_assets WHERE user_id=$1 AND provider='liveavatar'`, o.UserID)
 	if err != nil {
 		return out, err
 	}
@@ -194,6 +197,12 @@ func (g *Gateway) Catalog(ctx context.Context, o Owner) (Catalog, error) {
 	return out, nil
 }
 func (g *Gateway) SaveTeacher(ctx context.Context, o Owner, t Teacher) (Teacher, error) {
+	if t.Provider == "" {
+		t.Provider = g.provider
+	}
+	if t.Provider != g.provider {
+		return t, fail(409, "teacher_provider_changed", "数字老师服务已切换，请刷新后选择当前形象")
+	}
 	if err := t.Validate(); err != nil {
 		return t, err
 	}
@@ -254,7 +263,7 @@ func (g *Gateway) teacher(ctx context.Context, o Owner, id string) (string, Teac
 		return "", t, ErrNotFound
 	}
 	err = json.Unmarshal(data, &t)
-	return serverID, t, err
+	return serverID, g.currentTeacher(t), err
 }
 func (g *Gateway) context(ctx context.Context, id string, t Teacher) (string, error) {
 	body := map[string]any{"prompt": "你是" + t.Name + "，教授" + t.Subject + "。使用自然、简洁的中文交流，每次解释一个重点，适当提问确认学生理解。\n" + t.Instructions, "opening_text": t.Opening}

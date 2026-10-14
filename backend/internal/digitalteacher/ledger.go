@@ -12,14 +12,14 @@ import (
 	"github.com/google/uuid"
 )
 
-const sessionColumns = `id::text,user_id,api_key_id,group_id,request_id,digest,COALESCE(teacher_id::text,''),sandbox,max_seconds,plan_version,price_per_minute,held_amount,minute_hold,phase,COALESCE(upstream_id::text,''),COALESCE(upstream_token,''),COALESCE(start_response,''),start_requested_at,sdk_nonce,stop_requested,provider_credits,provider_seconds,charged_amount,receipt,receipt_seen_at,settled_at,COALESCE(error_code,''),created_at,deadline`
+const sessionColumns = `id::text,user_id,api_key_id,group_id,request_id,digest,COALESCE(teacher_id::text,''),sandbox,max_seconds,plan_version,price_per_minute,held_amount,minute_hold,phase,COALESCE(upstream_id::text,''),COALESCE(upstream_token,''),COALESCE(start_response,''),start_requested_at,sdk_nonce,stop_requested,provider_credits,provider_seconds,charged_amount,receipt,receipt_seen_at,settled_at,COALESCE(error_code,''),created_at,deadline,provider`
 
 type scanner interface{ Scan(...any) error }
 
 func scanSession(row scanner) (*Session, error) {
 	s := new(Session)
 	var receipt []byte
-	err := row.Scan(&s.ID, &s.UserID, &s.KeyID, &s.GroupID, &s.RequestID, &s.Digest, &s.TeacherID, &s.Sandbox, &s.MaxSeconds, &s.PlanVersion, &s.Price, &s.Held, &s.MinuteHold, &s.Phase, &s.UpstreamID, &s.UpstreamToken, &s.StartResponse, &s.StartRequested, &s.Nonce, &s.StopRequested, &s.ProviderCredits, &s.ProviderSeconds, &s.Charged, &receipt, &s.ReceiptSeen, &s.SettledAt, &s.ErrorCode, &s.CreatedAt, &s.Deadline)
+	err := row.Scan(&s.ID, &s.UserID, &s.KeyID, &s.GroupID, &s.RequestID, &s.Digest, &s.TeacherID, &s.Sandbox, &s.MaxSeconds, &s.PlanVersion, &s.Price, &s.Held, &s.MinuteHold, &s.Phase, &s.UpstreamID, &s.UpstreamToken, &s.StartResponse, &s.StartRequested, &s.Nonce, &s.StopRequested, &s.ProviderCredits, &s.ProviderSeconds, &s.Charged, &receipt, &s.ReceiptSeen, &s.SettledAt, &s.ErrorCode, &s.CreatedAt, &s.Deadline, &s.Provider)
 	s.Receipt = receipt
 	return s, err
 }
@@ -179,7 +179,7 @@ func (g *Gateway) reserve(ctx context.Context, o Owner, req StartRequest, teache
 	if teacherID != "" {
 		teacher = teacherID
 	}
-	s, err := scanSession(tx.QueryRowContext(ctx, `INSERT INTO digital_teacher_sessions(id,user_id,api_key_id,group_id,request_id,digest,teacher_id,sandbox,max_seconds,plan_version,price_per_minute,held_amount,minute_hold,sdk_nonce,deadline) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()+($9+45)*INTERVAL '1 second') RETURNING `+sessionColumns, id, o.UserID, o.KeyID, o.GroupID, req.RequestID, hash, teacher, req.Sandbox, minutes*60, p.Version, price, held, minuteHold, nonce))
+	s, err := scanSession(tx.QueryRowContext(ctx, `INSERT INTO digital_teacher_sessions(id,user_id,api_key_id,group_id,request_id,digest,teacher_id,sandbox,max_seconds,plan_version,price_per_minute,held_amount,minute_hold,sdk_nonce,deadline,provider) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()+($9+45)*INTERVAL '1 second',$15) RETURNING `+sessionColumns, id, o.UserID, o.KeyID, o.GroupID, req.RequestID, hash, teacher, req.Sandbox, minutes*60, p.Version, price, held, minuteHold, nonce, g.provider))
 	if err != nil {
 		return nil, false, err
 	}
@@ -211,6 +211,9 @@ func (g *Gateway) complete(ctx context.Context, s *Session, credits, seconds flo
 		return errors.New("invalid usage receipt")
 	}
 	minutes := credits / 2
+	if s.Provider == "simli" {
+		minutes = seconds / 60
+	}
 	minutes = math.Round(minutes*1e6) / 1e6
 	amount := math.Round(minutes*s.Price*1e8) / 1e8
 	if s.Sandbox {
@@ -269,7 +272,11 @@ func (g *Gateway) complete(ctx context.Context, s *Session, credits, seconds flo
 	if len(receipt) == 0 {
 		receipt = json.RawMessage(`{}`)
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE digital_teacher_sessions SET phase=$2,charged_amount=$3,provider_credits=$4,provider_seconds=$5,receipt=$6,settled_at=NOW(),updated_at=NOW(),upstream_token=NULL,start_response=NULL,error_code=CASE WHEN $7 THEN 'provider_usage_exceeds_limit' ELSE error_code END WHERE id=$1`, s.ID, phase, amount, credits, seconds, receipt, overrun); err != nil {
+	var supplierCredits any = credits
+	if s.Provider == "simli" {
+		supplierCredits = nil
+	} // Session duration is not a supplier financial receipt.
+	if _, err = tx.ExecContext(ctx, `UPDATE digital_teacher_sessions SET phase=$2,charged_amount=$3,provider_credits=$4,provider_seconds=$5,receipt=$6,settled_at=NOW(),updated_at=NOW(),upstream_token=NULL,start_response=NULL,error_code=CASE WHEN $7 THEN 'provider_usage_exceeds_limit' ELSE error_code END WHERE id=$1`, s.ID, phase, amount, supplierCredits, seconds, receipt, overrun); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {
@@ -345,6 +352,9 @@ func (g *Gateway) Grant(ctx context.Context, userID int64, requestID string, min
 func (g *Gateway) BindAsset(ctx context.Context, userID int64, kind, id string) error {
 	if userID <= 0 || !validUUID(id) || (kind != "avatar" && kind != "voice") {
 		return fail(400, "invalid_teacher_asset", "素材分配参数无效")
+	}
+	if g.provider == "simli" {
+		return g.bindSimliAsset(ctx, userID, kind, id)
 	}
 	if _, err := g.call(ctx, "GET", "/v1/"+kind+"s/"+id, "", nil); err != nil {
 		return internalError(err)
