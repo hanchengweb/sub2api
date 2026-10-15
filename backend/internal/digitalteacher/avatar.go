@@ -64,7 +64,7 @@ func (g *Gateway) AvatarJobs(ctx context.Context, o Owner) ([]AvatarJob, error) 
 	if _, err := g.requirePlan(ctx, o, false); err != nil {
 		return nil, err
 	}
-	rows, err := g.db.QueryContext(ctx, `SELECT `+avatarColumns+` FROM digital_teacher_avatar_jobs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30`, o.UserID)
+	rows, err := g.db.QueryContext(ctx, `SELECT `+avatarColumns+` FROM digital_teacher_avatar_jobs WHERE user_id=$1 AND (generation='cara-4')=$2 ORDER BY created_at DESC LIMIT 30`, o.UserID, g.providerForOwner(o) == "anam")
 	if err != nil {
 		return nil, err
 	}
@@ -131,14 +131,17 @@ func legacyPhoto(photo []byte) ([]byte, error) {
 }
 
 func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name string, consent bool, photo []byte, generations ...string) (AvatarJob, error) {
-	if g.provider != "simli" {
+	if g.provider != "simli" && g.anamKey == "" {
 		return AvatarJob{}, fail(409, "avatar_provider_changed", "请刷新当前数字老师服务")
 	}
 	generation := "trinity"
+	if g.providerForOwner(o) == "anam" {
+		generation = "cara-4"
+	}
 	if len(generations) > 0 && generations[0] != "" {
 		generation = generations[0]
 	}
-	if generation != "trinity" && generation != "legacy" {
+	if (g.providerForOwner(o) == "anam" && generation != "cara-4") || (g.providerForOwner(o) != "anam" && generation != "trinity" && generation != "legacy") {
 		return AvatarJob{}, fail(400, "avatar_generation_invalid", "请选择照片制作方式")
 	}
 	plan, err := g.requirePlan(ctx, o, false)
@@ -155,6 +158,9 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 	name = strings.TrimSpace(name)
 	if !validUUID(requestID) || !consent || name == "" || len([]rune(name)) > 60 {
 		return AvatarJob{}, fail(400, "avatar_request_invalid", "请填写形象名称，并确认拥有照片使用授权")
+	}
+	if generation == "cara-4" && (len(photo) > 4500000 || len([]rune(name)) < 3 || len([]rune(name)) > 50) {
+		return AvatarJob{}, fail(400, "anam_photo_invalid", "Anam 形象名称需 3–50 字符，照片需小于 4.5 MB")
 	}
 	preview, err := avatarPreview(photo)
 	if err != nil {
@@ -216,6 +222,9 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 	// outcomes remain durable and may only be reconciled to this exact job name.
 	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), 120*time.Second)
 	defer cancel()
+	if generation == "cara-4" {
+		return g.createAnamAvatar(work, o, id, upload)
+	}
 	var body bytes.Buffer
 	mp := multipart.NewWriter(&body)
 	header := textproto.MIMEHeader{}
@@ -291,7 +300,7 @@ type trinityGeneration struct {
 }
 
 func (g *Gateway) reconcileAvatars(ctx context.Context) {
-	if g.provider != "simli" {
+	if g.provider != "simli" && g.anamKey == "" {
 		return
 	}
 	rows, err := g.db.QueryContext(ctx, `SELECT id::text,user_id FROM digital_teacher_avatar_jobs WHERE state IN ('submitting','pending','processing','unknown') AND (checked_at IS NULL OR checked_at<NOW()-interval '30 seconds') ORDER BY checked_at NULLS FIRST LIMIT 3`)
@@ -333,6 +342,9 @@ func (g *Gateway) RefreshAvatar(ctx context.Context, o Owner, id string) (Avatar
 	n, _ := result.RowsAffected()
 	if n == 0 {
 		return j, nil
+	}
+	if j.Generation == "cara-4" {
+		return g.refreshAnamAvatar(ctx, o, j)
 	}
 	if j.FaceID == "" {
 		faces, e := g.simliFaces(ctx)

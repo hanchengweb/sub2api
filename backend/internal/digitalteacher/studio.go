@@ -37,9 +37,19 @@ func contains(list []string, v string) bool {
 	return false
 }
 func (g *Gateway) StudioEnabled(o Owner) bool {
-	return g.provider == "simli" && g.studioUsers[o.UserID]
+	return g.providerForOwner(o) == "anam" || g.provider == "simli" && g.studioUsers[o.UserID]
 }
 func (g *Gateway) teacherForOwner(t Teacher, o Owner) Teacher {
+	if g.providerForOwner(o) == "anam" {
+		if t.Provider != "anam" {
+			t.Provider = "anam"
+			t.AvatarID = anamAvatar
+			t.VoiceID = anamVoice
+			t.LLMModel = anamModel
+			t.VoiceModel = "cara-4"
+		}
+		return t
+	}
 	t = g.currentTeacher(t)
 	if g.StudioEnabled(o) {
 		if !elevenID.MatchString(t.VoiceID) {
@@ -115,14 +125,19 @@ type StudioSession struct {
 	Deadline               time.Time  `json:"deadline"`
 	ClosedAt               *time.Time `json:"closed_at"`
 	Engine                 string     `json:"engine"`
+	Provider               string     `json:"provider"`
+	Duration               *float64   `json:"duration_seconds,omitempty"`
 	digest, room, upstream string
 }
 
-const studioColumns = `id::text,request_id,phase,created_at,deadline,closed_at,digest,COALESCE(room_sealed,''),COALESCE(upstream_id::text,'')`
+const studioColumns = `id::text,request_id,phase,created_at,deadline,closed_at,digest,COALESCE(room_sealed,''),COALESCE(upstream_id::text,''),provider,duration_seconds`
 
 func scanStudio(row scanner) (StudioSession, error) {
 	s := StudioSession{Engine: "auto"}
-	err := row.Scan(&s.ID, &s.RequestID, &s.Phase, &s.CreatedAt, &s.Deadline, &s.ClosedAt, &s.digest, &s.room, &s.upstream)
+	err := row.Scan(&s.ID, &s.RequestID, &s.Phase, &s.CreatedAt, &s.Deadline, &s.ClosedAt, &s.digest, &s.room, &s.upstream, &s.Provider, &s.Duration)
+	if s.Provider == "anam" {
+		s.Engine = "anam"
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, ErrNotFound
 	}
@@ -133,7 +148,7 @@ func (g *Gateway) expireStudio(ctx context.Context, o Owner) error {
 	// admission closed for startup/timeout uncertainty (150s for an unknown
 	// result, or 105s after a room is returned).
 	// This closes our evaluation record; it does not invent supplier usage.
-	_, err := g.db.ExecContext(ctx, `UPDATE digital_teacher_studio_sessions SET phase='closed',closed_at=NOW(),room_sealed=NULL WHERE user_id=$1 AND closed_at IS NULL AND deadline<NOW()`, o.UserID)
+	_, err := g.db.ExecContext(ctx, `UPDATE digital_teacher_studio_sessions SET phase='closed',closed_at=NOW(),room_sealed=NULL WHERE user_id=$1 AND provider='simli' AND closed_at IS NULL AND deadline<NOW()`, o.UserID)
 	return err
 }
 func (g *Gateway) StudioList(ctx context.Context, o Owner) ([]StudioSession, error) {
@@ -166,6 +181,21 @@ func (g *Gateway) StudioStop(ctx context.Context, o Owner, id string) (map[strin
 	if err != nil {
 		return nil, err
 	}
+	if s.Provider == "anam" {
+		if s.ClosedAt == nil {
+			_, err = g.db.ExecContext(ctx, `UPDATE digital_teacher_studio_sessions SET phase='closing',room_sealed=NULL WHERE id=$1 AND closed_at IS NULL`, s.ID)
+			if err != nil {
+				return nil, err
+			}
+			s.Phase = "closing"
+			_ = g.reconcileAnamOne(ctx, s)
+			s, err = scanStudio(g.db.QueryRowContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE id=$1`, s.ID))
+			if err != nil {
+				return nil, err
+			}
+		}
+		return map[string]any{"stopped": s.ClosedAt != nil, "settlement_pending": s.ClosedAt == nil, "evaluation": true, "duration_seconds": s.Duration, "message": "本次试用不扣 WindHub 积分或分钟；结束状态以 Anam 回执为准"}, nil
+	}
 	if s.ClosedAt == nil {
 		_, err = g.db.ExecContext(ctx, `UPDATE digital_teacher_studio_sessions SET phase='closing',room_sealed=NULL WHERE id=$1 AND closed_at IS NULL`, s.ID)
 	}
@@ -179,6 +209,9 @@ func (g *Gateway) studioTicket(s StudioSession) (map[string]any, error) {
 	if s.Phase != "ready" || s.ClosedAt != nil || !g.now().Before(s.Deadline) {
 		return nil, ErrConflict
 	}
+	if s.Provider == "anam" {
+		return map[string]any{"provider": "anam", "engine": "anam", "sessionId": s.ID, "sessionToken": g.anamCapability(s), "apiUrl": anamSDK, "seconds": anamSeconds, "evaluation": true, "price_per_minute": 0}, nil
+	}
 	room, err := g.unseal(s.room)
 	if err != nil || !validStudioRoom(room) {
 		return nil, fail(503, "studio_room_invalid", "完整会话地址未获确认")
@@ -187,7 +220,7 @@ func (g *Gateway) studioTicket(s StudioSession) (map[string]any, error) {
 }
 func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (map[string]any, error) {
 	if !g.StudioEnabled(o) {
-		return nil, fail(403, "studio_not_enabled", "当前账户尚未开放 Simli 完整效果试用")
+		return nil, fail(403, "studio_not_enabled", "当前账户尚未开放完整效果试用")
 	}
 	plan, err := g.requirePlan(ctx, o, false)
 	if err != nil {
@@ -218,8 +251,8 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 			voice = true
 		}
 	}
-	if !face || !voice {
-		return nil, fail(403, "studio_asset_unavailable", "所选形象或 ElevenLabs 声音暂不可用，请刷新后重选")
+	if !face || !voice || teacher.Provider == "anam" && !contains(catalog.Models, teacher.LLMModel) {
+		return nil, fail(403, "studio_asset_unavailable", "所选形象、声音或模型暂不可用，请刷新后重选")
 	}
 	if err = g.expireStudio(ctx, o); err != nil {
 		return nil, err
@@ -253,7 +286,7 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 	dg := digest(teacher)
 	old, e := scanStudio(tx.QueryRowContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE user_id=$1 AND api_key_id=$2 AND request_id=$3`, o.UserID, o.KeyID, req.RequestID))
 	if e == nil {
-		if old.digest != dg {
+		if old.digest != dg || old.Provider != g.providerForOwner(o) {
 			return nil, ErrConflict
 		}
 		return g.studioTicket(old)
@@ -274,7 +307,7 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 		return nil, fail(429, "studio_trial_limit", "今天已完成 5 次完整效果试用，请明天再试")
 	}
 	id := uuid.NewString()
-	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_studio_sessions(id,user_id,api_key_id,request_id,digest,deadline) VALUES($1,$2,$3,$4,$5,NOW()+interval '150 seconds')`, id, o.UserID, o.KeyID, req.RequestID, dg)
+	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_studio_sessions(id,user_id,api_key_id,request_id,digest,deadline,provider) VALUES($1,$2,$3,$4,$5,NOW()+interval '150 seconds',$6)`, id, o.UserID, o.KeyID, req.RequestID, dg, g.providerForOwner(o))
 	if err != nil {
 		return nil, err
 	}
@@ -283,6 +316,9 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 	}
 	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
 	defer cancel()
+	if teacher.Provider == "anam" {
+		return g.startAnam(work, id, teacher)
+	}
 	prompt := "你是" + teacher.Name + "，教授" + teacher.Subject + "。面向成年学生，使用自然中文交流，回答适合语音播放。\n" + teacher.Instructions
 	body := map[string]any{"faceId": teacher.AvatarID, "voiceId": teacher.VoiceID, "ttsProvider": "ElevenLabs", "ttsModel": teacher.VoiceModel, "language": "zh", "model": "artalk", "systemPrompt": prompt, "firstMessage": teacher.Opening, "maxSessionLength": 60, "maxIdleTime": 60, "createTranscript": true, "llmConfig": map[string]string{"model": teacher.LLMModel, "provider": "OpenAI"}}
 	data, err := g.simliCall(work, "POST", "/auto/start/configurable", body)

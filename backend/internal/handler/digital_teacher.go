@@ -43,7 +43,15 @@ func NewDigitalTeacherHandler(db *sql.DB, cfg *config.Config, billing *service.B
 		}
 		simliKey = strings.TrimSpace(string(data))
 	}
-	g, err := digitalteacher.New(db, digitalteacher.Options{APIKey: key, SimliAPIKey: simliKey, Provider: os.Getenv("DIGITAL_TEACHER_PROVIDER"), StudioUsers: os.Getenv("DIGITAL_TEACHER_SIMLI_STUDIO_USERS"), CryptoSecret: cfg.JWT.Secret, Invalidate: func(ctx context.Context, userID, keyID int64) {
+	anamKey := os.Getenv("ANAM_API_KEY")
+	if file := os.Getenv("ANAM_API_KEY_FILE"); file != "" {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return nil, errors.New("cannot read configured Anam secret file")
+		}
+		anamKey = strings.TrimSpace(string(data))
+	}
+	g, err := digitalteacher.New(db, digitalteacher.Options{AnamAPIKey: anamKey, AnamUsers: os.Getenv("DIGITAL_TEACHER_ANAM_USERS"), APIKey: key, SimliAPIKey: simliKey, Provider: os.Getenv("DIGITAL_TEACHER_PROVIDER"), StudioUsers: os.Getenv("DIGITAL_TEACHER_SIMLI_STUDIO_USERS"), CryptoSecret: cfg.JWT.Secret, Invalidate: func(ctx context.Context, userID, keyID int64) {
 		_ = billing.InvalidateUserBalance(ctx, userID)
 		_ = billing.InvalidateAPIKeyRateLimit(ctx, keyID)
 		keys.InvalidateAuthCacheByUserID(ctx, userID)
@@ -372,5 +380,14 @@ func (h *DigitalTeacherHandler) Reconcile(c *gin.Context) {
 	v, e := h.gateway.AdminReconcile(c.Request.Context(), c.Param("id"))
 	if !teacherError(c, e) {
 		response.Success(c, v)
+	}
+}
+
+func (h *DigitalTeacherHandler) AnamSDK(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+	raw, e := h.gateway.AnamSDK(c.Request.Context(), token)
+	if !teacherError(c, e) {
+		c.Data(http.StatusOK, "application/json", raw)
 	}
 }

@@ -10,6 +10,7 @@ func registerDigitalTeacherGateway(r *gin.Engine, h *handler.DigitalTeacherHandl
 	if h == nil {
 		return
 	}
+	r.POST("/v1/digital-teachers/anam-sdk/v1/engine/session", middleware.RequestBodyLimit(4096), h.AnamSDK)
 	sdk := r.Group("/v1/digital-teachers/sdk", middleware.RequestBodyLimit(4096))
 	sdk.GET("/compose/webrtc/livekit", h.SimliStream)
 	sdk.POST("/v1/sessions/start", h.SDK)
