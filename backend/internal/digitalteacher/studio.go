@@ -300,11 +300,11 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 	if active {
 		return nil, ErrConflict
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM digital_teacher_studio_sessions WHERE user_id=$1 AND created_at>NOW()-interval '24 hours'`, o.UserID).Scan(&count); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM digital_teacher_studio_sessions WHERE user_id=$1 AND provider=$2 AND created_at>NOW()-interval '24 hours'`, o.UserID, g.providerForOwner(o)).Scan(&count); err != nil {
 		return nil, err
 	}
 	if count >= 5 {
-		return nil, fail(429, "studio_trial_limit", "今天已完成 5 次完整效果试用，请明天再试")
+		return nil, fail(429, "studio_trial_limit", "该服务近 24 小时已使用 5 次完整效果试用，请稍后再试")
 	}
 	id := uuid.NewString()
 	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_studio_sessions(id,user_id,api_key_id,request_id,digest,deadline,provider) VALUES($1,$2,$3,$4,$5,NOW()+interval '150 seconds',$6)`, id, o.UserID, o.KeyID, req.RequestID, dg, g.providerForOwner(o))

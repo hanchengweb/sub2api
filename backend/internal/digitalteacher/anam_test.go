@@ -141,6 +141,9 @@ func testAnamGateway(t *testing.T, db *sql.DB) {
 
 	_, e = g.Create(ctx, o, req)
 	require.Error(t, e, "paid legacy route must not start Anam")
+	// Switching providers must not consume the new provider's trial quota.
+	_, e = db.Exec(`INSERT INTO digital_teacher_studio_sessions(id,user_id,api_key_id,request_id,digest,deadline,closed_at,phase,provider) SELECT gen_random_uuid(),$1,$2,gen_random_uuid()::text,'test',NOW(),NOW(),'closed','simli' FROM generate_series(1,5)`, o.UserID, o.KeyID)
+	require.NoError(t, e)
 	ticket, e := g.StudioCreate(ctx, o, req)
 	require.NoError(t, e)
 	require.Equal(t, "anam", ticket["engine"])
@@ -225,4 +228,9 @@ func testAnamGateway(t *testing.T, db *sql.DB) {
 			require.Equal(t, true, stop["stopped"])
 		}
 	}
+	_, e = db.Exec(`INSERT INTO digital_teacher_studio_sessions(id,user_id,api_key_id,request_id,digest,deadline,closed_at,phase,provider) SELECT gen_random_uuid(),$1,$2,gen_random_uuid()::text,'test',NOW(),NOW(),'closed','anam' FROM generate_series(1,3)`, o.UserID, o.KeyID)
+	require.NoError(t, e)
+	_, e = g.StudioCreate(ctx, o, StartRequest{RequestID: uuid.NewString(), TeacherID: teacher.ID, Minutes: 1})
+	require.ErrorContains(t, e, "5 次")
+	require.Equal(t, 2, starts)
 }
