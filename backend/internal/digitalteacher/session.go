@@ -15,6 +15,9 @@ import (
 const groupAccessSQL = `SELECT EXISTS(SELECT 1 FROM groups g WHERE g.id=$2 AND g.status='active' AND g.deleted_at IS NULL AND (CASE WHEN g.subscription_type='subscription' THEN EXISTS(SELECT 1 FROM user_subscriptions sub WHERE sub.user_id=$1 AND sub.group_id=g.id AND sub.status='active' AND sub.expires_at>NOW() AND sub.deleted_at IS NULL) ELSE NOT g.is_exclusive OR EXISTS(SELECT 1 FROM user_allowed_groups a WHERE a.user_id=$1 AND a.group_id=g.id) END))`
 
 func (g *Gateway) Create(ctx context.Context, o Owner, req StartRequest) (Ticket, error) {
+	if g.providerForOwner(o) == "anam" {
+		return Ticket{}, fail(409, "anam_trial_only", "请刷新应用，使用 Anam 效果试用入口")
+	}
 	if g.provider == "simli" && req.Sandbox {
 		return Ticket{}, fail(400, "simli_no_sandbox", "Simli 视频会话使用分钟额度，请选择开始对话")
 	}
@@ -418,6 +421,7 @@ func (g *Gateway) Run(ctx context.Context) {
 		case <-tick.C:
 			work, cancel := context.WithTimeout(ctx, 50*time.Second)
 			_ = g.Reconcile(work)
+			g.reconcileAnam(work)
 			g.reconcileAvatars(work)
 			cancel()
 		}
@@ -441,7 +445,11 @@ func (g *Gateway) Settings(ctx context.Context, o Owner) (map[string]any, error)
 		model = "simli-compose"
 		p.SandboxEnabled = false
 	}
-	return map[string]any{"studioEvaluation": g.StudioEnabled(o), "configured": g.Configured() && p.Enabled && (p.PricePerMinute > 0 || minutes["configured"] == true), "teachers": teachers, "provider": g.provider, "model": model, "plan": p, "minutes": minutes, "billing_unit": "minute", "billing_policy": "开始前预留所选时长的额度，结束后按供应商会话用量结算并释放余量；收费不超过开始前展示的上限。Simli 分钟按历史回执秒数折算，供应商账单金额另行核对"}, nil
+	if g.providerForOwner(o) == "anam" {
+		model = "anam-cara-4"
+		p.SandboxEnabled = false
+	}
+	return map[string]any{"studioEvaluation": g.StudioEnabled(o), "configured": g.configuredForOwner(o) && p.Enabled && (p.PricePerMinute > 0 || minutes["configured"] == true), "teachers": teachers, "provider": g.providerForOwner(o), "model": model, "trialSeconds": map[bool]int{true: 90, false: 60}[g.providerForOwner(o) == "anam"], "plan": p, "minutes": minutes, "billing_unit": "minute", "billing_policy": "开始前预留所选时长的额度，结束后按供应商会话用量结算并释放余量；收费不超过开始前展示的上限。Simli 分钟按历史回执秒数折算，供应商账单金额另行核对"}, nil
 }
 func (g *Gateway) Plans(ctx context.Context) ([]Plan, error) {
 	rows, err := g.db.QueryContext(ctx, `SELECT group_id,enabled,sandbox_enabled,price_per_minute,max_minutes,version FROM digital_teacher_plans ORDER BY group_id`)

@@ -15,7 +15,7 @@ import (
 type providerError struct{ status int }
 
 func (e *providerError) Error() string {
-	return fmt.Sprintf("LiveAvatar request failed (HTTP %d)", e.status)
+	return fmt.Sprintf("Digital teacher provider request failed (HTTP %d)", e.status)
 }
 func (g *Gateway) call(ctx context.Context, method, path, token string, body any) (json.RawMessage, error) {
 	var data []byte
@@ -65,12 +65,13 @@ type Asset struct {
 	DefaultVoice *Asset `json:"default_voice,omitempty"`
 }
 type Catalog struct {
-	VoiceNotice string           `json:"voiceNotice,omitempty"`
-	Models      []string         `json:"models,omitempty"`
-	VoiceModels []string         `json:"voiceModels,omitempty"`
-	Avatars     []map[string]any `json:"avatars"`
-	Voices      []map[string]any `json:"voices"`
-	Jobs        []AvatarJob      `json:"jobs,omitempty"`
+	ModelLabels map[string]string `json:"modelLabels,omitempty"`
+	VoiceNotice string            `json:"voiceNotice,omitempty"`
+	Models      []string          `json:"models,omitempty"`
+	VoiceModels []string          `json:"voiceModels,omitempty"`
+	Avatars     []map[string]any  `json:"avatars"`
+	Voices      []map[string]any  `json:"voices"`
+	Jobs        []AvatarJob       `json:"jobs,omitempty"`
 }
 
 func (g *Gateway) Teachers(ctx context.Context, o Owner) ([]Teacher, error) {
@@ -120,6 +121,9 @@ func (g *Gateway) list(ctx context.Context, path string) ([]Asset, error) {
 	return nil, errors.New("provider catalog too large")
 }
 func (g *Gateway) Catalog(ctx context.Context, o Owner) (Catalog, error) {
+	if g.providerForOwner(o) == "anam" {
+		return g.anamCatalog(ctx, o)
+	}
 	if g.provider == "simli" {
 		return g.simliCatalog(ctx, o)
 	}
@@ -202,9 +206,9 @@ func (g *Gateway) Catalog(ctx context.Context, o Owner) (Catalog, error) {
 }
 func (g *Gateway) SaveTeacher(ctx context.Context, o Owner, t Teacher) (Teacher, error) {
 	if t.Provider == "" {
-		t.Provider = g.provider
+		t.Provider = g.providerForOwner(o)
 	}
-	if t.Provider != g.provider {
+	if t.Provider != g.providerForOwner(o) {
 		return t, fail(409, "teacher_provider_changed", "数字老师服务已切换，请刷新后选择当前形象")
 	}
 	if err := t.Validate(); err != nil {
@@ -225,7 +229,7 @@ func (g *Gateway) SaveTeacher(ctx context.Context, o Owner, t Teacher) (Teacher,
 			voice = true
 		}
 	}
-	if !avatar || !voice {
+	if !avatar || !voice || t.Provider == "anam" && !contains(catalog.Models, t.LLMModel) {
 		return t, fail(403, "teacher_asset_not_assigned", "请选择当前账户可用的老师形象和声音")
 	}
 	data, _ := json.Marshal(t)
