@@ -65,7 +65,7 @@ type Teacher struct {
 
 func (t Teacher) Validate() error {
 	voiceValid := validUUID(t.VoiceID) || t.Provider == "simli" && (speechvoices.Valid(t.VoiceID) || elevenID.MatchString(t.VoiceID))
-	if t.Provider == "anam" && (!validUUID(t.LLMModel) || t.VoiceModel != "cara-4") || t.Provider != "anam" && (t.LLMModel != "" && !contains(studioModels, t.LLMModel) || t.VoiceModel != "" && !contains(studioVoiceModels, t.VoiceModel)) {
+	if t.Provider == "anam" && (!validUUID(t.LLMModel) && t.LLMModel != anamExternalModel || t.VoiceModel != "cara-4") || t.Provider != "anam" && (t.LLMModel != "" && !contains(studioModels, t.LLMModel) || t.VoiceModel != "" && !contains(studioVoiceModels, t.VoiceModel)) {
 		return fail(400, "invalid_studio_model", "请选择当前支持的对话与语音模型")
 	}
 	if (t.Provider != "" && t.Provider != "liveavatar" && t.Provider != "simli" && t.Provider != "anam") || !validUUID(t.ID) || !validUUID(t.AvatarID) || !voiceValid || strings.TrimSpace(t.Name) == "" || len([]rune(t.Name)) > 40 || strings.TrimSpace(t.Subject) == "" || len([]rune(t.Subject)) > 80 || strings.TrimSpace(t.Instructions) == "" || len([]rune(t.Instructions)) > 12000 || len([]rune(t.Opening)) > 500 {
@@ -107,6 +107,7 @@ type Session struct {
 	Deadline        time.Time       `json:"deadline"`
 }
 type StartRequest struct {
+	BrainMode string `json:"brain_mode,omitempty"`
 	RequestID string `json:"request_id"`
 	TeacherID string `json:"teacher_id"`
 	Sandbox   bool   `json:"sandbox"`

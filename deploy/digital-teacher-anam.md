@@ -27,3 +27,20 @@
 - https://anam.ai/docs/api-reference/avatars/create-avatar
 - https://anam.ai/docs/personas/session/video
 - https://anam.ai/docs/personas/voices/multilingual
+
+## 微末智学智能体模式（2026-10-15）
+
+新客户端显式发送 `brain_mode=agent`。服务端在校验老师资产后使用官方
+`llmId=CUSTOMER_CLIENT_V1` 创建 Cara 4 会话，不再向 Anam 发送授课提示或自动开场白。
+返回的票据必须包含 `brainMode=agent`，客户端才允许进入该模式。老师摘要参与幂等键
+冲突检查，同一请求不得从托管模型切为外部智能体或反向切换。原客户端托管模型
+契约保留；保存为外部模式的老师不能由旧客户端静默启动。
+
+问题由桌面已有 Session API 和模型账户执行，工具授权沿用工作台；只把最终可朗读
+正文送给 Anam。视频试用限制不变，智能体模型和工具费用按其原账户规则独立计算，
+不能把视频零扣费描述为整个智能体免费。服务端不持有桌面会话权限，也无需公网
+回调或新增模型密钥。该变更无数据库迁移，仍按同一上游ID核对结束回执。
+
+依据：https://anam.ai/docs/javascript-sdk/examples/custom-llm 。本地 PostgreSQL 回归已
+验证外部模型配置、幂等模式隔离、撤权、结束回执和零视频扣费；真实部署后音视频
+结果以桌面交付记录为准。

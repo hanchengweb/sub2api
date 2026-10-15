@@ -21,6 +21,7 @@ import (
 const anamAvatar = "edf6fdcb-acab-44b8-b974-ded72665ee26"
 const anamVoice = "d5194111-d7d7-41dd-9f72-dea1a98876c7" // Richard (zh), Cartesia
 const anamModel = "b4f89001-9638-4879-a9c3-02cc9f9f2004" // GPT 4.1
+const anamExternalModel = "CUSTOMER_CLIENT_V1"
 const anamSeconds = 90
 const anamSDK = "https://windhub.online/v1/digital-teachers/anam-sdk"
 
@@ -196,13 +197,23 @@ func (g *Gateway) anamCatalog(ctx context.Context, o Owner) (Catalog, error) {
 		}
 	}
 	sort.SliceStable(out.Models, func(i, j int) bool { return out.Models[i] == anamModel && out.Models[j] != anamModel })
+	out.Models = append(out.Models, anamExternalModel)
+	out.ModelLabels[anamExternalModel] = "微末智学智能体"
 	out.Jobs, e = g.AvatarJobs(ctx, o)
 	return out, e
 }
 
 func anamBody(id string, t Teacher) map[string]any {
-	return map[string]any{"clientLabel": "wxm-anam-" + id, "personaConfig": map[string]any{"name": t.Name, "avatarId": t.AvatarID, "avatarModel": "cara-4", "voiceId": t.VoiceID, "llmId": t.LLMModel, "systemPrompt": "你是" + t.Name + "，教授" + t.Subject + "。面向成年学生，使用自然中文交流，每次回答简洁、适合语音播放。\n" + t.Instructions, "languageCode": "zh", "maxSessionLengthSeconds": anamSeconds, "voiceDetectionOptions": map[string]any{"sttProvider": "anam"}, "initialMessage": t.Opening}, "sessionOptions": map[string]any{"videoWidth": 1152, "videoHeight": 768, "videoQuality": "high"}}
+	persona := map[string]any{"name": t.Name, "avatarId": t.AvatarID, "avatarModel": "cara-4", "voiceId": t.VoiceID, "llmId": t.LLMModel, "languageCode": "zh", "maxSessionLengthSeconds": anamSeconds, "voiceDetectionOptions": map[string]any{"sttProvider": "anam"}}
+	// External mode sends neither a teaching prompt nor a second automatic
+	// greeting. The client speaks the opening once, then its own agent's answers.
+	if t.LLMModel != anamExternalModel {
+		persona["systemPrompt"] = "你是" + t.Name + "，教授" + t.Subject + "。面向成年学生，使用自然中文交流，每次回答简洁、适合语音播放。\n" + t.Instructions
+		persona["initialMessage"] = t.Opening
+	}
+	return map[string]any{"clientLabel": "wxm-anam-" + id, "personaConfig": persona, "sessionOptions": map[string]any{"videoWidth": 1152, "videoHeight": 768, "videoQuality": "high"}}
 }
+
 func validAnamEngine(raw []byte) bool {
 	var r struct {
 		ID       string          `json:"sessionId"`
@@ -256,7 +267,7 @@ func (g *Gateway) startAnam(ctx context.Context, id string, t Teacher) (map[stri
 		_, _ = g.anamCall(ctx, "POST", "/v1/sessions/"+r.ID+"/stop", map[string]any{})
 		return nil, ErrConflict
 	}
-	return g.studioTicket(s)
+	return g.studioTicket(s, t.LLMModel == anamExternalModel)
 }
 
 // This capability can only read one already-created engine session. The one-hour
