@@ -205,12 +205,16 @@ func validStudioRoom(raw string) bool {
 	u, e := url.Parse(raw)
 	return e == nil && len(raw) < 2048 && u.Scheme == "https" && u.Host == "simli.daily.co" && u.User == nil && u.Fragment == "" && len(u.Path) > 1
 }
-func (g *Gateway) studioTicket(s StudioSession) (map[string]any, error) {
+func (g *Gateway) studioTicket(s StudioSession, external ...bool) (map[string]any, error) {
 	if s.Phase != "ready" || s.ClosedAt != nil || !g.now().Before(s.Deadline) {
 		return nil, ErrConflict
 	}
 	if s.Provider == "anam" {
-		return map[string]any{"provider": "anam", "engine": "anam", "sessionId": s.ID, "sessionToken": g.anamCapability(s), "apiUrl": anamSDK, "seconds": anamSeconds, "evaluation": true, "price_per_minute": 0}, nil
+		mode := "provider"
+		if len(external) > 0 && external[0] {
+			mode = "agent"
+		}
+		return map[string]any{"brainMode": mode, "provider": "anam", "engine": "anam", "sessionId": s.ID, "sessionToken": g.anamCapability(s), "apiUrl": anamSDK, "seconds": anamSeconds, "evaluation": true, "price_per_minute": 0}, nil
 	}
 	room, err := g.unseal(s.room)
 	if err != nil || !validStudioRoom(room) {
@@ -232,6 +236,14 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 	_, teacher, err := g.teacher(ctx, o, req.TeacherID)
 	if err != nil {
 		return nil, err
+	}
+	if req.BrainMode != "" && (req.BrainMode != "agent" || teacher.Provider != "anam") {
+		return nil, fail(400, "brain_mode_invalid", "当前数字老师不支持该对话模式")
+	}
+	if req.BrainMode == "agent" {
+		teacher.LLMModel = anamExternalModel
+	} else if teacher.LLMModel == anamExternalModel {
+		return nil, fail(400, "agent_client_required", "请更新桌面端后使用微末智学智能体模式")
 	}
 	if err = teacher.Validate(); err != nil {
 		return nil, err
@@ -289,7 +301,7 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 		if old.digest != dg || old.Provider != g.providerForOwner(o) {
 			return nil, ErrConflict
 		}
-		return g.studioTicket(old)
+		return g.studioTicket(old, teacher.LLMModel == anamExternalModel)
 	}
 	if !errors.Is(e, ErrNotFound) {
 		return nil, e

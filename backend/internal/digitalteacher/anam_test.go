@@ -81,6 +81,9 @@ func testAnamGateway(t *testing.T, db *sql.DB) {
 			label = body.Label
 			require.EqualValues(t, 90, body.Config["maxSessionLengthSeconds"])
 			require.Equal(t, "zh", body.Config["languageCode"])
+			require.Equal(t, anamExternalModel, body.Config["llmId"])
+			require.NotContains(t, body.Config, "systemPrompt")
+			require.NotContains(t, body.Config, "initialMessage")
 			require.EqualValues(t, 1152, body.Options["videoWidth"])
 			if dropCreate {
 				w.WriteHeader(503)
@@ -117,7 +120,7 @@ func testAnamGateway(t *testing.T, db *sql.DB) {
 	teacher := Teacher{Provider: "anam", ID: uuid.NewString(), Name: "老师", Subject: "数学", Instructions: "中文", AvatarID: private, VoiceID: anamVoice, LLMModel: anamModel, VoiceModel: "cara-4"}
 	_, e = g.SaveTeacher(ctx, o, teacher)
 	require.NoError(t, e)
-	req := StartRequest{RequestID: uuid.NewString(), TeacherID: teacher.ID, Minutes: 1}
+	req := StartRequest{RequestID: uuid.NewString(), TeacherID: teacher.ID, Minutes: 1, BrainMode: "agent"}
 	_, e = g.StudioCreate(ctx, o, req)
 	require.Error(t, e)
 	require.Equal(t, 0, starts)
@@ -147,6 +150,7 @@ func testAnamGateway(t *testing.T, db *sql.DB) {
 	ticket, e := g.StudioCreate(ctx, o, req)
 	require.NoError(t, e)
 	require.Equal(t, "anam", ticket["engine"])
+	require.Equal(t, "agent", ticket["brainMode"])
 	id := ticket["sessionId"].(string)
 	cap := ticket["sessionToken"].(string)
 	safe, _ := json.Marshal(ticket)
@@ -155,6 +159,10 @@ func testAnamGateway(t *testing.T, db *sql.DB) {
 	replay, e := g.StudioCreate(ctx, o, req)
 	require.NoError(t, e)
 	require.Equal(t, ticket, replay)
+	wrongMode := req
+	wrongMode.BrainMode = ""
+	_, e = g.StudioCreate(ctx, o, wrongMode)
+	require.Error(t, e, "same request must not change its brain mode")
 	require.Equal(t, 1, starts)
 	for i := 0; i < 2; i++ {
 		raw, e := g.AnamSDK(ctx, cap)
