@@ -6,7 +6,7 @@
 
 ## 契约
 
-- `POST /studio/sessions` 先持久化幂等记录并检查用户、连接、算力包、分钟授权、并发和每日限制，再由服务器调用 Anam `POST /v1/engine/session`。每次90秒、24小时5次，不扣 WindHub 积分或分钟，消耗 Anam 账号额度。
+- `POST /studio/sessions` 先持久化幂等记录并检查用户、连接、算力包、分钟授权、并发和每日限制，再由服务器调用 Anam `POST /v1/engine/session`。每次90秒、每个供应商分别按24小时5次，不扣 WindHub 积分或分钟，消耗 Anam 账号额度。
 - `personaConfig.maxSessionLengthSeconds=90`，`avatarModel=cara-4`，中文识别 `languageCode=zh` / `voiceDetectionOptions.sttProvider=anam`。`sessionOptions` 请求1152×768 / high。真实回执已验证 Cara 4、Cartesia sonic-3.6、GPT 4.1；ElevenLabs 等其他组合以用户选择及实际可用性为准。
 - 浏览器使用官方 `@anam-ai/js-sdk@4.28.0`。它得到 WindHub HMAC 凭据；`/anam-sdk/v1/engine/session` 只读取一个已创建的会话，不接受客户端覆盖配置，不创建第二个供应商会话。供应商一小时 session token 不下发。
 - engineHost 实际包含 `/v1/webrtc/engines/…` 路径；仅允许官方 connect / connect-us / connect-eu 域名。连接资料加密存储，停止时清除；列表不返回连接资料。
