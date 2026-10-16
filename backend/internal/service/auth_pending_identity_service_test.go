@@ -144,65 +144,88 @@ func TestAuthPendingIdentityService_CompletionCodeExpires(t *testing.T) {
 }
 
 func TestAuthPendingIdentityService_DesktopCompletionCodeVerifiesPKCE(t *testing.T) {
-	svc, client := newAuthPendingIdentityServiceTestClient(t)
-	ctx := context.Background()
-	user, err := client.User.Create().
-		SetEmail("desktop@example.com").
-		SetPasswordHash("hash").
-		SetRole(RoleUser).
-		SetStatus(StatusActive).
-		Save(ctx)
-	require.NoError(t, err)
+	for _, clientID := range []string{"com.fengxingzhonghe.desktop", "com.weimozhixue.desktop"} {
+		t.Run(clientID, func(t *testing.T) {
+			redirectURI := "fengxingzhonghe://auth/callback"
+			if clientID == "com.weimozhixue.desktop" {
+				redirectURI = "weimozhixue://oauth/callback"
+			}
+			svc, client := newAuthPendingIdentityServiceTestClient(t)
+			ctx := context.Background()
+			user, err := client.User.Create().
+				SetEmail("desktop@example.com").
+				SetPasswordHash("hash").
+				SetRole(RoleUser).
+				SetStatus(StatusActive).
+				Save(ctx)
+			require.NoError(t, err)
 
-	verifier := strings.Repeat("a", 43)
-	digest := sha256.Sum256([]byte(verifier))
-	challenge := base64.RawURLEncoding.EncodeToString(digest[:])
-	state := "desktop-state"
-	targetUserID := user.ID
-	session, err := svc.CreatePendingSession(ctx, CreatePendingAuthSessionInput{
-		Intent: "login",
-		Identity: PendingAuthIdentityKey{
-			ProviderType:    "email",
-			ProviderKey:     "com.fengxingzhonghe.desktop",
-			ProviderSubject: "desktop-subject",
-		},
-		TargetUserID:      &targetUserID,
-		BrowserSessionKey: state,
-		LocalFlowState: map[string]any{
-			"desktop_authorization": map[string]any{
-				"client_id":             "com.fengxingzhonghe.desktop",
-				"redirect_uri":          "fengxingzhonghe://auth/callback",
-				"state":                 state,
-				"code_challenge":        challenge,
-				"code_challenge_method": "S256",
-			},
-		},
-	})
-	require.NoError(t, err)
-	issued, err := svc.IssueCompletionCode(ctx, IssuePendingAuthCompletionCodeInput{
-		PendingAuthSessionID: session.ID,
-		BrowserSessionKey:    state,
-	})
-	require.NoError(t, err)
+			verifier := strings.Repeat("a", 43)
+			digest := sha256.Sum256([]byte(verifier))
+			challenge := base64.RawURLEncoding.EncodeToString(digest[:])
+			state := "desktop-state"
+			targetUserID := user.ID
+			session, err := svc.CreatePendingSession(ctx, CreatePendingAuthSessionInput{
+				Intent: "login",
+				Identity: PendingAuthIdentityKey{
+					ProviderType:    "email",
+					ProviderKey:     clientID,
+					ProviderSubject: "desktop-subject",
+				},
+				TargetUserID:      &targetUserID,
+				BrowserSessionKey: state,
+				LocalFlowState: map[string]any{
+					"desktop_authorization": map[string]any{
+						"client_id":             clientID,
+						"redirect_uri":          redirectURI,
+						"state":                 state,
+						"code_challenge":        challenge,
+						"code_challenge_method": "S256",
+					},
+				},
+			})
+			require.NoError(t, err)
+			issued, err := svc.IssueCompletionCode(ctx, IssuePendingAuthCompletionCodeInput{
+				PendingAuthSessionID: session.ID,
+				BrowserSessionKey:    state,
+			})
+			require.NoError(t, err)
 
-	input := ConsumeDesktopAuthCompletionCodeInput{
-		ClientID:     "com.fengxingzhonghe.desktop",
-		RedirectURI:  "fengxingzhonghe://auth/callback",
-		State:        state,
-		CodeVerifier: verifier,
+			input := ConsumeDesktopAuthCompletionCodeInput{
+				ClientID:     clientID,
+				RedirectURI:  redirectURI,
+				State:        state,
+				CodeVerifier: verifier,
+			}
+			_, err = svc.ConsumeDesktopCompletionCode(ctx, issued.Code, ConsumeDesktopAuthCompletionCodeInput{
+				ClientID:     input.ClientID,
+				RedirectURI:  input.RedirectURI,
+				State:        input.State,
+				CodeVerifier: strings.Repeat("b", 43),
+			})
+			require.ErrorIs(t, err, ErrDesktopAuthorizationInvalid)
+
+			for _, change := range []func(*ConsumeDesktopAuthCompletionCodeInput){
+				func(i *ConsumeDesktopAuthCompletionCodeInput) { i.ClientID = "other-client" },
+				func(i *ConsumeDesktopAuthCompletionCodeInput) {
+					i.RedirectURI = "http://127.0.0.1:43186/oauth/callback"
+				},
+				func(i *ConsumeDesktopAuthCompletionCodeInput) { i.State = "another-state" },
+			} {
+				invalid := input
+				change(&invalid)
+				_, err = svc.ConsumeDesktopCompletionCode(ctx, issued.Code, invalid)
+				require.ErrorIs(t, err, ErrDesktopAuthorizationInvalid)
+			}
+			consumed, err := svc.ConsumeDesktopCompletionCode(ctx, issued.Code, input)
+			require.NoError(t, err)
+			require.Equal(t, user.ID, *consumed.TargetUserID)
+			require.NotNil(t, consumed.ConsumedAt)
+			_, err = svc.ConsumeDesktopCompletionCode(ctx, issued.Code, input)
+			// Consuming clears the code hash, so a replay cannot find the session.
+			require.ErrorIs(t, err, ErrPendingAuthCodeInvalid)
+		})
 	}
-	_, err = svc.ConsumeDesktopCompletionCode(ctx, issued.Code, ConsumeDesktopAuthCompletionCodeInput{
-		ClientID:     input.ClientID,
-		RedirectURI:  input.RedirectURI,
-		State:        input.State,
-		CodeVerifier: strings.Repeat("b", 43),
-	})
-	require.ErrorIs(t, err, ErrDesktopAuthorizationInvalid)
-
-	consumed, err := svc.ConsumeDesktopCompletionCode(ctx, issued.Code, input)
-	require.NoError(t, err)
-	require.Equal(t, user.ID, *consumed.TargetUserID)
-	require.NotNil(t, consumed.ConsumedAt)
 }
 
 func TestAuthPendingIdentityService_UpsertAdoptionDecision(t *testing.T) {

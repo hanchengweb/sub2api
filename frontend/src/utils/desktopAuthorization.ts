@@ -1,5 +1,7 @@
 export const FENGXING_DESKTOP_CLIENT_ID = 'com.fengxingzhonghe.desktop'
 export const FENGXING_DESKTOP_REDIRECT_URI = 'fengxingzhonghe://auth/callback'
+export const WXM_DESKTOP_CLIENT_ID = 'com.weimozhixue.desktop'
+export const WXM_DESKTOP_REDIRECT_URI = 'weimozhixue://oauth/callback'
 export const REMOTE_CLIENT_ID = 'wxm-mobile-remote'
 export const REMOTE_REDIRECT_URI = 'https://app.wemoreai.com/remote/v1/personal/callback'
 
@@ -14,6 +16,12 @@ export interface DesktopAuthorizationRequest {
 function queryString(query: Record<string, unknown>, key: string): string {
   const value = query[key]
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function isWxmRedirect(uri: string): boolean {
+  if (uri === WXM_DESKTOP_REDIRECT_URI) return true
+  const match = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{3,4})\/oauth\/callback$/.exec(uri)
+  return Boolean(match && Number(match[1]) >= 1024 && Number(match[1]) <= 65535)
 }
 
 export function hasDesktopAuthorizationQuery(query: Record<string, unknown>): boolean {
@@ -35,6 +43,8 @@ export function parseDesktopAuthorizationRequest(
   }
   if (
     !((request.client_id === FENGXING_DESKTOP_CLIENT_ID && request.redirect_uri === FENGXING_DESKTOP_REDIRECT_URI) ||
+      (request.client_id === WXM_DESKTOP_CLIENT_ID && isWxmRedirect(request.redirect_uri) &&
+        /^[A-Za-z0-9_-]{16,128}$/.test(request.state) && /^[A-Za-z0-9_-]{43}$/.test(request.code_challenge)) ||
       (request.client_id === REMOTE_CLIENT_ID && request.redirect_uri === REMOTE_REDIRECT_URI &&
         /^[A-Za-z0-9_-]{43}$/.test(request.state) && /^[A-Za-z0-9_-]{43}$/.test(request.code_challenge))) ||
     !request.state ||
@@ -45,6 +55,17 @@ export function parseDesktopAuthorizationRequest(
   }
 
   return request as DesktopAuthorizationRequest
+}
+
+// Carry only validated authorization fields through registration and email verification.
+export function desktopAuthorizationQuery(query: Record<string, unknown>): Record<string, string> {
+  const request = parseDesktopAuthorizationRequest(query)
+  return request ? { desktop: '1', ...request } : {}
+}
+
+export function postRegistrationRoute(query: Record<string, unknown>, fallback = '/dashboard') {
+  const authorization = desktopAuthorizationQuery(query)
+  return authorization.client_id ? { path: '/login', query: authorization } : fallback
 }
 
 export function buildDesktopAuthorizationCallback(
