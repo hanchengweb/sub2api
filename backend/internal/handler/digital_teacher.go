@@ -51,7 +51,7 @@ func NewDigitalTeacherHandler(db *sql.DB, cfg *config.Config, billing *service.B
 		}
 		anamKey = strings.TrimSpace(string(data))
 	}
-	g, err := digitalteacher.New(db, digitalteacher.Options{AnamAPIKey: anamKey, AnamUsers: os.Getenv("DIGITAL_TEACHER_ANAM_USERS"), APIKey: key, SimliAPIKey: simliKey, Provider: os.Getenv("DIGITAL_TEACHER_PROVIDER"), StudioUsers: os.Getenv("DIGITAL_TEACHER_SIMLI_STUDIO_USERS"), CryptoSecret: cfg.JWT.Secret, Invalidate: func(ctx context.Context, userID, keyID int64) {
+	g, err := digitalteacher.New(db, digitalteacher.Options{AnamAPIKey: anamKey, AnamUsers: os.Getenv("DIGITAL_TEACHER_ANAM_USERS"), AnamPool: os.Getenv("DIGITAL_TEACHER_ANAM_POOL") == "true", OrganizationKeys: os.Getenv("DIGITAL_TEACHER_ORGANIZATION_KEYS"), AnamPoolGroups: os.Getenv("DIGITAL_TEACHER_ANAM_POOL_GROUPS"), APIKey: key, SimliAPIKey: simliKey, Provider: os.Getenv("DIGITAL_TEACHER_PROVIDER"), StudioUsers: os.Getenv("DIGITAL_TEACHER_SIMLI_STUDIO_USERS"), CryptoSecret: cfg.JWT.Secret, Invalidate: func(ctx context.Context, userID, keyID int64) {
 		_ = billing.InvalidateUserBalance(ctx, userID)
 		_ = billing.InvalidateAPIKeyRateLimit(ctx, keyID)
 		keys.InvalidateAuthCacheByUserID(ctx, userID)
@@ -85,7 +85,7 @@ func (h *DigitalTeacherHandler) Close() {
 }
 
 func (h *DigitalTeacherHandler) CreateAvatar(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -111,7 +111,7 @@ func (h *DigitalTeacherHandler) CreateAvatar(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) AvatarJobs(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -121,7 +121,7 @@ func (h *DigitalTeacherHandler) AvatarJobs(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) RefreshAvatar(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -142,7 +142,7 @@ func teacherError(c *gin.Context, err error) bool {
 	}
 	return true
 }
-func teacherOwner(c *gin.Context) (digitalteacher.Owner, bool) {
+func (h *DigitalTeacherHandler) teacherOwner(c *gin.Context) (digitalteacher.Owner, bool) {
 	c.Header("Cache-Control", "no-store")
 	key, ok := middleware.GetAPIKeyFromContext(c)
 	if !ok || key.GroupID == nil {
@@ -153,10 +153,14 @@ func teacherOwner(c *gin.Context) (digitalteacher.Owner, bool) {
 		response.Error(c, 403, "当前连接已过期，请重新连接")
 		return digitalteacher.Owner{}, false
 	}
-	return digitalteacher.Owner{UserID: key.UserID, KeyID: key.ID, GroupID: *key.GroupID}, true
+	o, err := h.gateway.Caller(digitalteacher.Owner{UserID: key.UserID, KeyID: key.ID, GroupID: *key.GroupID}, c.GetHeader("X-WXM-Teacher-Caller"))
+	if teacherError(c, err) {
+		return digitalteacher.Owner{}, false
+	}
+	return o, true
 }
 func (h *DigitalTeacherHandler) Settings(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -166,7 +170,7 @@ func (h *DigitalTeacherHandler) Settings(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) Catalog(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -176,7 +180,7 @@ func (h *DigitalTeacherHandler) Catalog(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) Save(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -191,7 +195,7 @@ func (h *DigitalTeacherHandler) Save(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) Create(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -206,7 +210,7 @@ func (h *DigitalTeacherHandler) Create(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) StudioCreate(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -221,7 +225,7 @@ func (h *DigitalTeacherHandler) StudioCreate(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) StudioList(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -231,7 +235,7 @@ func (h *DigitalTeacherHandler) StudioList(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) StudioStop(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -241,7 +245,7 @@ func (h *DigitalTeacherHandler) StudioStop(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) List(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -251,7 +255,7 @@ func (h *DigitalTeacherHandler) List(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) Get(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}
@@ -261,7 +265,7 @@ func (h *DigitalTeacherHandler) Get(c *gin.Context) {
 	}
 }
 func (h *DigitalTeacherHandler) Stop(c *gin.Context) {
-	o, ok := teacherOwner(c)
+	o, ok := h.teacherOwner(c)
 	if !ok {
 		return
 	}

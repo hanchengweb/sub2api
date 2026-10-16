@@ -34,6 +34,9 @@ func (g *Gateway) session(ctx context.Context, id string) (*Session, error) {
 	return s, err
 }
 func (g *Gateway) List(ctx context.Context, o Owner) ([]*Session, error) {
+	if o.Scope != "" {
+		return []*Session{}, nil
+	}
 	rows, err := g.db.QueryContext(ctx, `SELECT `+sessionColumns+` FROM digital_teacher_sessions WHERE user_id=$1 AND api_key_id=$2 ORDER BY created_at DESC LIMIT 50`, o.UserID, o.KeyID)
 	if err != nil {
 		return nil, err

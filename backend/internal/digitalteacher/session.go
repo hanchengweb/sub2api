@@ -189,7 +189,7 @@ func (g *Gateway) SDKStart(ctx context.Context, s *Session) (json.RawMessage, er
 		return nil, internalError(err)
 	}
 	if fresh.StopRequested {
-		_, _ = g.Stop(work, Owner{s.UserID, s.KeyID, s.GroupID}, s.ID)
+		_, _ = g.Stop(work, Owner{UserID: s.UserID, KeyID: s.KeyID, GroupID: s.GroupID}, s.ID)
 		return nil, ErrConflict
 	}
 	started = true
@@ -436,6 +436,9 @@ func (g *Gateway) Settings(ctx context.Context, o Owner) (map[string]any, error)
 	if err != nil {
 		return nil, err
 	}
+	if o.Scope != "" {
+		minutes = map[string]any{"configured": false}
+	}
 	teachers, err := g.Teachers(ctx, o)
 	if err != nil {
 		return nil, err
@@ -449,7 +452,11 @@ func (g *Gateway) Settings(ctx context.Context, o Owner) (map[string]any, error)
 		model = "anam-cara-4"
 		p.SandboxEnabled = false
 	}
-	return map[string]any{"studioEvaluation": g.StudioEnabled(o), "configured": g.configuredForOwner(o) && p.Enabled && (p.PricePerMinute > 0 || minutes["configured"] == true), "teachers": teachers, "provider": g.providerForOwner(o), "model": model, "trialSeconds": map[bool]int{true: 90, false: 60}[g.providerForOwner(o) == "anam"], "plan": p, "minutes": minutes, "billing_unit": "minute", "billing_policy": "开始前预留所选时长的额度，结束后按供应商会话用量结算并释放余量；收费不超过开始前展示的上限。Simli 分钟按历史回执秒数折算，供应商账单金额另行核对"}, nil
+	policy := "开始前预留所选时长的额度，结束后按供应商会话用量结算并释放余量；收费不超过开始前展示的上限。"
+	if g.StudioEnabled(o) {
+		policy = "视频试用不扣积分或分钟；智能体模型和工具费用按原算力账户规则计算。"
+	}
+	return map[string]any{"poolEnabled": g.poolFor(o), "trialDailyLimit": 5, "studioEvaluation": g.StudioEnabled(o), "configured": g.callerEnabled(o) && g.configuredForOwner(o) && p.Enabled && (g.poolFor(o) || p.PricePerMinute > 0 || minutes["configured"] == true), "teachers": teachers, "provider": g.providerForOwner(o), "model": model, "trialSeconds": map[bool]int{true: 90, false: 60}[g.providerForOwner(o) == "anam"], "plan": p, "minutes": minutes, "billing_unit": "minute", "billing_policy": policy}, nil
 }
 func (g *Gateway) Plans(ctx context.Context) ([]Plan, error) {
 	rows, err := g.db.QueryContext(ctx, `SELECT group_id,enabled,sandbox_enabled,price_per_minute,max_minutes,version FROM digital_teacher_plans ORDER BY group_id`)
