@@ -146,6 +146,7 @@
 </template>
 
 <script setup lang="ts">
+import { desktopAuthorizationQuery, postRegistrationRoute } from '@/utils/desktopAuthorization'
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -554,7 +555,7 @@ async function handleVerify(): Promise<void> {
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))
 
     // Redirect to dashboard
-    await router.push(pendingRedirect.value || '/dashboard')
+    await router.push(postRegistrationRoute(router.currentRoute.value.query, pendingRedirect.value || '/dashboard'))
   } catch (error: unknown) {
     errorMessage.value = buildAuthErrorMessage(error, {
       fallback: t('auth.verifyFailed')
@@ -571,7 +572,7 @@ function handleBack(): void {
   sessionStorage.removeItem('register_data')
 
   // Go back to registration
-  router.push('/register')
+  router.push({ path: '/register', query: desktopAuthorizationQuery(router.currentRoute.value.query) })
 }
 
 function buildEmailSuffixNotAllowedMessage(): string {

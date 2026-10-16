@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +16,32 @@ import (
 const (
 	fengxingDesktopClientID    = "com.fengxingzhonghe.desktop"
 	fengxingDesktopRedirectURI = "fengxingzhonghe://auth/callback"
+	wxmDesktopClientID         = "com.weimozhixue.desktop"
+	wxmDesktopRedirectURI      = "weimozhixue://oauth/callback"
 )
+
+var wxmLoopbackRedirect = regexp.MustCompile(`^http://127\.0\.0\.1:([1-9][0-9]{3,4})/oauth/callback$`)
+var wxmState = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
+var wxmChallenge = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+var wxmVerifier = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
+
+func validDesktopRedirect(clientID, redirectURI string) bool {
+	switch clientID {
+	case fengxingDesktopClientID:
+		return redirectURI == fengxingDesktopRedirectURI
+	case wxmDesktopClientID:
+		if redirectURI == wxmDesktopRedirectURI {
+			return true
+		}
+		match := wxmLoopbackRedirect.FindStringSubmatch(redirectURI)
+		if match == nil {
+			return false
+		}
+		port, err := strconv.Atoi(match[1])
+		return err == nil && port >= 1024 && port <= 65535
+	}
+	return false
+}
 
 type desktopAuthorizationRequest struct {
 	ClientID            string `json:"client_id" binding:"required"`
@@ -38,17 +64,23 @@ type desktopTokenExchangeRequest struct {
 	CodeVerifier string `json:"code_verifier" binding:"required"`
 }
 
-func validFengxingDesktopAuthorizationRequest(req desktopAuthorizationRequest) bool {
-	return strings.TrimSpace(req.ClientID) == fengxingDesktopClientID &&
-		strings.TrimSpace(req.RedirectURI) == fengxingDesktopRedirectURI &&
+func validDesktopAuthorizationRequest(req desktopAuthorizationRequest) bool {
+	if strings.TrimSpace(req.ClientID) == wxmDesktopClientID &&
+		(!wxmState.MatchString(req.State) || !wxmChallenge.MatchString(req.CodeChallenge)) {
+		return false
+	}
+	return validDesktopRedirect(strings.TrimSpace(req.ClientID), strings.TrimSpace(req.RedirectURI)) &&
 		strings.TrimSpace(req.State) != "" &&
 		strings.TrimSpace(req.CodeChallenge) != "" &&
 		strings.TrimSpace(req.CodeChallengeMethod) == "S256"
 }
 
-func validFengxingDesktopTokenExchangeRequest(req desktopTokenExchangeRequest) bool {
-	return strings.TrimSpace(req.ClientID) == fengxingDesktopClientID &&
-		strings.TrimSpace(req.RedirectURI) == fengxingDesktopRedirectURI &&
+func validDesktopTokenExchangeRequest(req desktopTokenExchangeRequest) bool {
+	if strings.TrimSpace(req.ClientID) == wxmDesktopClientID &&
+		(!wxmState.MatchString(req.State) || !wxmVerifier.MatchString(req.CodeVerifier)) {
+		return false
+	}
+	return validDesktopRedirect(strings.TrimSpace(req.ClientID), strings.TrimSpace(req.RedirectURI)) &&
 		strings.TrimSpace(req.Code) != "" &&
 		strings.TrimSpace(req.State) != "" &&
 		strings.TrimSpace(req.CodeVerifier) != ""
@@ -58,7 +90,7 @@ func validFengxingDesktopTokenExchangeRequest(req desktopTokenExchangeRequest) b
 // POST /api/v1/auth/desktop/authorize
 func (h *AuthHandler) AuthorizeDesktop(c *gin.Context) {
 	var req desktopAuthorizationRequest
-	if err := c.ShouldBindJSON(&req); err != nil || !validFengxingDesktopAuthorizationRequest(req) {
+	if err := c.ShouldBindJSON(&req); err != nil || !validDesktopAuthorizationRequest(req) {
 		response.BadRequest(c, "Invalid desktop authorization request")
 		return
 	}
@@ -98,7 +130,7 @@ func (h *AuthHandler) AuthorizeDesktop(c *gin.Context) {
 		Intent: "login",
 		Identity: service.PendingAuthIdentityKey{
 			ProviderType:    "email",
-			ProviderKey:     fengxingDesktopClientID,
+			ProviderKey:     strings.TrimSpace(req.ClientID),
 			ProviderSubject: strconv.FormatInt(user.ID, 10),
 		},
 		TargetUserID:           &targetUserID,
@@ -106,8 +138,8 @@ func (h *AuthHandler) AuthorizeDesktop(c *gin.Context) {
 		UpstreamIdentityClaims: map[string]any{},
 		LocalFlowState: map[string]any{
 			"desktop_authorization": map[string]any{
-				"client_id":             fengxingDesktopClientID,
-				"redirect_uri":          fengxingDesktopRedirectURI,
+				"client_id":             strings.TrimSpace(req.ClientID),
+				"redirect_uri":          strings.TrimSpace(req.RedirectURI),
 				"state":                 state,
 				"code_challenge":        strings.TrimSpace(req.CodeChallenge),
 				"code_challenge_method": "S256",
@@ -141,7 +173,7 @@ func (h *AuthHandler) AuthorizeDesktop(c *gin.Context) {
 // POST /api/v1/auth/desktop/token
 func (h *AuthHandler) ExchangeDesktopAuthorizationCode(c *gin.Context) {
 	var req desktopTokenExchangeRequest
-	if err := c.ShouldBindJSON(&req); err != nil || !validFengxingDesktopTokenExchangeRequest(req) {
+	if err := c.ShouldBindJSON(&req); err != nil || !validDesktopTokenExchangeRequest(req) {
 		response.BadRequest(c, "Invalid desktop token request")
 		return
 	}

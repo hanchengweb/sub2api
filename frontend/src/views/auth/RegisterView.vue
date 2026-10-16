@@ -287,7 +287,7 @@
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.alreadyHaveAccount') }}
         <router-link
-          to="/login"
+          :to="{ path: '/login', query: desktopAuthorizationQuery(route.query) }"
           class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
         >
           {{ t('auth.signIn') }}
@@ -298,6 +298,7 @@
 </template>
 
 <script setup lang="ts">
+import { desktopAuthorizationQuery, postRegistrationRoute } from '@/utils/desktopAuthorization'
 import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -877,7 +878,7 @@ async function handleRegister(): Promise<void> {
       )
 
       // Navigate to email verification page
-      await router.push('/email-verify')
+      await router.push({ path: '/email-verify', query: desktopAuthorizationQuery(route.query) })
       return
     }
 
@@ -896,7 +897,7 @@ async function handleRegister(): Promise<void> {
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))
 
     // Redirect to dashboard
-    await router.push('/dashboard')
+    await router.push(postRegistrationRoute(route.query))
   } catch (error: unknown) {
     // Reset Turnstile on error
     if (turnstileRef.value) {
