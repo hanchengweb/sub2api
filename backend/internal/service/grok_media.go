@@ -203,6 +203,7 @@ func parseGrokMediaJSONRequest(body []byte, info *GrokMediaRequestInfo) {
 	appendJSONImageURLs(gjson.GetBytes(body, "image"))
 	appendJSONImageURLs(gjson.GetBytes(body, "images"))
 	appendJSONImageURLs(gjson.GetBytes(body, "reference_images"))
+	appendJSONImageURLs(gjson.GetBytes(body, "image_with_roles"))
 	info.MaskImageURL = grokMediaJSONImageURL(gjson.GetBytes(body, "mask"))
 }
 

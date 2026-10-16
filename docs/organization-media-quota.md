@@ -26,6 +26,10 @@ use a known model's fixed duration. Automatic duration, auto multi-image modes,
 batch generation, video edit/extension and native image tools on chat endpoints
 are rejected for configured organizations. WebSocket requests are rejected because
 later frames could enable unaccounted image tools; HTTP text chat is unchanged.
+
+Seedance 2, 2 Fast and 2 Mini accept `image_with_roles` for input frames on the
+video generation endpoint. This field is passed through unchanged; it does not
+relax the single-video, fixed-duration, quota reservation or replay restrictions.
 Seedream may set `metadata.resolution` and boolean `metadata.watermark`; the
 watermark flag does not change reserved image units. Other metadata keys, including
 automatic multi-image controls, remain rejected.

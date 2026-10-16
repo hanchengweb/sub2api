@@ -140,6 +140,9 @@ func (h *OpenAIGatewayHandler) OrganizationMediaQuotaMiddleware() gin.HandlerFun
 			// Count/duration aliases and automatic multi-output modes must not exceed
 			// the explicit reservation. Only the bounded generation contract is accepted.
 			allowed := map[string]bool{"model": true, "prompt": true, "n": true, "response_format": true, "size": true, "resolution": true, "quality": true, "output_format": true, "background": true, "moderation": true, "stream": true, "watermark": true, "metadata": true, "image": true, "image_urls": true, "reference_images": true, "mask": true, "duration": true, "aspect_ratio": true, "video_generation_mode": true, "seed": true}
+			// Seedance 2 encodes input frames with roles; this does not change output
+			// count or duration. Keep the existing single-video and fixed-second guards.
+			allowed["image_with_roles"] = kind == "video" && (model == "seedance-2" || model == "seedance-2-fast" || model == "seedance-2-mini")
 			validFields := true
 			gjson.ParseBytes(body).ForEach(func(k, v gjson.Result) bool {
 				if !allowed[k.String()] {
