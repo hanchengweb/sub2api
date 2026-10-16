@@ -57,6 +57,10 @@ type videoUpstreamLimit struct {
 // （grok-imagine-video 在 grok-video 前，seedance-2-fast / seedance-2-5 在 seedance-2 前），
 // 否则会被误匹配。toAPI 的默认值来自 toapis.com/model-guide/<模型> 的参数表（2026-09-27 核对）。
 var videoUpstreamLimits = []videoUpstreamLimit{
+	// Official Ark models use explicit, fixed gateway defaults. The adapter always
+	// sends duration=5 when omitted; Ark 2.5's native automatic default is not used.
+	{Prefix: "doubao-seedance-2-5-", MinSeconds: 4, MaxSeconds: 30, DefaultSeconds: 5, DefaultResolution: VideoBillingResolution720P},
+	{Prefix: "doubao-seedance-2-0-", MinSeconds: 4, MaxSeconds: 15, DefaultSeconds: 5, DefaultResolution: VideoBillingResolution720P},
 	// 直连 xAI。
 	{Prefix: "grok-imagine-video", MinSeconds: xaiVideoMinDurationSeconds, MaxSeconds: xaiVideoMaxDurationSeconds},
 	// toAPI grok-video-1.5，区间来自 2026-09-08 实测报错。
