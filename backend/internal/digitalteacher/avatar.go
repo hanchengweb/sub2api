@@ -57,14 +57,14 @@ func (g *Gateway) avatar(ctx context.Context, o Owner, id string) (AvatarJob, er
 	if !validUUID(id) {
 		return AvatarJob{}, ErrNotFound
 	}
-	return scanAvatar(g.db.QueryRowContext(ctx, `SELECT `+avatarColumns+` FROM digital_teacher_avatar_jobs WHERE user_id=$1 AND id=$2`, o.UserID, id))
+	return scanAvatar(g.db.QueryRowContext(ctx, `SELECT `+avatarColumns+` FROM digital_teacher_avatar_jobs WHERE user_id=$1 AND id=$2 AND caller_scope=$3`, o.UserID, id, o.Scope))
 }
 
 func (g *Gateway) AvatarJobs(ctx context.Context, o Owner) ([]AvatarJob, error) {
 	if _, err := g.requirePlan(ctx, o, false); err != nil {
 		return nil, err
 	}
-	rows, err := g.db.QueryContext(ctx, `SELECT `+avatarColumns+` FROM digital_teacher_avatar_jobs WHERE user_id=$1 AND (generation='cara-4')=$2 ORDER BY created_at DESC LIMIT 30`, o.UserID, g.providerForOwner(o) == "anam")
+	rows, err := g.db.QueryContext(ctx, `SELECT `+avatarColumns+` FROM digital_teacher_avatar_jobs WHERE user_id=$1 AND (generation='cara-4')=$2 AND caller_scope=$3 ORDER BY created_at DESC LIMIT 30`, o.UserID, g.providerForOwner(o) == "anam", o.Scope)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(734152901)`); err != nil {
 		return AvatarJob{}, err
 	}
-	existing, e := scanAvatar(tx.QueryRowContext(ctx, `SELECT `+avatarColumns+` FROM digital_teacher_avatar_jobs WHERE user_id=$1 AND request_id=$2`, o.UserID, requestID))
+	existing, e := scanAvatar(tx.QueryRowContext(ctx, `SELECT `+avatarColumns+` FROM digital_teacher_avatar_jobs WHERE user_id=$1 AND request_id=$2 AND caller_scope=$3`, o.UserID, requestID, o.Scope))
 	if e == nil {
 		if existing.digest != dg {
 			return AvatarJob{}, fail(409, "avatar_request_conflict", "本次提交内容已改变，请刷新制作记录")
@@ -197,20 +197,20 @@ func (g *Gateway) CreateAvatar(ctx context.Context, o Owner, requestID, name str
 	}
 	var busy bool
 	var count, today int
-	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM digital_teacher_avatar_jobs WHERE state IN ('submitting','pending','processing') OR (user_id=$1 AND state='unknown'))`, o.UserID).Scan(&busy); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM digital_teacher_avatar_jobs WHERE state IN ('submitting','pending','processing') OR (user_id=$1 AND caller_scope=$2 AND state='unknown'))`, o.UserID, o.Scope).Scan(&busy); err != nil {
 		return AvatarJob{}, err
 	}
 	if busy {
 		return AvatarJob{}, fail(409, "avatar_generation_busy", "已有形象正在制作或等待确认，请刷新制作记录后再提交")
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT count(*),count(*) FILTER(WHERE created_at>NOW()-interval '24 hours') FROM digital_teacher_avatar_jobs WHERE user_id=$1`, o.UserID).Scan(&count, &today); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT count(*),count(*) FILTER(WHERE created_at>NOW()-interval '24 hours') FROM digital_teacher_avatar_jobs WHERE user_id=$1 AND caller_scope=$2`, o.UserID, o.Scope).Scan(&count, &today); err != nil {
 		return AvatarJob{}, err
 	}
 	if count >= 30 || today >= 3 {
 		return AvatarJob{}, fail(429, "avatar_generation_limit", "本账户的形象制作次数已达到限额，请稍后再试")
 	}
 	id := uuid.NewString()
-	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_avatar_jobs(id,user_id,request_id,name,digest,preview,state,message,generation) VALUES($1,$2,$3,$4,$5,$6,'submitting','照片已提交，正在确认制作任务',$7)`, id, o.UserID, requestID, name, dg, preview, generation)
+	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_avatar_jobs(id,user_id,request_id,name,digest,preview,state,message,generation,caller_scope) VALUES($1,$2,$3,$4,$5,$6,'submitting','照片已提交，正在确认制作任务',$7,$8)`, id, o.UserID, requestID, name, dg, preview, generation, o.Scope)
 	if err != nil {
 		return AvatarJob{}, err
 	}
@@ -303,24 +303,25 @@ func (g *Gateway) reconcileAvatars(ctx context.Context) {
 	if g.provider != "simli" && g.anamKey == "" {
 		return
 	}
-	rows, err := g.db.QueryContext(ctx, `SELECT id::text,user_id FROM digital_teacher_avatar_jobs WHERE state IN ('submitting','pending','processing','unknown') AND (checked_at IS NULL OR checked_at<NOW()-interval '30 seconds') ORDER BY checked_at NULLS FIRST LIMIT 3`)
+	rows, err := g.db.QueryContext(ctx, `SELECT id::text,user_id,caller_scope FROM digital_teacher_avatar_jobs WHERE state IN ('submitting','pending','processing','unknown') AND (checked_at IS NULL OR checked_at<NOW()-interval '30 seconds') ORDER BY checked_at NULLS FIRST LIMIT 3`)
 	if err != nil {
 		return
 	}
 	type pending struct {
 		id     string
 		userID int64
+		scope  string
 	}
 	jobs := []pending{}
 	for rows.Next() {
 		var j pending
-		if rows.Scan(&j.id, &j.userID) == nil {
+		if rows.Scan(&j.id, &j.userID, &j.scope) == nil {
 			jobs = append(jobs, j)
 		}
 	}
 	rows.Close()
 	for _, j := range jobs {
-		_, _ = g.RefreshAvatar(ctx, Owner{UserID: j.userID}, j.id)
+		_, _ = g.RefreshAvatar(ctx, Owner{UserID: j.userID, Scope: j.scope}, j.id)
 	}
 }
 
@@ -409,7 +410,7 @@ func (g *Gateway) RefreshAvatar(ctx context.Context, o Owner, id string) (Avatar
 		return j, err
 	}
 	if phase == "ready" {
-		_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_assets(user_id,kind,asset_id,provider) VALUES($1,'avatar',$2,'simli') ON CONFLICT(user_id,kind,asset_id) DO UPDATE SET provider='simli'`, o.UserID, j.FaceID)
+		_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_assets(user_id,kind,asset_id,provider,caller_scope) VALUES($1,'avatar',$2,'simli',$3) ON CONFLICT(user_id,caller_scope,kind,asset_id) DO UPDATE SET provider='simli'`, o.UserID, j.FaceID, o.Scope)
 		if err != nil {
 			return j, err
 		}

@@ -46,7 +46,7 @@ type anamCatalogCache struct {
 }
 
 func (g *Gateway) providerForOwner(o Owner) string {
-	if g.anamUsers[o.UserID] {
+	if g.poolFor(o) || g.anamUsers[o.UserID] {
 		return "anam"
 	}
 	return g.provider
@@ -149,7 +149,7 @@ func (g *Gateway) anamCatalog(ctx context.Context, o Owner) (Catalog, error) {
 	av, vo, mo := c.avatars, c.voices, c.models
 	c.Unlock()
 	grants := map[string]bool{}
-	rows, e := g.db.QueryContext(ctx, `SELECT kind,asset_id::text FROM digital_teacher_assets WHERE user_id=$1 AND provider='anam'`, o.UserID)
+	rows, e := g.db.QueryContext(ctx, `SELECT kind,asset_id::text FROM digital_teacher_assets WHERE user_id=$1 AND caller_scope=$2 AND provider='anam'`, o.UserID, o.Scope)
 	if e != nil {
 		return out, e
 	}
@@ -300,8 +300,8 @@ func (g *Gateway) AnamSDK(ctx context.Context, token string) (json.RawMessage, e
 		return nil, ErrNotFound
 	}
 	var o Owner
-	e = g.db.QueryRowContext(ctx, `SELECT s.user_id,s.api_key_id,k.group_id FROM digital_teacher_studio_sessions s JOIN api_keys k ON k.id=s.api_key_id WHERE s.id=$1`, c.ID).Scan(&o.UserID, &o.KeyID, &o.GroupID)
-	if e != nil || g.providerForOwner(o) != "anam" || !g.configuredForOwner(o) {
+	e = g.db.QueryRowContext(ctx, `SELECT s.user_id,s.api_key_id,k.group_id,s.caller_scope FROM digital_teacher_studio_sessions s JOIN api_keys k ON k.id=s.api_key_id WHERE s.id=$1`, c.ID).Scan(&o.UserID, &o.KeyID, &o.GroupID, &o.Scope)
+	if e != nil || !g.callerEnabled(o) || g.providerForOwner(o) != "anam" || !g.configuredForOwner(o) {
 		return nil, ErrNotFound
 	}
 	var allowed bool
@@ -309,7 +309,7 @@ func (g *Gateway) AnamSDK(ctx context.Context, token string) (json.RawMessage, e
 		return nil, ErrNotFound
 	}
 	// Re-check the owning account/key/grant after issuance. No caller-supplied config.
-	s, e := scanStudio(g.db.QueryRowContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE id=$1 AND provider='anam' AND EXISTS(SELECT 1 FROM api_keys k JOIN users u ON u.id=k.user_id JOIN digital_teacher_plans p ON p.group_id=k.group_id WHERE k.id=api_key_id AND k.user_id=digital_teacher_studio_sessions.user_id AND k.status='active' AND k.deleted_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>NOW()) AND u.status='active' AND u.deleted_at IS NULL AND p.enabled)`, c.ID))
+	s, e := scanStudio(g.db.QueryRowContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE id=$1 AND provider='anam' AND EXISTS(SELECT 1 FROM api_keys k JOIN users u ON u.id=k.user_id LEFT JOIN digital_teacher_plans p ON p.group_id=k.group_id WHERE k.id=api_key_id AND k.user_id=digital_teacher_studio_sessions.user_id AND k.status='active' AND k.deleted_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>NOW()) AND u.status='active' AND u.deleted_at IS NULL AND COALESCE(p.enabled,$2))`, c.ID, g.poolFor(o)))
 	if e != nil || s.Phase != "ready" || s.ClosedAt != nil || !g.now().Before(s.Deadline) {
 		return nil, ErrNotFound
 	}

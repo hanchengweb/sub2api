@@ -112,7 +112,7 @@ func (g *Gateway) refreshAnamAvatar(ctx context.Context, o Owner, j AvatarJob) (
 		return j, e
 	}
 	if state == "ready" {
-		_, e = tx.ExecContext(ctx, `INSERT INTO digital_teacher_assets(user_id,kind,asset_id,provider) VALUES($1,'avatar',$2,'anam') ON CONFLICT(user_id,kind,asset_id) DO UPDATE SET provider='anam'`, o.UserID, face)
+		_, e = tx.ExecContext(ctx, `INSERT INTO digital_teacher_assets(user_id,kind,asset_id,provider,caller_scope) VALUES($1,'avatar',$2,'anam',$3) ON CONFLICT(user_id,caller_scope,kind,asset_id) DO UPDATE SET provider='anam'`, o.UserID, face, o.Scope)
 		if e != nil {
 			return j, e
 		}

@@ -41,7 +41,10 @@ func fail(status int, code, message string) error {
 var ErrNotFound = &Error{Status: 404, Code: "digital_teacher_not_found", Message: "未找到当前账户的数字老师或会话"}
 var ErrConflict = &Error{Status: 409, Code: "digital_teacher_pending", Message: "已有会话正在处理，请先查看或结束原会话"}
 
-type Owner struct{ UserID, KeyID, GroupID int64 }
+type Owner struct {
+	UserID, KeyID, GroupID int64
+	Scope                  string
+}
 type Plan struct {
 	GroupID        int64   `json:"group_id"`
 	Enabled        bool    `json:"enabled"`
@@ -127,6 +130,9 @@ type Options struct {
 	SimliAPIKey, Provider string
 	StudioUsers           string
 	AnamAPIKey, AnamUsers string
+	AnamPool              bool
+	AnamPoolGroups        string
+	OrganizationKeys      string
 	Invalidate            func(context.Context, int64, int64)
 }
 type Gateway struct {
@@ -141,6 +147,9 @@ type Gateway struct {
 	voiceCache       studioVoiceCache
 	anamKey, anamURL string
 	anamUsers        map[int64]bool
+	anamPool         bool
+	anamPoolGroups   map[int64]bool
+	organizationKeys map[int64]bool
 	anamCache        anamCatalogCache
 	secret           []byte
 	box              cipher.AEAD
@@ -170,7 +179,7 @@ func New(db *sql.DB, o Options) (*Gateway, error) {
 	if provider != "liveavatar" && provider != "simli" {
 		return nil, errors.New("invalid digital teacher provider")
 	}
-	return &Gateway{anamKey: strings.TrimSpace(o.AnamAPIKey), anamURL: "https://api.anam.ai", anamUsers: parseStudioUsers(o.AnamUsers), db: db, key: strings.TrimSpace(o.APIKey), simliKey: strings.TrimSpace(o.SimliAPIKey), provider: provider, simliURL: "https://api.simli.ai", simliWSURL: "wss://api.simli.ai", elevenURL: "https://api.elevenlabs.io", studioUsers: parseStudioUsers(o.StudioUsers), secret: sum[:], box: box, upstream: "https://api.liveavatar.com", client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, invalidate: o.Invalidate, now: time.Now}, nil
+	return &Gateway{anamPool: o.AnamPool, anamPoolGroups: parseStudioUsers(o.AnamPoolGroups), organizationKeys: parseStudioUsers(o.OrganizationKeys), anamKey: strings.TrimSpace(o.AnamAPIKey), anamURL: "https://api.anam.ai", anamUsers: parseStudioUsers(o.AnamUsers), db: db, key: strings.TrimSpace(o.APIKey), simliKey: strings.TrimSpace(o.SimliAPIKey), provider: provider, simliURL: "https://api.simli.ai", simliWSURL: "wss://api.simli.ai", elevenURL: "https://api.elevenlabs.io", studioUsers: parseStudioUsers(o.StudioUsers), secret: sum[:], box: box, upstream: "https://api.liveavatar.com", client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, invalidate: o.Invalidate, now: time.Now}, nil
 }
 func (g *Gateway) Configured() bool {
 	return g != nil && (g.provider == "simli" && g.simliKey != "" || g.provider == "liveavatar" && g.key != "")
@@ -249,7 +258,7 @@ func (g *Gateway) changed(ctx context.Context, s *Session) {
 	}
 }
 func (g *Gateway) Plan(ctx context.Context, id int64) (Plan, error) {
-	p := Plan{GroupID: id, MaxMinutes: 2}
+	p := Plan{GroupID: id, MaxMinutes: 2, Enabled: g.anamPool && g.anamPoolGroups[id]}
 	err := g.db.QueryRowContext(ctx, `SELECT enabled,sandbox_enabled,price_per_minute,max_minutes,version FROM digital_teacher_plans WHERE group_id=$1`, id).Scan(&p.Enabled, &p.SandboxEnabled, &p.PricePerMinute, &p.MaxMinutes, &p.Version)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, nil
@@ -257,6 +266,9 @@ func (g *Gateway) Plan(ctx context.Context, id int64) (Plan, error) {
 	return p, err
 }
 func (g *Gateway) requirePlan(ctx context.Context, o Owner, sandbox bool) (Plan, error) {
+	if !g.callerEnabled(o) {
+		return Plan{}, ErrNotFound
+	}
 	p, err := g.Plan(ctx, o.GroupID)
 	if err != nil {
 		return p, err
@@ -292,6 +304,9 @@ func (g *Gateway) Health() map[string]any {
 }
 func positive(v float64) bool { return v > 0 && v < 1e12 }
 func (g *Gateway) owned(ctx context.Context, o Owner, id string) (*Session, error) {
+	if o.Scope != "" {
+		return nil, ErrNotFound
+	}
 	s, err := g.session(ctx, id)
 	if err != nil || s.UserID != o.UserID || s.KeyID != o.KeyID {
 		return nil, ErrNotFound

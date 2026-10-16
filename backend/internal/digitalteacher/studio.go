@@ -148,14 +148,14 @@ func (g *Gateway) expireStudio(ctx context.Context, o Owner) error {
 	// admission closed for startup/timeout uncertainty (150s for an unknown
 	// result, or 105s after a room is returned).
 	// This closes our evaluation record; it does not invent supplier usage.
-	_, err := g.db.ExecContext(ctx, `UPDATE digital_teacher_studio_sessions SET phase='closed',closed_at=NOW(),room_sealed=NULL WHERE user_id=$1 AND provider='simli' AND closed_at IS NULL AND deadline<NOW()`, o.UserID)
+	_, err := g.db.ExecContext(ctx, `UPDATE digital_teacher_studio_sessions SET phase='closed',closed_at=NOW(),room_sealed=NULL WHERE user_id=$1 AND caller_scope=$2 AND provider='simli' AND closed_at IS NULL AND deadline<NOW()`, o.UserID, o.Scope)
 	return err
 }
 func (g *Gateway) StudioList(ctx context.Context, o Owner) ([]StudioSession, error) {
 	if err := g.expireStudio(ctx, o); err != nil {
 		return nil, err
 	}
-	rows, err := g.db.QueryContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE user_id=$1 AND api_key_id=$2 ORDER BY created_at DESC LIMIT 20`, o.UserID, o.KeyID)
+	rows, err := g.db.QueryContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE user_id=$1 AND api_key_id=$2 AND caller_scope=$3 ORDER BY created_at DESC LIMIT 20`, o.UserID, o.KeyID, o.Scope)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func (g *Gateway) StudioStop(ctx context.Context, o Owner, id string) (map[strin
 	if err := g.expireStudio(ctx, o); err != nil {
 		return nil, err
 	}
-	s, err := scanStudio(g.db.QueryRowContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE user_id=$1 AND api_key_id=$2 AND id=$3`, o.UserID, o.KeyID, id))
+	s, err := scanStudio(g.db.QueryRowContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE user_id=$1 AND api_key_id=$2 AND id=$3 AND caller_scope=$4`, o.UserID, o.KeyID, id, o.Scope))
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +194,7 @@ func (g *Gateway) StudioStop(ctx context.Context, o Owner, id string) (map[strin
 				return nil, err
 			}
 		}
-		return map[string]any{"stopped": s.ClosedAt != nil, "settlement_pending": s.ClosedAt == nil, "evaluation": true, "duration_seconds": s.Duration, "message": "本次试用不扣 WindHub 积分或分钟；结束状态以 Anam 回执为准"}, nil
+		return map[string]any{"stopped": s.ClosedAt != nil, "settlement_pending": s.ClosedAt == nil, "evaluation": true, "duration_seconds": s.Duration, "message": "本次试用不扣视频积分或分钟；结束状态以 Anam 回执为准"}, nil
 	}
 	if s.ClosedAt == nil {
 		_, err = g.db.ExecContext(ctx, `UPDATE digital_teacher_studio_sessions SET phase='closing',room_sealed=NULL WHERE id=$1 AND closed_at IS NULL`, s.ID)
@@ -231,7 +231,7 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 		return nil, err
 	}
 	if req.Sandbox || req.Minutes > 1 || req.Minutes < 0 || !validUUID(req.RequestID) {
-		return nil, fail(400, "studio_request_invalid", "完整效果试用每次最长 60 秒")
+		return nil, fail(400, "studio_request_invalid", "完整效果试用时长参数无效")
 	}
 	_, teacher, err := g.teacher(ctx, o, req.TeacherID)
 	if err != nil {
@@ -292,11 +292,11 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM digital_teacher_minutes WHERE user_id=$1 AND granted>0)`, o.UserID).Scan(&granted); err != nil {
 		return nil, err
 	}
-	if !granted {
+	if !granted && !g.poolFor(o) {
 		return nil, fail(403, "studio_grant_required", "当前账户尚未开通数字老师")
 	}
 	dg := digest(teacher)
-	old, e := scanStudio(tx.QueryRowContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE user_id=$1 AND api_key_id=$2 AND request_id=$3`, o.UserID, o.KeyID, req.RequestID))
+	old, e := scanStudio(tx.QueryRowContext(ctx, `SELECT `+studioColumns+` FROM digital_teacher_studio_sessions WHERE user_id=$1 AND api_key_id=$2 AND request_id=$3 AND caller_scope=$4`, o.UserID, o.KeyID, req.RequestID, o.Scope))
 	if e == nil {
 		if old.digest != dg || old.Provider != g.providerForOwner(o) {
 			return nil, ErrConflict
@@ -306,20 +306,20 @@ func (g *Gateway) StudioCreate(ctx context.Context, o Owner, req StartRequest) (
 	if !errors.Is(e, ErrNotFound) {
 		return nil, e
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM digital_teacher_sessions WHERE user_id=$1 AND settled_at IS NULL UNION ALL SELECT 1 FROM digital_teacher_studio_sessions WHERE user_id=$1 AND closed_at IS NULL)`, o.UserID).Scan(&active); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM digital_teacher_sessions WHERE user_id=$1 AND $2='' AND settled_at IS NULL UNION ALL SELECT 1 FROM digital_teacher_studio_sessions WHERE user_id=$1 AND caller_scope=$2 AND closed_at IS NULL)`, o.UserID, o.Scope).Scan(&active); err != nil {
 		return nil, err
 	}
 	if active {
 		return nil, ErrConflict
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM digital_teacher_studio_sessions WHERE user_id=$1 AND provider=$2 AND created_at>NOW()-interval '24 hours'`, o.UserID, g.providerForOwner(o)).Scan(&count); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM digital_teacher_studio_sessions WHERE user_id=$1 AND provider=$2 AND caller_scope=$3 AND created_at>NOW()-interval '24 hours'`, o.UserID, g.providerForOwner(o), o.Scope).Scan(&count); err != nil {
 		return nil, err
 	}
 	if count >= 5 {
 		return nil, fail(429, "studio_trial_limit", "该服务近 24 小时已使用 5 次完整效果试用，请稍后再试")
 	}
 	id := uuid.NewString()
-	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_studio_sessions(id,user_id,api_key_id,request_id,digest,deadline,provider) VALUES($1,$2,$3,$4,$5,NOW()+interval '150 seconds',$6)`, id, o.UserID, o.KeyID, req.RequestID, dg, g.providerForOwner(o))
+	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teacher_studio_sessions(id,user_id,api_key_id,request_id,digest,deadline,provider,caller_scope) VALUES($1,$2,$3,$4,$5,NOW()+interval '150 seconds',$6,$7)`, id, o.UserID, o.KeyID, req.RequestID, dg, g.providerForOwner(o), o.Scope)
 	if err != nil {
 		return nil, err
 	}

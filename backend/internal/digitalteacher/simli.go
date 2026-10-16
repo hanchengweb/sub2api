@@ -109,7 +109,7 @@ func (g *Gateway) simliCatalog(ctx context.Context, o Owner) (Catalog, error) {
 			out.Avatars = append(out.Avatars, map[string]any{"id": j.FaceID, "name": j.Name, "ready": true, "custom": true, "voiceId": SimliVoice, "previewUrl": j.Preview})
 		}
 	}
-	rows, err := g.db.QueryContext(ctx, `SELECT asset_id::text FROM digital_teacher_assets WHERE user_id=$1 AND provider='simli' AND kind='avatar'`, o.UserID)
+	rows, err := g.db.QueryContext(ctx, `SELECT asset_id::text FROM digital_teacher_assets WHERE user_id=$1 AND caller_scope=$2 AND provider='simli' AND kind='avatar'`, o.UserID, o.Scope)
 	if err != nil {
 		return out, err
 	}
@@ -166,7 +166,7 @@ func (g *Gateway) bindSimliAsset(ctx context.Context, userID int64, kind, id str
 	if !found {
 		return fail(404, "simli_face_missing", "尚未在 Simli 账号中找到此形象，请先完成制作")
 	}
-	_, err = g.db.ExecContext(ctx, `INSERT INTO digital_teacher_assets(user_id,kind,asset_id,provider) VALUES($1,'avatar',$2,'simli') ON CONFLICT(user_id,kind,asset_id) DO UPDATE SET provider='simli'`, userID, id)
+	_, err = g.db.ExecContext(ctx, `INSERT INTO digital_teacher_assets(user_id,kind,asset_id,provider) VALUES($1,'avatar',$2,'simli') ON CONFLICT(user_id,caller_scope,kind,asset_id) DO UPDATE SET provider='simli'`, userID, id)
 	return err
 }
 
@@ -174,7 +174,7 @@ func (g *Gateway) createSimli(ctx context.Context, s *Session, t Teacher) (Ticke
 	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	// Recheck the assigned face before consuming supplier resources.
-	catalog, err := g.simliCatalog(work, Owner{s.UserID, s.KeyID, s.GroupID})
+	catalog, err := g.simliCatalog(work, Owner{UserID: s.UserID, KeyID: s.KeyID, GroupID: s.GroupID})
 	found := false
 	for _, a := range catalog.Avatars {
 		if a["id"] == t.AvatarID && a["ready"] == true {

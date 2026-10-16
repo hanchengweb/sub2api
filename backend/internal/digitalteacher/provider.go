@@ -75,7 +75,7 @@ type Catalog struct {
 }
 
 func (g *Gateway) Teachers(ctx context.Context, o Owner) ([]Teacher, error) {
-	rows, err := g.db.QueryContext(ctx, `SELECT config FROM digital_teachers WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 30`, o.UserID)
+	rows, err := g.db.QueryContext(ctx, `SELECT config FROM digital_teachers WHERE user_id=$1 AND caller_scope=$2 ORDER BY updated_at DESC LIMIT 30`, o.UserID, o.Scope)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (g *Gateway) Catalog(ctx context.Context, o Owner) (Catalog, error) {
 		return out, internalError(err)
 	}
 	custom := map[string]bool{}
-	rows, err := g.db.QueryContext(ctx, `SELECT kind,asset_id::text FROM digital_teacher_assets WHERE user_id=$1 AND provider='liveavatar'`, o.UserID)
+	rows, err := g.db.QueryContext(ctx, `SELECT kind,asset_id::text FROM digital_teacher_assets WHERE user_id=$1 AND caller_scope=$2 AND provider='liveavatar'`, o.UserID, o.Scope)
 	if err != nil {
 		return out, err
 	}
@@ -243,20 +243,20 @@ func (g *Gateway) SaveTeacher(ctx context.Context, o Owner, t Teacher) (Teacher,
 		return t, err
 	}
 	var busy bool
-	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM digital_teacher_sessions WHERE user_id=$1 AND settled_at IS NULL) OR EXISTS(SELECT 1 FROM digital_teachers WHERE user_id=$1 AND client_id=$2 AND context_pending)`, o.UserID, t.ID).Scan(&busy); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM digital_teacher_sessions WHERE user_id=$1 AND $3='' AND settled_at IS NULL) OR EXISTS(SELECT 1 FROM digital_teachers WHERE user_id=$1 AND caller_scope=$3 AND client_id=$2 AND context_pending)`, o.UserID, t.ID, o.Scope).Scan(&busy); err != nil {
 		return t, err
 	}
 	if busy {
 		return t, ErrConflict
 	}
 	var count int
-	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM digital_teachers WHERE user_id=$1 AND client_id<>$2`, o.UserID, t.ID).Scan(&count); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM digital_teachers WHERE user_id=$1 AND caller_scope=$3 AND client_id<>$2`, o.UserID, t.ID, o.Scope).Scan(&count); err != nil {
 		return t, err
 	}
 	if count >= 30 {
 		return t, fail(400, "too_many_teachers", "每个账户最多保存 30 位老师")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teachers(id,user_id,client_id,config) VALUES(gen_random_uuid(),$1,$2,$3) ON CONFLICT(user_id,client_id) DO UPDATE SET config=EXCLUDED.config,updated_at=NOW()`, o.UserID, t.ID, data)
+	_, err = tx.ExecContext(ctx, `INSERT INTO digital_teachers(id,user_id,client_id,config,caller_scope) VALUES(gen_random_uuid(),$1,$2,$3,$4) ON CONFLICT(user_id,caller_scope,client_id) DO UPDATE SET config=EXCLUDED.config,updated_at=NOW()`, o.UserID, t.ID, data, o.Scope)
 	if err != nil {
 		return t, err
 	}
@@ -266,7 +266,7 @@ func (g *Gateway) teacher(ctx context.Context, o Owner, id string) (string, Teac
 	var serverID string
 	var data []byte
 	var t Teacher
-	err := g.db.QueryRowContext(ctx, `SELECT id::text,config FROM digital_teachers WHERE user_id=$1 AND client_id=$2`, o.UserID, id).Scan(&serverID, &data)
+	err := g.db.QueryRowContext(ctx, `SELECT id::text,config FROM digital_teachers WHERE user_id=$1 AND caller_scope=$3 AND client_id=$2`, o.UserID, id, o.Scope).Scan(&serverID, &data)
 	if err != nil {
 		return "", t, ErrNotFound
 	}
