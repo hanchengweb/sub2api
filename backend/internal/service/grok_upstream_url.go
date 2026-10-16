@@ -94,6 +94,9 @@ func buildGrokBillingURL(account *Account, cfg *config.Config, weekly bool) (str
 }
 
 func buildGrokMediaURL(account *Account, cfg *config.Config, endpoint GrokMediaEndpoint, requestID string) (string, error) {
+	if account.IsArkVideoAccount() {
+		return buildArkVideoURL(account, cfg, endpoint, requestID)
+	}
 	validator, err := grokBaseURLValidator(account, cfg)
 	if err != nil {
 		return "", err

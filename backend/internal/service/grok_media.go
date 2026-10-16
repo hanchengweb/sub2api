@@ -359,6 +359,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if account == nil {
 		return nil, fmt.Errorf("grok account is required")
 	}
+	if account.IsArkVideoAccount() {
+		return s.forwardArkVideo(ctx, c, account, endpoint, requestID, body, contentType)
+	}
 	if account.Platform != PlatformGrok {
 		return nil, fmt.Errorf("account platform %s is not supported for grok media", account.Platform)
 	}
@@ -545,6 +548,9 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 	}
 
 	contentURL, err := grokMediaSignedVideoContentURL(statusBody, requestID)
+	if account.IsArkVideoAccount() {
+		contentURL, err = arkVideoContentURL(statusBody)
+	}
 	if err != nil {
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		return nil, err
@@ -873,6 +879,18 @@ func (s *OpenAIGatewayService) handleGrokMediaErrorResponse(
 	requestedModel string,
 ) (*OpenAIForwardResult, error) {
 	body := s.readUpstreamErrorBody(resp)
+	if account.IsArkVideoAccount() {
+		// Ark model activation/entitlement failures are scoped to video. Do not
+		// apply Grok's account-wide quarantine to the shared official image key.
+		message := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+		if message == "" {
+			message = fmt.Sprintf("Ark upstream returned status %d", resp.StatusCode)
+		}
+		setOpsUpstreamError(c, resp.StatusCode, message, "")
+		MarkResponseCommitted(c)
+		writeGrokMediaErrorResponse(c, resp.StatusCode, grokMediaErrorType(resp.StatusCode), message)
+		return nil, fmt.Errorf("Ark video request failed: %d %s", resp.StatusCode, message)
+	}
 	// Reconcile readiness before configurable passthrough branches can return;
 	// otherwise a Grok 429 can remain schedulable.
 	if !s.cooldownGrokMediaModel(ctx, account, requestedModel, resp.StatusCode, body) {

@@ -257,8 +257,8 @@ func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *
 	}
 }
 
-func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+func TestGatewayRoutesUnsupportedVideosAreRejectedAtPlatformGate(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformAnthropic)
 
 	for _, tc := range []struct {
 		method string
@@ -283,6 +283,27 @@ func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 		router.ServeHTTP(w, req)
 		require.Equal(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
 		require.Contains(t, w.Body.String(), "Videos API is not supported for this platform")
+	}
+}
+
+func TestGatewayRoutesOpenAIVideoUsesOfficialMediaAccountGate(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+	for _, path := range []string{"/v1/videos/generations", "/videos/generations", "/v1/videos/cgt-test", "/videos/cgt-test/content"} {
+		method := http.MethodGet
+		if strings.HasSuffix(path, "generations") {
+			method = http.MethodPost
+		}
+		req := httptest.NewRequest(method, path, strings.NewReader(`{"model":"doubao-seedance-2-5-260628","prompt":"waves"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, path)
+		require.NotContains(t, w.Body.String(), "not supported for this platform")
+	}
+	for _, path := range []string{"/v1/videos/edits", "/v1/videos/extensions"} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`)))
+		require.Equal(t, http.StatusNotFound, w.Code, path)
 	}
 }
 

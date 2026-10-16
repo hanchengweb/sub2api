@@ -66,6 +66,36 @@ Never drop quota data during rollback. Production grants are not created by test
 
 ## Verification
 
+### Official Ark video routing
+
+OpenAI groups may use the video generation and owner-bound status/content
+endpoints with an API-key account whose base URL is exactly the official Ark
+HTTPS endpoint (`https://ark.cn-beijing.volces.com/api/v3`). The scheduler excludes
+reseller accounts even if their model mappings contain the same model ID. Keep
+official model IDs in the dedicated group's published catalogue and allowlist;
+do not repurpose an existing shared/composite group to label it official.
+
+The gateway translates `prompt`, optional first-frame `image`, `aspect_ratio`,
+`resolution` and fixed integer `duration` to Ark's native task API. It sends an
+explicit 5-second/720p default; Seedance 2.0 accepts 4–15 seconds and 2.5 accepts
+4–30 seconds. Automatic duration, prompt parameter flags, native `content`, frame
+counts, edits and extensions are rejected by this bounded contract. Seedance 2.5
+first-frame generation uses the input image's ratio (`adaptive`).
+
+Polling stays on the original account and API-key owner. Confirmed Ark expiry is
+reported as terminal failure for the existing refund/quantity settlement flow.
+Downloads use the documented Ark content-storage host, without forwarding the
+upstream API key to storage. A video-model entitlement error does not quarantine
+the same account's image models. Provider activation and actual generation still
+need separate operational verification; listing a model alone does not prove them.
+
+Provider contract: [create task](https://docs.volcengine.com/docs/ark/create-video-generation-task-api?lang=zh),
+[query task](https://docs.volcengine.com/docs/ark/get-video-generation-task-api?lang=zh).
+
+`go test -tags unit ./internal/service -run TestSeedanceArk` covers official host
+selection, reseller exclusion, native request translation, bounded durations,
+polling, refunds, owner isolation and credential-free content downloads.
+
 `go test ./internal/handler ./internal/handler/admin ./internal/server/routes`
 and `go test ./internal/service -run TestMediaQuotaVideoUnits`.
 Repository tests require explicit `MEDIA_QUOTA_TEST_DSN` pointing to a disposable

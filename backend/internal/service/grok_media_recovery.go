@@ -58,7 +58,7 @@ func (s *OpenAIGatewayService) SelectGrokMediaVideoLookupAccount(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	if account == nil || account.Platform != PlatformGrok || !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+	if account == nil || (account.Platform != PlatformGrok && !account.IsArkVideoAccount()) || !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
 		return nil, ErrGrokVideoBindingNotFound
 	}
 	lookup := *account

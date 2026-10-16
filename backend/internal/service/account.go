@@ -95,6 +95,8 @@ const (
 	// entitlement probe was forbidden. Video status lookups intentionally do not
 	// require this capability so already-submitted requests remain queryable.
 	OpenAIEndpointCapabilityGrokMediaGeneration OpenAIEndpointCapability = "grok_media_generation"
+	// Official Ark video tasks must never fall back to an OpenAI-compatible reseller.
+	OpenAIEndpointCapabilityArkVideo OpenAIEndpointCapability = "ark_video"
 	// OpenAIEndpointCapabilityResponses 表示上游确实提供 /v1/responses 端点。
 	// 与其他能力不同：支持状态来自 accounts.extra 的自动探测标记
 	// （openai_responses_supported / openai_responses_mode），而非
@@ -1435,6 +1437,8 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		}
 	}
 	switch capability {
+	case OpenAIEndpointCapabilityArkVideo:
+		return a.IsArkVideoAccount()
 	case OpenAIEndpointCapabilityChatCompletions:
 	case OpenAIEndpointCapabilityLive:
 		return a.Platform == PlatformOpenAI &&
