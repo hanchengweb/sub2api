@@ -167,6 +167,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		c.Request = c.Request.WithContext(ctx)
 		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
 		rechargeRequest := isDesktopRechargeRequest(c.Request.Method, c.FullPath())
+		driveRequest := isDesktopDriveRequest(c.Request.Method, c.FullPath())
 		// Media task polling only reads data that already belongs to the
 		// authenticated key and must remain available after the completed
 		// generation consumes the key's remaining balance.
@@ -176,7 +177,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 		mediaRead := videoRead || c.Request.Method == http.MethodGet && c.FullPath() == "/v1/organization/media-quota"
-		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || rechargeRequest || mediaRead || isSpeechRequest(c.Request.Method, c.FullPath()) || isDigitalTeacherRequest(c.Request.Method, c.FullPath()) || isImageTaskRead(c.Request.Method, c.Request.URL.Path)
+		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || rechargeRequest || driveRequest || mediaRead || isSpeechRequest(c.Request.Method, c.FullPath()) || isDigitalTeacherRequest(c.Request.Method, c.FullPath()) || isImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
@@ -188,7 +189,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			})
 			c.Set(string(ContextKeyUserRole), apiKey.User.Role)
 			setGroupContext(c, apiKey.Group)
-			if !billingInfoRequest && !rechargeRequest {
+			if !billingInfoRequest && !rechargeRequest && !driveRequest {
 				_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 			}
 			c.Next()
@@ -201,7 +202,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 
 		// 倍率自省不需要订阅数据；/v1/usage 仍保留原有订阅读取行为。
-		if isSubscriptionType && subscriptionService != nil && !billingInfoRequest && !rechargeRequest {
+		if isSubscriptionType && subscriptionService != nil && !billingInfoRequest && !rechargeRequest && !driveRequest {
 			sub, subErr := subscriptionService.GetActiveSubscription(
 				c.Request.Context(),
 				apiKey.User.ID,
@@ -286,7 +287,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		})
 		c.Set(string(ContextKeyUserRole), apiKey.User.Role)
 		setGroupContext(c, apiKey.Group)
-		if !billingInfoRequest && !rechargeRequest {
+		if !billingInfoRequest && !rechargeRequest && !driveRequest {
 			_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 		}
 
@@ -299,6 +300,22 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 func isDesktopRechargeRequest(method, route string) bool {
 	return method == "GET" && (route == "/v1/desktop/recharge/checkout" || route == "/v1/desktop/recharge/orders/:request_id") ||
 		method == "POST" && (route == "/v1/desktop/recharge/orders" || route == "/v1/desktop/recharge/orders/:request_id/cancel")
+}
+
+// Only registered personal-drive operations bypass model billing. The handler
+// still validates key expiry, personal ownership and the ordinary personal group.
+func isDesktopDriveRequest(method, route string) bool {
+	const base = "/v1/desktop/drive"
+	switch method {
+	case http.MethodGet:
+		return route == base || route == base+"/:resource_id" || route == base+"/:resource_id/items/:item_id" || route == base+"/:resource_id/items/:item_id/original"
+	case http.MethodPost:
+		return route == base || route == base+"/:resource_id/folders" || route == base+"/:resource_id/upload"
+	case http.MethodPatch, http.MethodDelete:
+		return route == base+"/:resource_id" || route == base+"/:resource_id/items/:item_id"
+	default:
+		return false
+	}
 }
 
 // Free synthesis has its own account budget in SpeechHandler. Authentication,
