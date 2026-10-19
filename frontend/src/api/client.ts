@@ -13,6 +13,7 @@ import {
   shouldMarkUserUIRequest,
 } from './adminUIRequest'
 import { getAPIBaseURL } from './url'
+import { desktopAuthLoginURL } from '@/utils/desktopAuthBranding'
 export { buildApiUrl, buildGatewayUrl } from './url'
 
 // ==================== Axios Instance Configuration ====================
@@ -267,7 +268,7 @@ apiClient.interceptors.response.use(
             sessionStorage.setItem('auth_expired', '1')
 
             if (!window.location.pathname.includes('/login')) {
-              window.location.href = '/login'
+              window.location.href = desktopAuthLoginURL(window.location.href)
             }
 
             return Promise.reject({
@@ -298,7 +299,7 @@ apiClient.interceptors.response.use(
         }
         // Only redirect if not already on login page
         if (!window.location.pathname.includes('/login')) {
-          window.location.href = '/login'
+          window.location.href = desktopAuthLoginURL(window.location.href)
         }
       }
 

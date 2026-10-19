@@ -22,7 +22,7 @@
           <template v-for="(doc, index) in documents" :key="doc.id || doc.title">
             <RouterLink
               :to="documentRoute(doc)"
-              target="_blank"
+              :target="authBrand ? undefined : '_blank'"
               rel="noopener noreferrer"
               class="font-medium text-primary-600 underline-offset-4 transition hover:text-primary-700 hover:underline dark:text-primary-300 dark:hover:text-primary-200"
             >
@@ -101,7 +101,7 @@
                 v-for="(doc, index) in documents"
                 :key="doc.id || doc.title"
                 :to="documentRoute(doc)"
-                target="_blank"
+                :target="authBrand ? undefined : '_blank'"
                 rel="noopener noreferrer"
                 class="group flex min-h-[72px] w-full items-center gap-3 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-3 text-left transition hover:-translate-y-0.5 hover:border-primary-200 hover:bg-white hover:shadow-sm dark:border-dark-700 dark:bg-dark-800/70 dark:hover:border-primary-500/30 dark:hover:bg-dark-800"
               >
@@ -144,11 +144,16 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { desktopAuthorizationQuery } from '@/utils/desktopAuthorization'
+import { desktopAuthBrand } from '@/utils/desktopAuthBranding'
 import Icon from '@/components/icons/Icon.vue'
 import type { LoginAgreementDocument } from '@/types'
 
 const { t } = useI18n()
+const route = useRoute()
+const authBrand = computed(() => desktopAuthBrand(route))
 
 const props = withDefaults(defineProps<{
   accepted: boolean
@@ -178,6 +183,7 @@ function documentRoute(doc: LoginAgreementDocument) {
     params: {
       documentId: doc.id || doc.title,
     },
+    ...(authBrand.value ? { query: desktopAuthorizationQuery(route.query) } : {}),
   }
 }
 

@@ -299,6 +299,7 @@
 
 <script setup lang="ts">
 import { desktopAuthorizationQuery, postRegistrationRoute } from '@/utils/desktopAuthorization'
+import { desktopAuthBrand, desktopAuthMessage } from '@/utils/desktopAuthBranding'
 import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -354,7 +355,8 @@ const promoCodeEnabled = ref<boolean>(true)
 const invitationCodeEnabled = ref<boolean>(false)
 const turnstileEnabled = ref<boolean>(false)
 const turnstileSiteKey = ref<string>('')
-const siteName = ref<string>('Sub2API')
+const configuredSiteName = ref<string>('Sub2API')
+const siteName = computed(() => desktopAuthBrand(route)?.name || configuredSiteName.value)
 const linuxdoOAuthEnabled = ref<boolean>(false)
 const wechatOAuthEnabled = ref<boolean>(false)
 const oidcOAuthEnabled = ref<boolean>(false)
@@ -420,11 +422,11 @@ const validationToastMessage = computed(() =>
 
 const showOAuthLogin = computed(
   () =>
-    linuxdoOAuthEnabled.value ||
+    !desktopAuthBrand(route) && (linuxdoOAuthEnabled.value ||
     wechatOAuthEnabled.value ||
     oidcOAuthEnabled.value ||
     githubOAuthEnabled.value ||
-    googleOAuthEnabled.value
+    googleOAuthEnabled.value)
 )
 
 const agreementGateActive = computed(
@@ -462,7 +464,7 @@ onMounted(async () => {
     invitationCodeEnabled.value = settings.invitation_code_enabled
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
-    siteName.value = settings.site_name || 'Sub2API'
+    configuredSiteName.value = settings.site_name || 'Sub2API'
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
     oidcOAuthEnabled.value = settings.oidc_oauth_enabled
@@ -909,6 +911,7 @@ async function handleRegister(): Promise<void> {
     errorMessage.value = buildAuthErrorMessage(error, {
       fallback: t('auth.registrationFailed')
     })
+    errorMessage.value = desktopAuthMessage(route, errorMessage.value)
 
     // Also show error toast
     appStore.showError(errorMessage.value)

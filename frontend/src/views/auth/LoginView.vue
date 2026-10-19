@@ -10,7 +10,7 @@
             {{ isRemoteAuthorization ? '连接微末智学手机遥控' : isWxmAuthorization ? '登录微末智学桌面端' : t('auth.desktopAuthorization.title') }}
           </h2>
           <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-dark-400">
-            {{ isRemoteAuthorization ? '允许 app.wemoreai.com 确认你的个人身份。连接电脑仍需在电脑上核对并同意。' : isWxmAuthorization ? '使用当前 WindHub 账号连接微末智学，授权后将返回桌面端。' : t('auth.desktopAuthorization.description') }}
+            {{ isRemoteAuthorization ? '允许 app.wemoreai.com 确认你的个人身份。连接电脑仍需在电脑上核对并同意。' : isWxmAuthorization ? '确认使用此账号登录，继续使用原有余额和个人服务。' : t('auth.desktopAuthorization.description') }}
           </p>
         </div>
       </div>
@@ -173,7 +173,7 @@
             <span></span>
             <router-link
               v-if="passwordResetEnabled && !backendModeEnabled"
-              to="/forgot-password"
+              :to="{ path: '/forgot-password', query: desktopAuthNavigationQuery(router.currentRoute.value) }"
               class="text-sm font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
             >
               {{ t('auth.forgotPassword') }}
@@ -326,6 +326,7 @@ import {
   WXM_DESKTOP_CLIENT_ID,
 } from '@/utils/desktopAuthorization'
 import { clearAllAffiliateReferralCodes } from '@/utils/oauthAffiliate'
+import { desktopAuthMessage, desktopAuthNavigationQuery } from '@/utils/desktopAuthBranding'
 
 const { t } = useI18n()
 const LOGIN_AGREEMENT_STORAGE_KEY = 'sub2api_login_agreement_consent'
@@ -399,6 +400,7 @@ const authActionDisabled = computed(
 
 const showOAuthLogin = computed(
   () =>
+    !isWxmAuthorization.value &&
     !backendModeEnabled.value &&
     (linuxdoOAuthEnabled.value ||
       dingtalkOAuthEnabled.value ||
@@ -416,7 +418,7 @@ async function redirectDesktopClientIfNeeded(): Promise<boolean> {
   const request = getDesktopAuthorizationRequest()
   if (!request) return false
   const result = await authAPI.createDesktopAuthorizationCode(request)
-  if (!result?.code) throw new Error('WindHub 未返回桌面授权码，请重试。')
+  if (!result?.code) throw new Error('未返回桌面授权码，请重试。')
   window.location.replace(buildDesktopAuthorizationCallback(request, result.code))
   return true
 }
@@ -440,7 +442,7 @@ const desktopAuthorizationVisible = computed(
   () => Boolean(desktopAuthorizationRequest.value && showDesktopAuthorization.value && authStore.isAuthenticated),
 )
 const desktopAccountName = computed(
-  () => authStore.user?.username || authStore.user?.email || t('auth.desktopAuthorization.unknownAccount'),
+  () => authStore.user?.username || authStore.user?.email || (isWxmAuthorization.value ? '个人账号' : t('auth.desktopAuthorization.unknownAccount')),
 )
 const desktopAccountEmail = computed(() => authStore.user?.email || '')
 const desktopAccountAvatar = computed(() => authStore.user?.avatar_url || '')
@@ -452,7 +454,7 @@ async function approveDesktopAuthorization(): Promise<void> {
     errorMessage.value = ''
     await redirectDesktopClientIfNeeded()
   } catch (error: unknown) {
-    errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', '桌面授权失败，请重试。')
+    errorMessage.value = desktopAuthMessage(router.currentRoute.value, extractI18nErrorMessage(error, t, 'auth.errors', '桌面授权失败，请重试。'))
     appStore.showError(errorMessage.value)
   } finally {
     isLoading.value = false
@@ -463,7 +465,7 @@ function rejectDesktopAuthorization(): void {
   const request = desktopAuthorizationRequest.value
   if (!request) return
   window.location.replace(
-    buildDesktopAuthorizationErrorCallback(request, 'access_denied', t('auth.desktopAuthorization.deniedDescription')),
+    buildDesktopAuthorizationErrorCallback(request, 'access_denied', isWxmAuthorization.value ? '你已取消登录。' : t('auth.desktopAuthorization.deniedDescription')),
   )
 }
 
@@ -694,7 +696,7 @@ async function handleLogin(): Promise<void> {
       turnstileToken.value = ''
     }
 
-    errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', t('auth.loginFailed'))
+    errorMessage.value = desktopAuthMessage(router.currentRoute.value, extractI18nErrorMessage(error, t, 'auth.errors', t('auth.loginFailed')))
 
     // Also show error toast
     appStore.showError(errorMessage.value)
@@ -713,10 +715,10 @@ async function handle2FAVerify(code: string): Promise<void> {
   try {
     await authStore.login2FA(totpTempToken.value, code)
 
+    show2FAModal.value = false
     if (enterDesktopAuthorizationIfNeeded()) return
 
     // Close modal and show success
-    show2FAModal.value = false
     clearAllAffiliateReferralCodes()
     appStore.showSuccess(t('auth.loginSuccess'))
 
@@ -725,7 +727,7 @@ async function handle2FAVerify(code: string): Promise<void> {
     await router.push(redirectTo)
   } catch (error: unknown) {
     const err = error as { message?: string; response?: { data?: { message?: string } } }
-    const message = err.response?.data?.message || err.message || t('profile.totp.loginFailed')
+    const message = desktopAuthMessage(router.currentRoute.value, err.response?.data?.message || err.message || t('profile.totp.loginFailed'))
 
     if (totpModalRef.value) {
       totpModalRef.value.setError(message)

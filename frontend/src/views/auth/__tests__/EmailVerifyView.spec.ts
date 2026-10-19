@@ -45,6 +45,7 @@ const {
 vi.mock('vue-router', () => ({
   useRouter: () => ({
     push: pushMock,
+    currentRoute: { value: { path: '/email-verify', query: {} } },
   }),
 }))
 

@@ -31,7 +31,7 @@
 
         <div class="text-center">
           <router-link
-            to="/login"
+            :to="{ path: '/login', query: desktopAuthNavigationQuery(route) }"
             class="inline-flex items-center gap-2 font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
           >
             <Icon name="arrowLeft" size="sm" />
@@ -114,7 +114,7 @@
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.rememberedPassword') }}
         <router-link
-          to="/login"
+          :to="{ path: '/login', query: desktopAuthNavigationQuery(route) }"
           class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
         >
           {{ t('auth.signIn') }}
@@ -126,6 +126,8 @@
 
 <script setup lang="ts">
 import { computed, ref, reactive, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { desktopAuthMessage, desktopAuthNavigationQuery } from '@/utils/desktopAuthBranding'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
 import Icon from '@/components/icons/Icon.vue'
@@ -138,6 +140,7 @@ const { t } = useI18n()
 // ==================== Stores ====================
 
 const appStore = useAppStore()
+const route = useRoute()
 
 // ==================== State ====================
 
@@ -261,6 +264,7 @@ async function handleSubmit(): Promise<void> {
       errorMessage.value = t('auth.sendResetLinkFailed')
     }
 
+    errorMessage.value = desktopAuthMessage(route, errorMessage.value)
     appStore.showError(errorMessage.value)
   } finally {
     isLoading.value = false

@@ -4,6 +4,10 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
+  // Match production's CSP-compatible vue-i18n message compiler.
+  define: {
+    __INTLIFY_JIT_COMPILATION__: true
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),

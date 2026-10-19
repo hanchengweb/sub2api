@@ -147,6 +147,7 @@
 
 <script setup lang="ts">
 import { desktopAuthorizationQuery, postRegistrationRoute } from '@/utils/desktopAuthorization'
+import { desktopAuthBrand, desktopAuthMessage } from '@/utils/desktopAuthBranding'
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -230,7 +231,8 @@ const hasRegisterData = ref<boolean>(false)
 // Public settings
 const turnstileEnabled = ref<boolean>(false)
 const turnstileSiteKey = ref<string>('')
-const siteName = ref<string>('Sub2API')
+const configuredSiteName = ref<string>('Sub2API')
+const siteName = computed(() => desktopAuthBrand(router.currentRoute?.value)?.name || configuredSiteName.value)
 const registrationEmailSuffixWhitelist = ref<string[]>([])
 
 // Turnstile for resend
@@ -295,7 +297,7 @@ onMounted(async () => {
     const settings = await getPublicSettings()
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
-    siteName.value = settings.site_name || 'Sub2API'
+    configuredSiteName.value = settings.site_name || 'Sub2API'
     registrationEmailSuffixWhitelist.value = normalizeRegistrationEmailSuffixWhitelist(
       settings.registration_email_suffix_whitelist || []
     )
@@ -443,6 +445,7 @@ async function sendCode(): Promise<void> {
     errorMessage.value = buildAuthErrorMessage(error, {
       fallback: t('auth.sendCodeFailed')
     })
+    errorMessage.value = desktopAuthMessage(router.currentRoute?.value, errorMessage.value)
 
     appStore.showError(errorMessage.value)
   } finally {
@@ -560,6 +563,7 @@ async function handleVerify(): Promise<void> {
     errorMessage.value = buildAuthErrorMessage(error, {
       fallback: t('auth.verifyFailed')
     })
+    errorMessage.value = desktopAuthMessage(router.currentRoute?.value, errorMessage.value)
 
     appStore.showError(errorMessage.value)
   } finally {
