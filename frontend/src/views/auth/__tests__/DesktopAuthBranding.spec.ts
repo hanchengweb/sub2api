@@ -1,5 +1,6 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { reactive, type Component } from 'vue'
+import { compileStyle, parse } from 'vue/compiler-sfc'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginView from '../LoginView.vue'
@@ -9,6 +10,7 @@ import ForgotPasswordView from '../ForgotPasswordView.vue'
 import ResetPasswordView from '../ResetPasswordView.vue'
 import LegalDocumentView from '@/views/public/LegalDocumentView.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
+import authLayoutSource from '@/components/layout/AuthLayout.vue?raw'
 import i18n, { loadLocaleMessages } from '@/i18n'
 import { WXM_DESKTOP_CLIENT_ID, WXM_DESKTOP_REDIRECT_URI } from '@/utils/desktopAuthorization'
 
@@ -83,6 +85,19 @@ beforeEach(() => {
 afterEach(() => { for (const wrapper of wrappers.splice(0)) wrapper.unmount() })
 
 describe('embedded WXM account pages use the existing authentication flow', () => {
+  it('keeps compiled dark styles scoped to WXM account elements', () => {
+    const { descriptor } = parse(authLayoutSource)
+    const result = compileStyle({ filename: 'AuthLayout.vue', id: 'data-v-wxm-scope',
+      source: descriptor.styles[0].content, scoped: true })
+    expect(result.errors).toEqual([])
+    const darkSelectors = result.code.match(/[^{}]*\.dark[^{}]*\{/g) ?? []
+    expect(darkSelectors.length).toBeGreaterThan(0)
+    for (const selector of darkSelectors) {
+      expect(selector).toContain('.wxm-auth')
+      expect(selector).toContain('[data-v-wxm-scope]')
+    }
+  })
+
   it('brands login and consent, hides third-party buttons, and preserves the forgot-password transaction', async () => {
     const { wrapper, router } = await render(LoginView, '/login')
     expectWxm(wrapper)

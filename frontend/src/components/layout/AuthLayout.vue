@@ -147,11 +147,11 @@ onMounted(() => {
 .wxm-auth :deep(.bg-primary-50),
 .wxm-auth :deep(.bg-primary-100) { background-color: var(--wxm-accent-soft); }
 .wxm-auth :deep(.border-primary-200) { border-color: #d8cff7; }
-:global(.dark) .wxm-auth { --wxm-accent: #b0a0f7; --wxm-accent-hover: #c4b7ff; --wxm-accent-soft: #292238; background: #15131b; }
-:global(.dark) .wxm-auth-brand h1 { color: #ece8f7; }
-:global(.dark) .wxm-auth-card { border-color: #373040; background: #1c1923; }
-:global(.dark) .wxm-auth :deep(.btn-primary) { color: white; background-image: linear-gradient(to right, #7661df, #6754cf); }
-:global(.dark) .wxm-auth :deep(.btn-primary:hover) { background-image: linear-gradient(to right, #6754cf, #5743bd); }
+.dark .wxm-auth { --wxm-accent: #b0a0f7; --wxm-accent-hover: #c4b7ff; --wxm-accent-soft: #292238; background: #15131b; }
+.dark .wxm-auth-brand h1 { color: #ece8f7; }
+.dark .wxm-auth-card { border-color: #373040; background: #1c1923; }
+.dark .wxm-auth :deep(.btn-primary) { color: white; background-image: linear-gradient(to right, #7661df, #6754cf); }
+.dark .wxm-auth :deep(.btn-primary:hover) { background-image: linear-gradient(to right, #6754cf, #5743bd); }
 
 @media (max-height: 440px) {
   .wxm-auth { padding-block: 10px; }
