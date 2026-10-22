@@ -77,6 +77,11 @@ var videoUpstreamLimits = []videoUpstreamLimit{
 
 func videoUpstreamLimitForModel(model string) (videoUpstreamLimit, bool) {
 	m := strings.ToLower(strings.TrimSpace(model))
+	// The organization catalog exposes this authorized toAPI display name.
+	// Apply the same bounded duration contract as its canonical upstream model.
+	if m == "t-grok-video-1.5" {
+		m = "grok-video-1.5"
+	}
 	for _, limit := range videoUpstreamLimits {
 		if strings.HasPrefix(m, limit.Prefix) {
 			return limit, true
