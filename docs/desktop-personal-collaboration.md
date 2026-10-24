@@ -149,6 +149,23 @@ $env:WINDHUB_COLLABORATION_PG_TEST='1'
 go test ./internal/collaboration -count=1 -v
 ```
 
+An additional opt-in cross-runtime contract test executes the actual desktop
+`collaboration.cjs` client in a Node child process against the real Gin handlers,
+store and disposable PostgreSQL database. Set
+`WXM_DESKTOP_COLLABORATION_CLIENT` to that source file's absolute path, then run:
+
+```powershell
+go test ./internal/collaboration -run '^TestDesktopBridgeContract$' -count=1 -v
+```
+
+Both the desktop source opt-in and the PostgreSQL opt-in are required; otherwise
+the test skips. Its fetch adapter accepts only the fixed production-origin route
+shape and remaps it exclusively to an ephemeral loopback server. Authentication
+and upstream model responses are synthetic. The two-account test covers the
+actual client serialization, envelopes, task PATCH request ID and CAS, mentions,
+request replay, file upload/download, removal and invite revocation. It must not
+be reported as real provider billing or production acceptance.
+
 Verified fixtures cover outsider/cross-room access rejection, invite secrecy,
 member removal, same-name agents by ID, requester key identity, future-context
 exclusion, AI non-recursion, simultaneous idempotent sends, durable completion,
