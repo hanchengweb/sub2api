@@ -9,9 +9,10 @@ desktop workspaces, private drives, private conversations, or private memories.
 
 The implementation starts from fork/main `a9177efe3`. Migration
 `246_desktop_collaboration.sql` is additive. The HTTP routes and four bounded
-worker pollers are **disabled by default**. Set
-`WINDHUB_PERSONAL_COLLABORATION_ENABLED=1` only in an explicitly verified deployment
-after the migration, gateway model policy/billing, and two-account tests pass.
+worker pollers are **disabled by default**. After verifying migration readiness
+and deployment identity, explicitly pass
+`WINDHUB_PERSONAL_COLLABORATION_ENABLED=1` for authorized, controlled acceptance.
+General availability still requires real two-account and gateway billing acceptance.
 Disabled routes return HTTP 503 with `COLLABORATION_UNAVAILABLE`.
 The server also keeps the feature disabled if its schema readiness check fails.
 
@@ -19,9 +20,16 @@ The owning release task records the verified existing image and rollback target
 outside this public source document. Deployment identity and acceptance must be
 read back from the target environment before enabling the feature.
 
-No production deployment, real accounts, real model calls, or balance changes
-were performed for this work. A synthetic gateway is not real model/billing
-acceptance. Roll back by disabling the switch or restoring the previous server
+On 2026-10-24, the backend was deployed from PR #36's merged commit
+`12ff991a5a5d1f67090b7e42cb9f1d1686adff4a`. The feature remains **off**. Migration
+246, runtime identity, and public disabled-state readback were verified. An
+anonymous public HTTP 401 proves only anonymous access rejection; it is not an
+authenticated model or billing test.
+
+Real two-account model responses and ledger attribution, physical computer
+shutdown, and multi-device acceptance remain pending. No test accounts were
+created and no test credit was granted. Local synthetic tests cannot substitute
+for this real acceptance. Roll back by disabling the switch or restoring the previous server
 image; preserve the additive tables and their data. Do not drop the tables as an
 automatic rollback action. Any interrupted running jobs become `outcome_unknown`
 after six minutes when a worker next polls; they are never silently requeued.
