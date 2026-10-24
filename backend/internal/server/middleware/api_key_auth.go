@@ -177,7 +177,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 		mediaRead := videoRead || c.Request.Method == http.MethodGet && c.FullPath() == "/v1/organization/media-quota"
-		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || rechargeRequest || driveRequest || mediaRead || isSpeechRequest(c.Request.Method, c.FullPath()) || isDigitalTeacherRequest(c.Request.Method, c.FullPath()) || isImageTaskRead(c.Request.Method, c.Request.URL.Path)
+		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || rechargeRequest || driveRequest || isDesktopCollaborationRequest(c.Request.Method, c.FullPath()) || mediaRead || isSpeechRequest(c.Request.Method, c.FullPath()) || isDigitalTeacherRequest(c.Request.Method, c.FullPath()) || isImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
@@ -313,6 +313,25 @@ func isDesktopDriveRequest(method, route string) bool {
 		return route == base || route == base+"/:resource_id/folders" || route == base+"/:resource_id/upload"
 	case http.MethodPatch, http.MethodDelete:
 		return route == base+"/:resource_id" || route == base+"/:resource_id/items/:item_id"
+	default:
+		return false
+	}
+}
+
+// Only human collaboration operations skip model-billing enforcement. The
+// durable worker dispatches /v1/chat/completions with the requester's own key,
+// which is deliberately absent here and traverses full billing enforcement.
+func isDesktopCollaborationRequest(method, route string) bool {
+	const base = "/v1/desktop/collaboration"
+	switch method {
+	case http.MethodGet:
+		return route == base+"/status" || route == base+"/rooms" || route == base+"/rooms/:room_id" || route == base+"/rooms/:room_id/messages" || route == base+"/rooms/:room_id/runs" || route == base+"/rooms/:room_id/tasks" || route == base+"/rooms/:room_id/assets" || route == base+"/rooms/:room_id/assets/:item_id/content"
+	case http.MethodPost:
+		return route == base+"/rooms" || route == base+"/join" || route == base+"/rooms/:room_id/invites" || route == base+"/rooms/:room_id/agents" || route == base+"/rooms/:room_id/messages" || route == base+"/rooms/:room_id/tasks" || route == base+"/rooms/:room_id/assets"
+	case http.MethodDelete:
+		return route == base+"/rooms/:room_id/invites/:item_id" || route == base+"/rooms/:room_id/members/:item_id" || route == base+"/rooms/:room_id/agents/:item_id"
+	case http.MethodPatch:
+		return route == base+"/rooms/:room_id/tasks/:item_id"
 	default:
 		return false
 	}

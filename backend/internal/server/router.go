@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"os"
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/collaboration"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
@@ -153,6 +155,25 @@ func registerRoutes(
 	routes.RegisterDesktopRechargeRoutes(r, h.Payment, apiKeyAuth)
 	routes.RegisterDesktopDriveRoutes(r, handler.NewDesktopDriveHandler(service.NewDesktopDriveService(
 		repository.NewDesktopDriveRepository(sqlDB), cfg.Pricing.DataDir)), apiKeyAuth)
+	// Off until the additive migration and separate collaboration acceptance
+	// checks have passed. No new external endpoint or credential is used by AI.
+	collaborationEnabled := os.Getenv("WINDHUB_PERSONAL_COLLABORATION_ENABLED") == "1"
+	if collaborationEnabled {
+		readyCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		var schemaReady bool
+		err := sqlDB.QueryRowContext(readyCtx, `SELECT to_regclass('desktop_collaboration_message_assets') IS NOT NULL`).Scan(&schemaReady)
+		cancel()
+		if err != nil || !schemaReady {
+			collaborationEnabled = false
+			log.Print("[collaboration] disabled: schema not ready")
+		}
+	}
+	collaborationStore := collaboration.NewStore(sqlDB)
+	collaborationGateway := collaboration.InternalGateway{Engine: r}
+	collaboration.Register(r, &collaboration.Handler{Store: collaborationStore, Gateway: collaborationGateway, Enabled: collaborationEnabled}, apiKeyAuth)
+	if collaborationEnabled {
+		(&collaboration.Worker{Store: collaborationStore, Keys: apiKeyService, Gateway: collaborationGateway}).Start(context.Background())
+	}
 	routes.RegisterRemoteAuthorizationRoutes(r, v1, h.Auth, jwtAuth, apiKeyAuth, redisClient, apiKeyService, settingService)
 	routes.RegisterToAPIsWebhookRoutes(v1, h)
 	// 在线使用代理。必须在网关路由注册之后：它靠 engine 内部重派发到 /v1/*。
