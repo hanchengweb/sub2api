@@ -40,6 +40,24 @@ func mediaQuotaError(c *gin.Context, err error) {
 	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"type": code, "code": code, "message": message}})
 }
 
+// A rejected video duration says what to change: a model the quota cannot bill is an
+// organization setting, a duration is the user's choice. Durations keep their original
+// code so older callers keep their handling; the rule rides along for newer ones.
+func mediaQuotaVideoRejection(model string, err error) gin.H {
+	if len(model) > 160 {
+		model = strings.ToValidUTF8(model[:160], "")
+	}
+	var detail *service.MediaQuotaVideoDurationError
+	if !errors.As(err, &detail) || detail.Rule == nil {
+		code := "media_quota_unsupported_video_model"
+		return gin.H{"type": code, "code": code, "model": model,
+			"message": "当前额度模式暂不支持视频模型 " + model + "，请联系管理员更换组织视频模型。"}
+	}
+	code := "media_quota_fixed_duration_required"
+	return gin.H{"type": code, "code": code, "model": model, "duration_rule": detail.Rule,
+		"message": model + " 支持 " + detail.Rule.Describe() + "的视频，请调整时长后重试。"}
+}
+
 // This guard applies after API-key authentication and composite model resolution,
 // including direct aliases. Personal accounts retain their current billing.
 func (h *OpenAIGatewayHandler) OrganizationMediaQuotaMiddleware() gin.HandlerFunc {
@@ -184,7 +202,7 @@ func (h *OpenAIGatewayHandler) OrganizationMediaQuotaMiddleware() gin.HandlerFun
 				}
 				units, e = service.MediaQuotaVideoUnits(model, int(d.Int()))
 				if e != nil {
-					c.AbortWithStatusJSON(422, gin.H{"error": gin.H{"code": "media_quota_fixed_duration_required", "message": "请选择此模型支持的固定视频秒数后生成。"}})
+					c.AbortWithStatusJSON(422, gin.H{"error": mediaQuotaVideoRejection(model, e)})
 					return
 				}
 				// Materialize the bounded duration; do not rely on a changing vendor default.
