@@ -7,6 +7,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -240,4 +241,46 @@ func TestOrganizationMediaQuotaSeedanceFrameKeepsBounds(t *testing.T) {
 	require.Equal(t, 429, quotaRequest(r, "/v1/videos/generations", body).Code)
 	require.Empty(t, s.settlements)
 	require.Equal(t, 422, quotaRequest(r, "/v1/images/generations", body).Code)
+}
+
+func TestOrganizationMediaQuotaVideoRejectionsSayWhatToChange(t *testing.T) {
+	s := &mediaQuotaStub{enabled: true}
+	var bodies []string
+	r := quotaRouter(s, "organization_service", func(h *OpenAIGatewayHandler, c *gin.Context) {
+		raw, _ := io.ReadAll(c.Request.Body)
+		bodies = append(bodies, string(raw))
+		c.Status(200)
+	})
+	var payload struct {
+		Error struct {
+			Code         string                          `json:"code"`
+			Model        string                          `json:"model"`
+			Message      string                          `json:"message"`
+			DurationRule *service.VideoQuotaDurationRule `json:"duration_rule"`
+		} `json:"error"`
+	}
+	w := quotaRequest(r, "/v1/videos/generations", `{"model":"veo3.1-fast","prompt":"fixture","duration":8}`)
+	require.Equal(t, 422, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Equal(t, "media_quota_unsupported_video_model", payload.Error.Code)
+	require.Equal(t, "veo3.1-fast", payload.Error.Model)
+	require.Nil(t, payload.Error.DurationRule)
+	require.Contains(t, payload.Error.Message, "联系管理员")
+
+	payload.Error.DurationRule = nil
+	w = quotaRequest(r, "/v1/videos/generations", `{"model":"gemini_omni_flash","prompt":"fixture","duration":5}`)
+	require.Equal(t, 422, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Equal(t, "media_quota_fixed_duration_required", payload.Error.Code)
+	require.Equal(t, []int{4, 6, 8, 10}, payload.Error.DurationRule.AllowedSeconds)
+	require.Equal(t, "gemini_omni_flash 支持 4、6、8、10 秒的视频，请调整时长后重试。", payload.Error.Message)
+	require.Empty(t, bodies)
+	require.Empty(t, s.claims, "Rejected before any reservation")
+
+	require.Equal(t, 200, quotaRequest(r, "/v1/videos/generations", `{"model":"gemini_omni_flash","prompt":"fixture","duration":6}`).Code)
+	require.Len(t, s.claims, 1)
+	require.Equal(t, int64(6), s.claims[0].Units)
+	require.Equal(t, 200, quotaRequest(r, "/v1/videos/generations", `{"model":"gemini_omni_flash","prompt":"fixture"}`).Code)
+	require.Equal(t, int64(8), s.claims[1].Units)
+	require.Equal(t, int64(8), gjson.Get(bodies[1], "duration").Int(), "The default is written into the request")
 }

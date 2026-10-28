@@ -43,7 +43,8 @@ const (
 //
 // DefaultSeconds / DefaultResolution 为零值表示不知道上游默认值，走全局兜底
 // （8 秒 / 最贵档）。AutoIsMax 表示上游支持 duration=-1（自动时长）：上游自己定时长，
-// 最长可能出到上限，所以按上限计费。
+// 最长可能出到上限，所以按上限计费。AllowedSeconds 非空时，额度模式只接受这几档；
+// 个人计费的归一化仍按区间收敛，不受它影响。
 type videoUpstreamLimit struct {
 	Prefix            string
 	MinSeconds        int
@@ -51,6 +52,7 @@ type videoUpstreamLimit struct {
 	DefaultSeconds    int
 	DefaultResolution string
 	AutoIsMax         bool
+	AllowedSeconds    []int
 }
 
 // videoUpstreamLimits 按模型前缀匹配，取第一个命中的，顺序敏感：长前缀必须排在它的短前缀前面
@@ -73,6 +75,12 @@ var videoUpstreamLimits = []videoUpstreamLimit{
 	{Prefix: "seedance-2-5", MinSeconds: 4, MaxSeconds: 30, DefaultSeconds: 30, DefaultResolution: VideoBillingResolution720P, AutoIsMax: true},
 	// seedance-2：4-15 秒，默认 5 秒、720p，-1 为自动。是上面两个的短前缀，必须排在它们后面。
 	{Prefix: "seedance-2", MinSeconds: 4, MaxSeconds: 15, DefaultSeconds: 5, DefaultResolution: VideoBillingResolution720P, AutoIsMax: true},
+	// gemini_omni_flash：对外名，6 号账号映射到 toAPI 的 gemini-omni-1.1-flash-preview-vip。
+	// toAPI 上没有 gemini_omni_flash 这个 ID（2026-10-28 实测 403 model_not_found）。
+	// vip 按条计费，价目表只有 4/6/8/10 秒四档（360p-4k）；2026-10-28 实测 720p 4 秒
+	// 扣 50 积分，与价目表一致。上游缺省时长未核实：默认取 8 秒，与桌面端默认一致，
+	// 额度模式会把它写进请求，不依赖上游缺省。
+	{Prefix: "gemini_omni_flash", MinSeconds: 4, MaxSeconds: 10, DefaultSeconds: 8, DefaultResolution: VideoBillingResolution720P, AllowedSeconds: []int{4, 6, 8, 10}},
 }
 
 func videoUpstreamLimitForModel(model string) (videoUpstreamLimit, bool) {

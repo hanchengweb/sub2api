@@ -3,6 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -77,17 +81,55 @@ func MediaQuotaImageUnits(body []byte) int64 {
 	return int64(countOpenAIResponseImageOutputsFromJSONBytes(body))
 }
 
+// VideoQuotaDurationRule is the durations a video model accepts under the media quota.
+// AllowedSeconds lists fixed tiers; empty means every whole second in the range.
+type VideoQuotaDurationRule struct {
+	MinSeconds     int   `json:"min_seconds"`
+	MaxSeconds     int   `json:"max_seconds"`
+	DefaultSeconds int   `json:"default_seconds"`
+	AllowedSeconds []int `json:"allowed_seconds,omitempty"`
+}
+
+// Describe names the accepted durations for a person, e.g. "4、6、8、10 秒" or "3-15 秒".
+func (r VideoQuotaDurationRule) Describe() string {
+	if len(r.AllowedSeconds) > 0 {
+		parts := make([]string, len(r.AllowedSeconds))
+		for i, seconds := range r.AllowedSeconds {
+			parts[i] = strconv.Itoa(seconds)
+		}
+		return strings.Join(parts, "、") + " 秒"
+	}
+	return fmt.Sprintf("%d-%d 秒", r.MinSeconds, r.MaxSeconds)
+}
+
+// MediaQuotaVideoDurationError says why a video request has no bounded quota contract:
+// Rule is nil when the model has none at all (an organization setting to change), and
+// set when only the duration is wrong (the user's choice). Error() keeps the original
+// codes for callers that only log or wrap it.
+type MediaQuotaVideoDurationError struct {
+	Model string
+	Rule  *VideoQuotaDurationRule
+	code  string
+}
+
+func (e *MediaQuotaVideoDurationError) Error() string { return e.code }
+
 // A bounded output is required before a contractual video budget can be reserved.
 func MediaQuotaVideoUnits(model string, duration int) (int64, error) {
 	limit, known := videoUpstreamLimitForModel(model)
-	if !known || duration < 0 {
-		return 0, errors.New("media_quota_requires_fixed_video_duration")
+	if !known {
+		return 0, &MediaQuotaVideoDurationError{Model: model, code: "media_quota_requires_fixed_video_duration"}
+	}
+	rule := &VideoQuotaDurationRule{MinSeconds: limit.MinSeconds, MaxSeconds: limit.MaxSeconds,
+		DefaultSeconds: videoDefaultDurationForModel(model), AllowedSeconds: limit.AllowedSeconds}
+	if duration < 0 {
+		return 0, &MediaQuotaVideoDurationError{Model: model, Rule: rule, code: "media_quota_requires_fixed_video_duration"}
 	}
 	if duration == 0 {
-		duration = videoDefaultDurationForModel(model)
+		duration = rule.DefaultSeconds
 	}
-	if duration < limit.MinSeconds || duration > limit.MaxSeconds {
-		return 0, errors.New("media_quota_invalid_video_duration")
+	if duration < limit.MinSeconds || duration > limit.MaxSeconds || (len(limit.AllowedSeconds) > 0 && !slices.Contains(limit.AllowedSeconds, duration)) {
+		return 0, &MediaQuotaVideoDurationError{Model: model, Rule: rule, code: "media_quota_invalid_video_duration"}
 	}
 	return int64(duration), nil
 }
