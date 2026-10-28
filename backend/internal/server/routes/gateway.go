@@ -189,6 +189,7 @@ func RegisterGatewayRoutes(
 	gateway.Use(compositeTarget)
 	gateway.Use(mediaQuota)
 	gateway.GET("/organization/media-quota", h.OpenAIGateway.OrganizationMediaQuota)
+	gateway.GET("/organization/media-quota/video-rule", organizationVideoQuotaRuleHandler(compositeResolver, settingService))
 	gateway.Use(requireGroupAnthropic)
 	{
 		// /v1/messages: auto-route based on group platform
