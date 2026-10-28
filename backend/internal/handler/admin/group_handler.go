@@ -24,6 +24,7 @@ type GroupHandler struct {
 	adminService         service.AdminService
 	dashboardService     *service.DashboardService
 	groupCapacityService *service.GroupCapacityService
+	modelOverrides       organizationModelOverrides
 }
 
 // GetLiveCapability 返回当前服务端是否具备生成 Live attestation 的运行环境。

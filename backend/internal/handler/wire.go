@@ -48,8 +48,12 @@ func ProvideAdminHandlers(
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	mediaQuota service.OrganizationMediaQuotaRepository,
+	settingService *service.SettingService,
 ) *AdminHandlers {
 	apiKeyHandler.SetMediaQuotaRepository(mediaQuota)
+	if settingService != nil {
+		groupHandler.SetOrganizationModelOverrides(settingService)
+	}
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	return &AdminHandlers{

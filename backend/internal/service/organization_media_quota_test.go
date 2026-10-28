@@ -52,6 +52,27 @@ func TestMediaQuotaVideoUnitsExplainWhatToChange(t *testing.T) {
 	require.Equal(t, "media_quota_requires_fixed_video_duration", err.Error())
 }
 
+// The control plane checks configured models with this rule, so it must be the one
+// MediaQuotaVideoUnits enforces.
+func TestMediaQuotaVideoRuleIsTheEnforcedContract(t *testing.T) {
+	rule, ok := MediaQuotaVideoRule("gemini_omni_flash")
+	require.True(t, ok)
+	require.Equal(t, VideoQuotaDurationRule{MinSeconds: 4, MaxSeconds: 10, DefaultSeconds: 8, AllowedSeconds: []int{4, 6, 8, 10}}, rule)
+
+	rule, ok = MediaQuotaVideoRule("t-grok-video-1.5")
+	require.True(t, ok)
+	require.Equal(t, VideoQuotaDurationRule{MinSeconds: 6, MaxSeconds: 30, DefaultSeconds: 8}, rule)
+
+	for _, model := range []string{"veo3.1-fast", "viduq2-fast", ""} {
+		_, ok = MediaQuotaVideoRule(model)
+		require.False(t, ok, model)
+		_, err := MediaQuotaVideoUnits(model, 8)
+		var detail *MediaQuotaVideoDurationError
+		require.ErrorAs(t, err, &detail, model)
+		require.Nil(t, detail.Rule, model)
+	}
+}
+
 func TestGeminiOmniFlashPersonalBillingStaysWithinTheUpstreamRange(t *testing.T) {
 	require.Equal(t, 8, NormalizeVideoBillingDurationForModel("gemini_omni_flash", 0))
 	require.Equal(t, 10, NormalizeVideoBillingDurationForModel("gemini_omni_flash", 15))

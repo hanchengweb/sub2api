@@ -114,22 +114,31 @@ type MediaQuotaVideoDurationError struct {
 
 func (e *MediaQuotaVideoDurationError) Error() string { return e.code }
 
+// MediaQuotaVideoRule is the duration contract the media quota applies to a video model.
+// False means the quota has none and rejects every request for the model, whatever its duration.
+func MediaQuotaVideoRule(model string) (VideoQuotaDurationRule, bool) {
+	limit, known := videoUpstreamLimitForModel(model)
+	if !known {
+		return VideoQuotaDurationRule{}, false
+	}
+	return VideoQuotaDurationRule{MinSeconds: limit.MinSeconds, MaxSeconds: limit.MaxSeconds,
+		DefaultSeconds: videoDefaultDurationForModel(model), AllowedSeconds: limit.AllowedSeconds}, true
+}
+
 // A bounded output is required before a contractual video budget can be reserved.
 func MediaQuotaVideoUnits(model string, duration int) (int64, error) {
-	limit, known := videoUpstreamLimitForModel(model)
+	rule, known := MediaQuotaVideoRule(model)
 	if !known {
 		return 0, &MediaQuotaVideoDurationError{Model: model, code: "media_quota_requires_fixed_video_duration"}
 	}
-	rule := &VideoQuotaDurationRule{MinSeconds: limit.MinSeconds, MaxSeconds: limit.MaxSeconds,
-		DefaultSeconds: videoDefaultDurationForModel(model), AllowedSeconds: limit.AllowedSeconds}
 	if duration < 0 {
-		return 0, &MediaQuotaVideoDurationError{Model: model, Rule: rule, code: "media_quota_requires_fixed_video_duration"}
+		return 0, &MediaQuotaVideoDurationError{Model: model, Rule: &rule, code: "media_quota_requires_fixed_video_duration"}
 	}
 	if duration == 0 {
 		duration = rule.DefaultSeconds
 	}
-	if duration < limit.MinSeconds || duration > limit.MaxSeconds || (len(limit.AllowedSeconds) > 0 && !slices.Contains(limit.AllowedSeconds, duration)) {
-		return 0, &MediaQuotaVideoDurationError{Model: model, Rule: rule, code: "media_quota_invalid_video_duration"}
+	if duration < rule.MinSeconds || duration > rule.MaxSeconds || (len(rule.AllowedSeconds) > 0 && !slices.Contains(rule.AllowedSeconds, duration)) {
+		return 0, &MediaQuotaVideoDurationError{Model: model, Rule: &rule, code: "media_quota_invalid_video_duration"}
 	}
 	return int64(duration), nil
 }
