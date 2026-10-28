@@ -12,6 +12,13 @@ applications read only through that organization's service API key.
 - Service-key GET `/v1/organization/media-quota?page=1`, 50 records per page.
 - Grants contain `expected_version`, `contract_ref`, `reason`, `images`,
   `video_seconds`, `effective_at`, `expires_at`. Dates have time zones.
+- Admin GET `/api/v1/admin/groups/:id/media-quota/video-rule?model=<name>` returns
+  `{group_id, model, quota_model, supported, rule}`. It rewrites the name as an
+  organization's video request in that group is rewritten before the quota guard
+  (organization override, then the composite route) and looks up the enforced
+  duration rule. CRM calls it before saving a video model for an organization that
+  has a quota and before a first grant: in October 2026 four configured
+  organizations had `veo3.1-fast`, which has no rule, and could make no video.
 
 The first grant enables enforcement for the whole organization. Ungranted media
 kinds then have zero quota. Existing unconfigured organizations and personal

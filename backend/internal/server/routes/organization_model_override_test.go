@@ -98,3 +98,43 @@ func TestOrganizationRequestKeepsUnmappedSize(t *testing.T) {
 		`{"model":"doubao-seedream-5-0-pro","prompt":"x","size":"2K"}`)
 	require.JSONEq(t, `{"model":"v-doubao-seedream-5-0-pro","prompt":"x","size":"2K"}`, body)
 }
+
+// 运营平台保存组织视频模型前，用 GroupHandler.OrganizationVideoQuotaRule 判断额度能否计费。
+// 那里按「改道表 → any 端点的组合路由」改写模型名，这里确认视频生成请求到达额度守卫时
+// 确实是这样改写的；网关的改写顺序或端点归类变了，那边要跟着改。
+func TestOrganizationVideoRequestIsRewrittenBeforeTheQuotaGuard(t *testing.T) {
+	require.Equal(t, service.CompositeRouteEndpointAny, compositeRouteEndpointForPath("/v1/videos/generations"))
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	resolver := service.NewCompositeRouteResolver(compositeRouteRepoStub{routes: []service.CompositeModelRoute{
+		{ID: 1, GroupID: 4, PublicModel: "cheap-video", MatchType: service.CompositeRouteMatchExact,
+			TargetPlatform: service.PlatformOpenAI, UpstreamModel: "seedance-2-fast",
+			Endpoint: service.CompositeRouteEndpointAny, Priority: 1, Enabled: true},
+	}})
+	router.Use(gin.HandlerFunc(servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+		groupID := int64(4)
+		c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformComposite},
+			User:    &service.User{ID: 49, OrganizationID: "org-college"},
+		})
+		c.Next()
+	})))
+	router.Use(compositeTargetPlatformMiddleware(resolver, fakeOrgOverrides{"old-video": {Model: "cheap-video"}}))
+	var gotBody string
+	router.POST("/v1/videos/generations", func(c *gin.Context) {
+		raw, err := io.ReadAll(c.Request.Body)
+		require.NoError(t, err)
+		gotBody = string(raw)
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/videos/generations",
+		strings.NewReader(`{"model":"old-video","prompt":"x","duration":5}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code)
+	require.JSONEq(t, `{"model":"seedance-2-fast","prompt":"x","duration":5}`, gotBody)
+}
