@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestVideoQuotaAuthorizedAliasUsesCanonicalBounds(t *testing.T) {
 	canonical, known := videoUpstreamLimitForModel("grok-video-1.5")
@@ -9,7 +12,7 @@ func TestVideoQuotaAuthorizedAliasUsesCanonicalBounds(t *testing.T) {
 	}
 	for _, model := range []string{"t-grok-video-1.5", " T-GROK-VIDEO-1.5 "} {
 		alias, ok := videoUpstreamLimitForModel(model)
-		if !ok || alias != canonical || alias.MinSeconds != 6 || alias.MaxSeconds != 30 {
+		if !ok || !reflect.DeepEqual(alias, canonical) || alias.MinSeconds != 6 || alias.MaxSeconds != 30 {
 			t.Fatalf("alias has different duration bounds: %+v", alias)
 		}
 		if duration := videoDefaultDurationForModel(model); duration != 8 {
