@@ -10,6 +10,11 @@ applications read only through that organization's service API key.
 - Admin GET `/api/v1/admin/organization-services/:issuer/:environment/:organization_id/media-quota`
 - Admin POST same path + `/grants`, `Idempotency-Key` equals JSON `request_id`.
 - Service-key GET `/v1/organization/media-quota?page=1`, 50 records per page.
+- Service-key GET `/v1/organization/media-quota/video-rule?model=<name>` returns the same
+  `{model, quota_model, supported, rule}` as the admin video-rule endpoint, for the key's own
+  group. It rewrites the name with the functions of `compositeTargetPlatformMiddleware`, so the
+  answer is what the quota guard enforces. Tenants use it to offer only valid durations;
+  `supported: false` means a configured organization cannot make video with the model.
 - Grants contain `expected_version`, `contract_ref`, `reason`, `images`,
   `video_seconds`, `effective_at`, `expires_at`. Dates have time zones.
 - Admin GET `/api/v1/admin/groups/:id/media-quota/video-rule?model=<name>` returns
