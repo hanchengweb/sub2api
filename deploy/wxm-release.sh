@@ -51,9 +51,6 @@ NPM_REGISTRY="${WXM_NPM_REGISTRY-https://registry.npmmirror.com}"
 # 868M，构建缓存 2.1G / 约 1 万条目），所以剩下的时间就是真活，不是缓存未命中。
 GO_CACHE_MOUNTS="-v s2a-gomodcache:/go/pkg/mod -v s2a-gobuildcache:/root/.cache/go-build"
 
-# 构建缓存清理的磁盘占用阈值（%）。超过就全清，否则只清 24 小时前的。
-DISK_PRUNE_THRESHOLD="${WXM_DISK_PRUNE_THRESHOLD:-80}"
-
 # ServerAliveInterval/CountMax 是必需的，不是调优：没有它，连接被中间设备静默
 # 丢弃后 ssh 会永远等下去。2026-09-08 就这么卡了 25 分钟——镜像早构好了，
 # 脚本却停在一条死连接上，而且全部输出被管道缓冲，外面看不到任何进展。
@@ -74,8 +71,7 @@ disk_used_percent() { ssh_do "df -h / | tail -1 | awk '{print \$5}' | tr -d '%'"
 # 为什么需要：一天二十来次完整构建（前端 npm + Go 全量编译）能堆出 77GB
 # 缓存，2026-09-08 就把磁盘从 84% 顶到 92%。这台机器还跑着 23 个其它容器。
 #
-# 为什么不每次全清：全清后下次构建全冷，白白多花几分钟。常规只清 24 小时
-# 未用的，当天的缓存留着；只有磁盘真的吃紧了才全清。
+# 构建缓存始终只清 24 小时未用且不被镜像引用的记录，不因磁盘占用自动全清。
 #
 # 只动构建缓存和**悬空**镜像，不碰有 tag 的镜像。
 #
@@ -94,25 +90,25 @@ disk_used_percent() { ssh_do "df -h / | tail -1 | awk '{print \$5}' | tr -d '%'"
 # 2026-10-09 起改为调用主机保留脚本（deploy/wxm-host-retention.py，服务器上那份
 # 才是实际运行的）。只清悬空镜像不够：有 tag 的旧镜像从来没人删，三周攒到 276 个
 # tag、磁盘 99%。保留脚本按「在用 + 最近备份引用 + 每条镜像线最近 2 个不同版本」
-# 删旧镜像、旧发布目录和上传包，也会顺带做上面这两步。脚本不在时退回原来的做法。
+# 删旧镜像、旧发布目录和上传包。脚本不在时跳过维护，不绕过回滚保护。
 RETENTION="/srv/wxm/platform/shared/ops/wxm-host-retention.py"
 
 prune_build_cache() {
-  local used
+  local used retention_output
   used=$(disk_used_percent)
   echo "  磁盘占用: ${used}%"
   if ssh_do "test -f $RETENTION"; then
     # 只打印汇总和执行结果，逐项明细在服务器 ops/logs/retention-*.log。
     # 清理失败不影响发布结果：服务已经换好并通过了健康检查。
-    ssh_do "python3 $RETENTION --apply --keep 2 2>&1 | sed -n '/^== 汇总/,\$p'" | sed 's/^/  /' \
-      || echo "  ⚠ 保留脚本执行失败，发布本身不受影响；cron 每天 04:30 还会再跑"
-  else
-    ssh_do "docker builder prune -f --filter until=24h 2>&1 | tail -1" | sed 's/^/  /'
-    ssh_do "docker image prune -f 2>&1 | tail -1" | sed 's/^/  悬空镜像 /'
-    if [ "${used:-0}" -ge "$DISK_PRUNE_THRESHOLD" ]; then
-      echo "  超过 ${DISK_PRUNE_THRESHOLD}% 阈值，清空全部构建缓存"
-      ssh_do "docker builder prune -a -f 2>&1 | tail -1" | sed 's/^/  /'
+    # 远端不接过滤管道，SSH 必须传回 Python 的真实退出码。
+    if retention_output=$(ssh_do "python3 $RETENTION --apply --keep 2" 2>&1); then
+      printf '%s\n' "$retention_output" | sed -n '/^== 汇总/,$p; /^#/p' | sed 's/^/  /'
+    else
+      printf '%s\n' "$retention_output" | tail -n 40 | sed 's/^/  /'
+      echo "  ⚠ 保留脚本执行失败，发布本身不受影响；cron 每 4 小时的 :30 重试，详见 ops/logs/last-run.json"
     fi
+  else
+    echo "  ⚠ 保留脚本缺失，跳过维护；安装主机保留脚本后重试"
   fi
   ssh_do "df -h / | tail -1 | awk '{printf \"  清理后: %s / %s (%s)\n\", \$3, \$2, \$5}'"
 }
@@ -123,10 +119,27 @@ current_image() { ssh_do "grep -m1 -oE 'sub2api:[^[:space:]]+' $STACK/docker-com
 # sub2api:<版本>-wxm2-<标签>-<日期>-<sha>，末段就是 sha。
 deployed_sha() { current_image 2>/dev/null | awk -F- '{print $NF}' | tr -d '[:space:]'; }
 
-health_wait() {
-  ssh_do "for i in \$(seq 1 18); do sleep 10;
-    S=\$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}}' sub2api 2>/dev/null);
-    case \"\$S\" in */healthy) echo \"healthy @ \$((i*10))s\"; exit 0;; esac; done; echo 'TIMEOUT'; exit 1"
+# 切换、健康等待及恢复在同一 SSH/flock 内完成；构建和发布后的 GC 不持此锁。
+# 路径与 media-deploy 共用，主机保留脚本只观察此锁，不与发布争抢。
+with_deploy_lock() {
+  local quoted_lock quoted_args
+  printf -v quoted_lock '%q' "$STACK/media-deploy.lock"
+  printf -v quoted_args '%q ' "$@"
+  {
+    cat <<'REMOTE_HELPER'
+wait_for_health() {
+  local i status
+  for i in $(seq 1 18); do
+    sleep 10
+    status=$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}}' sub2api 2>/dev/null || true)
+    case "$status" in */healthy) echo "healthy @ $((i*10))s"; return 0;; esac
+  done
+  echo TIMEOUT
+  return 1
+}
+REMOTE_HELPER
+    cat
+  } | ssh_do "flock -n $quoted_lock bash -seuo pipefail -s -- $quoted_args"
 }
 
 # 回滚候选：两套发布流程各自留的 compose 备份，合在一起按修改时间从新到旧排。
@@ -264,26 +277,34 @@ case "${1:-}" in
     exit 0
     ;;
   rollback)
-    if [ -n "${2:-}" ]; then
-      TARGET="${2#"$STACK"/}"
-      rollback_candidates | grep -Fxq "$TARGET" || { echo "不认识的备份：$2（status 里列出的才行）" >&2; exit 1; }
-    else
-      TARGET=$(rollback_target) || { echo "没有内容与当前不同的 compose 备份，无从回滚" >&2; exit 1; }
-    fi
-    IMG=$(compose_image "$TARGET" || true)
-    echo "当前:   $(current_image)"
-    echo "回滚到: $STACK/$TARGET"
-    echo "  镜像: ${IMG:-?}"
-    # 镜像不在本机时 compose 会去 Docker Hub 拉，生产机连不上，服务就卡在拉取上
-    [ -n "$IMG" ] && ssh_do "docker image inspect '$IMG' >/dev/null 2>&1" \
-      || { echo "镜像 ${IMG:-?} 不在本机，不回滚" >&2; exit 1; }
-    # 先留一份当前 compose，回滚错了能原样恢复；名字不带 .bak-，不会混进回滚候选。
-    # 不用 -p：让 compose 的修改时间是回滚时刻，下次发布备份它时排序才对。
-    PRE="docker-compose.yml.pre-rollback-$(date +%Y%m%d%H%M%S)"
-    ssh_do "cd $STACK && cp --preserve=mode docker-compose.yml '$PRE' && cp --preserve=mode '$TARGET' docker-compose.yml && docker compose up -d >/dev/null"
-    health_wait || { echo "回滚后健康检查未通过；回滚前的 compose 在 $STACK/$PRE" >&2; exit 1; }
-    ssh_do "docker ps --filter name=^sub2api\$ --format '{{.Image}}  {{.Status}}'"
-    echo "  回滚前的 compose 留在 $STACK/$PRE"
+    with_deploy_lock "$STACK" "${2:-}" "$ROLLBACK_GLOBS" <<'ROLLBACK'
+stack=$1; target=${2#"$1"/}; globs=$3
+cd "$stack"
+mapfile -t candidates < <(ls -1t $globs 2>/dev/null || true)
+if [ -n "$target" ]; then
+  found=false
+  for file in "${candidates[@]}"; do [ "$file" != "$target" ] || found=true; done
+  $found || { echo "不认识的备份：$target（status 里列出的才行）" >&2; exit 1; }
+else
+  for file in "${candidates[@]}"; do
+    if ! cmp -s "$file" docker-compose.yml; then target=$file; break; fi
+  done
+  [ -n "$target" ] || { echo "没有内容与当前不同的 compose 备份，无从回滚" >&2; exit 1; }
+fi
+image=$(grep -m1 -oE 'sub2api:[^[:space:]]+' "$target" || true)
+echo "当前:   $(grep -m1 -oE 'sub2api:[^[:space:]]+' docker-compose.yml)"
+echo "回滚到: $stack/$target"; echo "  镜像: ${image:-?}"
+[ -n "$image" ] && docker image inspect "$image" >/dev/null 2>&1 \
+  || { echo "镜像 ${image:-?} 不在本机，不回滚" >&2; exit 1; }
+# 先留一份当前 compose；不用 -p，使下一次备份按本次回滚时间排序。
+pre="docker-compose.yml.pre-rollback-$(date +%Y%m%d%H%M%S)"
+cp --preserve=mode docker-compose.yml "$pre"
+cp --preserve=mode "$target" docker-compose.yml
+docker compose up -d >/dev/null
+wait_for_health || { echo "回滚后健康检查未通过；回滚前的 compose 在 $stack/$pre" >&2; exit 1; }
+docker ps --filter 'name=^sub2api$' --format '{{.Image}}  {{.Status}}'
+echo "  回滚前的 compose 留在 $stack/$pre"
+ROLLBACK
     exit 0
     ;;
   "")
@@ -433,18 +454,23 @@ ssh_do "grep -q 'Successfully tagged' $LOG" || { echo "构建超时" >&2; exit 1
 echo "  构建完成: $(ssh_do "docker images '$TAG' --format '{{.Size}}'")"
 fi
 
-# 3) 备份 compose 并换镜像
-OLD=$(current_image)
+# 3) 备份、切换、健康检查与自动恢复共同持部署锁。
 BAK="docker-compose.yml.bak-${SLUG}-$(date +%Y%m%d)-${SHA}"
-ssh_do "cd $STACK && cp -p docker-compose.yml '$BAK' && sed -i 's|^\( *image: \)${OLD}\$|\1${TAG}|' docker-compose.yml && diff '$BAK' docker-compose.yml || true"
-
-# 4) 重启并等待健康；不健康则自动回滚
-ssh_do "cd $STACK && docker compose up -d 2>&1 | tail -2"
-if ! health_wait; then
+with_deploy_lock "$STACK" "$TAG" "$BAK" <<'SWITCH'
+stack=$1; tag=$2; backup=$3
+cd "$stack"
+old=$(grep -m1 -oE 'sub2api:[^[:space:]]+' docker-compose.yml)
+cp -p docker-compose.yml "$backup"
+sed -i "s|^\( *image: \)${old}\$|\1${tag}|" docker-compose.yml
+diff "$backup" docker-compose.yml || [ "$?" -eq 1 ]
+if ! docker compose up -d 2>&1 | tail -2 || ! wait_for_health; then
   echo "健康检查未通过，自动回滚" >&2
-  ssh_do "cd $STACK && cp -p '$BAK' docker-compose.yml && docker compose up -d >/dev/null"
-  health_wait || true; exit 1
+  cp -p "$backup" docker-compose.yml
+  docker compose up -d >/dev/null
+  wait_for_health || true
+  exit 1
 fi
+SWITCH
 
 ssh_do "docker ps --filter name=^sub2api\$ --format '  {{.Image}}  {{.Status}}'"
 ssh_do "curl -s -o /dev/null -w '  /health: %{http_code}\n' http://127.0.0.1:18082/health"
