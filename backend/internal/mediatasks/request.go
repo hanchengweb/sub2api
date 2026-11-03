@@ -42,7 +42,8 @@ func plain(s string) bool {
 // Normalize materializes all defaults before hashing so equivalent retries replay.
 func Normalize(kind string, r Request) (Request, int64, string, error) {
 	var units int64
-	if kind == Audio {
+	switch kind {
+	case Audio:
 		r.Input, r.Instruction = strings.TrimSpace(r.Input), strings.TrimSpace(r.Instruction)
 		if r.Model != SpeechModel || r.Prompt != "" || len(r.Image) > 0 || !plain(r.Input) || !plain(r.Instruction) || utf8.RuneCountInString(r.Input) < 1 || utf8.RuneCountInString(r.Input) > 2000 || utf8.RuneCountInString(r.Instruction) > 300 {
 			return r, 0, "", ErrInvalid
@@ -63,7 +64,7 @@ func Normalize(kind string, r Request) (Request, int64, string, error) {
 			return r, 0, "", ErrInvalid
 		}
 		units = int64(utf8.RuneCountInString(r.Input))
-	} else if kind == Model3D {
+	case Model3D:
 		if len(r.Image) > 0 {
 			return r, 0, "", ErrImageUnavailable
 		}
@@ -72,7 +73,7 @@ func Normalize(kind string, r Request) (Request, int64, string, error) {
 			return r, 0, "", ErrInvalid
 		}
 		units = 1
-	} else {
+	default:
 		return r, 0, "", ErrInvalid
 	}
 	body, _ := json.Marshal(r)
