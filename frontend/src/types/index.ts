@@ -603,6 +603,8 @@ export type CompositeRouteEndpoint =
   | 'chat_completions'
   | 'embeddings'
   | 'images'
+  | 'audio'
+  | 'model3d'
   | 'gemini'
 
 export type CompositeRouteSource = 'route' | 'detector' | string

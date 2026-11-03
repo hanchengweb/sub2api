@@ -45,27 +45,28 @@ type AdminHandlers struct {
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
-	Speech           *SpeechHandler
-	DigitalTeacher   *DigitalTeacherHandler
-	Auth             *AuthHandler
-	User             *UserHandler
-	APIKey           *APIKeyHandler
-	Usage            *UsageHandler
-	Redeem           *RedeemHandler
-	Subscription     *SubscriptionHandler
-	Announcement     *AnnouncementHandler
-	ChannelMonitor   *ChannelMonitorUserHandler
-	Admin            *AdminHandlers
-	Gateway          *GatewayHandler
-	OpenAIGateway    *OpenAIGatewayHandler
-	Setting          *SettingHandler
-	Totp             *TotpHandler
-	Payment          *PaymentHandler
-	PaymentWebhook   *PaymentWebhookHandler
-	AvailableChannel *AvailableChannelHandler
-	ModelPlaza       *ModelPlazaHandler
-	AsyncImage       *AsyncImageHandler
-	BatchImage       *BatchImageHandler
+	OrganizationMediaTasks *OrganizationMediaTaskHandler
+	Speech                 *SpeechHandler
+	DigitalTeacher         *DigitalTeacherHandler
+	Auth                   *AuthHandler
+	User                   *UserHandler
+	APIKey                 *APIKeyHandler
+	Usage                  *UsageHandler
+	Redeem                 *RedeemHandler
+	Subscription           *SubscriptionHandler
+	Announcement           *AnnouncementHandler
+	ChannelMonitor         *ChannelMonitorUserHandler
+	Admin                  *AdminHandlers
+	Gateway                *GatewayHandler
+	OpenAIGateway          *OpenAIGatewayHandler
+	Setting                *SettingHandler
+	Totp                   *TotpHandler
+	Payment                *PaymentHandler
+	PaymentWebhook         *PaymentWebhookHandler
+	AvailableChannel       *AvailableChannelHandler
+	ModelPlaza             *ModelPlazaHandler
+	AsyncImage             *AsyncImageHandler
+	BatchImage             *BatchImageHandler
 }
 
 // BuildInfo contains build-time information

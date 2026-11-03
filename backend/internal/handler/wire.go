@@ -174,6 +174,7 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
+	organizationMediaTasks *OrganizationMediaTaskHandler,
 	digitalTeacher *DigitalTeacherHandler,
 	speech *SpeechHandler,
 	authHandler *AuthHandler,
@@ -199,32 +200,34 @@ func ProvideHandlers(
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
 	return &Handlers{
-		Speech:           speech,
-		DigitalTeacher:   digitalTeacher,
-		Auth:             authHandler,
-		User:             userHandler,
-		APIKey:           apiKeyHandler,
-		Usage:            usageHandler,
-		Redeem:           redeemHandler,
-		Subscription:     subscriptionHandler,
-		Announcement:     announcementHandler,
-		ChannelMonitor:   channelMonitorUserHandler,
-		Admin:            adminHandlers,
-		Gateway:          gatewayHandler,
-		OpenAIGateway:    openaiGatewayHandler,
-		Setting:          settingHandler,
-		Totp:             totpHandler,
-		Payment:          paymentHandler,
-		PaymentWebhook:   paymentWebhookHandler,
-		AvailableChannel: availableChannelHandler,
-		ModelPlaza:       modelPlazaHandler,
-		AsyncImage:       asyncImageHandler,
-		BatchImage:       batchImageHandler,
+		OrganizationMediaTasks: organizationMediaTasks,
+		Speech:                 speech,
+		DigitalTeacher:         digitalTeacher,
+		Auth:                   authHandler,
+		User:                   userHandler,
+		APIKey:                 apiKeyHandler,
+		Usage:                  usageHandler,
+		Redeem:                 redeemHandler,
+		Subscription:           subscriptionHandler,
+		Announcement:           announcementHandler,
+		ChannelMonitor:         channelMonitorUserHandler,
+		Admin:                  adminHandlers,
+		Gateway:                gatewayHandler,
+		OpenAIGateway:          openaiGatewayHandler,
+		Setting:                settingHandler,
+		Totp:                   totpHandler,
+		Payment:                paymentHandler,
+		PaymentWebhook:         paymentWebhookHandler,
+		AvailableChannel:       availableChannelHandler,
+		ModelPlaza:             modelPlazaHandler,
+		AsyncImage:             asyncImageHandler,
+		BatchImage:             batchImageHandler,
 	}
 }
 
 // ProviderSet is the Wire provider set for all handlers
 var ProviderSet = wire.NewSet(
+	NewOrganizationMediaTaskHandler,
 	NewSpeechHandler,
 	NewDigitalTeacherHandler,
 	// Top-level handlers
