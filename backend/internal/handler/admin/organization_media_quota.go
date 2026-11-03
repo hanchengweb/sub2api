@@ -44,7 +44,7 @@ func (h *AdminAPIKeyHandler) GrantOrganizationMediaQuota(c *gin.Context) {
 		return
 	}
 	var grant service.MediaQuotaGrant
-	if c.ShouldBindJSON(&grant) != nil || grant.Images+grant.VideoSeconds <= 0 || !grant.ExpiresAt.After(grant.EffectiveAt) || c.GetHeader("Idempotency-Key") != grant.RequestID {
+	if c.ShouldBindJSON(&grant) != nil || grant.Images+grant.VideoSeconds+grant.AudioCharacters+grant.Model3DTasks <= 0 || !grant.ExpiresAt.After(grant.EffectiveAt) || c.GetHeader("Idempotency-Key") != grant.RequestID {
 		response.BadRequest(c, "invalid_media_grant")
 		return
 	}
@@ -61,5 +61,5 @@ func (h *AdminAPIKeyHandler) GrantOrganizationMediaQuota(c *gin.Context) {
 		response.Error(c, 503, "media_quota_unavailable")
 		return
 	}
-	response.Success(c, gin.H{"request_id": grant.RequestID, "version": version, "organization_id": f.OrganizationID, "organization_issuer": f.OrganizationIssuer, "organization_environment": f.OrganizationEnvironment})
+	response.Success(c, gin.H{"request_id": grant.RequestID, "version": version, "organization_id": f.OrganizationID, "organization_issuer": f.OrganizationIssuer, "organization_environment": f.OrganizationEnvironment, "audio_characters": grant.AudioCharacters, "model3d_tasks": grant.Model3DTasks})
 }

@@ -38,7 +38,9 @@ func (r *organizationMediaQuotaRepository) lock(ctx context.Context, userID int6
 }
 
 func (r *organizationMediaQuotaRepository) Grant(ctx context.Context, userID int64, g service.MediaQuotaGrant) (int64, error) {
-	if g.Images < 0 || g.VideoSeconds < 0 || g.Images+g.VideoSeconds <= 0 || g.Images > 1000000000 || g.VideoSeconds > 1000000000 || !g.ExpiresAt.After(g.EffectiveAt) {
+	if g.Images < 0 || g.VideoSeconds < 0 || g.AudioCharacters < 0 || g.Model3DTasks < 0 ||
+		g.Images > 1000000000 || g.VideoSeconds > 1000000000 || g.AudioCharacters > 1000000000 || g.Model3DTasks > 1000000000 ||
+		g.Images+g.VideoSeconds+g.AudioCharacters+g.Model3DTasks <= 0 || !g.ExpiresAt.After(g.EffectiveAt) {
 		return 0, service.ErrMediaQuotaConflict
 	}
 	body, _ := json.Marshal(g)
@@ -77,7 +79,7 @@ func (r *organizationMediaQuotaRepository) Grant(ctx context.Context, userID int
 	if err != nil {
 		return 0, err
 	}
-	for kind, amount := range map[string]int64{"image": g.Images, "video": g.VideoSeconds} {
+	for kind, amount := range map[string]int64{"image": g.Images, "video": g.VideoSeconds, "audio": g.AudioCharacters, "model3d": g.Model3DTasks} {
 		if amount > 0 {
 			if _, err = tx.ExecContext(ctx, `INSERT INTO organization_media_lots(grant_id,kind,amount) VALUES($1,$2,$3)`, grantID, kind, amount); err != nil {
 				return 0, err
@@ -96,7 +98,7 @@ func scanMediaReservation(row interface{ Scan(...any) error }) (*service.MediaQu
 }
 
 func (r *organizationMediaQuotaRepository) Reserve(ctx context.Context, c service.MediaQuotaClaim) (*service.MediaQuotaReservation, error) {
-	if c.Units <= 0 || c.RequestID == "" || (c.Kind != "image" && c.Kind != "video") {
+	if c.Units <= 0 || c.RequestID == "" || (c.Kind != "image" && c.Kind != "video" && c.Kind != "audio" && c.Kind != "model3d") {
 		return nil, service.ErrMediaQuotaConflict
 	}
 	tx, err := r.lock(ctx, c.UserID)
@@ -325,6 +327,7 @@ func (r *organizationMediaQuotaRepository) Summary(ctx context.Context, userID i
 	}
 	defer tx.Rollback()
 	s := &service.MediaQuotaSummary{Grants: []service.MediaQuotaGrant{}, Items: []service.MediaQuotaReservation{}, UpdatedAt: time.Now().UTC()}
+	s.Audio.Unit, s.Model3D.Unit = "characters", "tasks"
 	err = tx.QueryRowContext(ctx, `SELECT version,blocked FROM organization_media_accounts WHERE user_id=$1`, userID).Scan(&s.Version, &s.Blocked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, nil
@@ -345,10 +348,17 @@ func (r *organizationMediaQuotaRepository) Summary(ctx context.Context, userID i
 			return nil, err
 		}
 		b.Available = b.Granted - b.Reserved - b.Consumed
-		if kind == "image" {
+		switch kind {
+		case "image":
 			s.Images = b
-		} else {
+		case "video":
 			s.Videos = b
+		case "audio":
+			b.Unit = "characters"
+			s.Audio = b
+		case "model3d":
+			b.Unit = "tasks"
+			s.Model3D = b
 		}
 	}
 	err = rows.Err()
@@ -356,13 +366,13 @@ func (r *organizationMediaQuotaRepository) Summary(ctx context.Context, userID i
 	if err != nil {
 		return nil, err
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT g.request_id,g.contract_ref,g.reason,g.effective_at,g.expires_at,COALESCE(SUM(l.amount) FILTER(WHERE l.kind='image'),0),COALESCE(SUM(l.amount) FILTER(WHERE l.kind='video'),0),g.version-1 FROM organization_media_grants g LEFT JOIN organization_media_lots l ON g.id=l.grant_id WHERE g.user_id=$1 GROUP BY g.id ORDER BY g.created_at DESC LIMIT 100`, userID)
+	rows, err = tx.QueryContext(ctx, `SELECT g.request_id,g.contract_ref,g.reason,g.effective_at,g.expires_at,COALESCE(SUM(l.amount) FILTER(WHERE l.kind='image'),0),COALESCE(SUM(l.amount) FILTER(WHERE l.kind='video'),0),COALESCE(SUM(l.amount) FILTER(WHERE l.kind='audio'),0),COALESCE(SUM(l.amount) FILTER(WHERE l.kind='model3d'),0),g.version-1 FROM organization_media_grants g LEFT JOIN organization_media_lots l ON g.id=l.grant_id WHERE g.user_id=$1 GROUP BY g.id ORDER BY g.created_at DESC LIMIT 100`, userID)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var g service.MediaQuotaGrant
-		if err = rows.Scan(&g.RequestID, &g.ContractRef, &g.Reason, &g.EffectiveAt, &g.ExpiresAt, &g.Images, &g.VideoSeconds, &g.ExpectedVersion); err != nil {
+		if err = rows.Scan(&g.RequestID, &g.ContractRef, &g.Reason, &g.EffectiveAt, &g.ExpiresAt, &g.Images, &g.VideoSeconds, &g.AudioCharacters, &g.Model3DTasks, &g.ExpectedVersion); err != nil {
 			rows.Close()
 			return nil, err
 		}

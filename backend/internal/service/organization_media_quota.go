@@ -23,14 +23,17 @@ type MediaQuotaGrant struct {
 	Reason          string    `json:"reason" binding:"required,max=500"`
 	Images          int64     `json:"images" binding:"gte=0,lte=1000000000"`
 	VideoSeconds    int64     `json:"video_seconds" binding:"gte=0,lte=1000000000"`
+	AudioCharacters int64     `json:"audio_characters,omitempty" binding:"gte=0,lte=1000000000"`
+	Model3DTasks    int64     `json:"model3d_tasks,omitempty" binding:"gte=0,lte=1000000000"`
 	EffectiveAt     time.Time `json:"effective_at" binding:"required"`
 	ExpiresAt       time.Time `json:"expires_at" binding:"required"`
 }
 type MediaQuotaBalance struct {
-	Granted   int64 `json:"granted"`
-	Reserved  int64 `json:"reserved"`
-	Consumed  int64 `json:"consumed"`
-	Available int64 `json:"available"`
+	Granted   int64  `json:"granted"`
+	Reserved  int64  `json:"reserved"`
+	Consumed  int64  `json:"consumed"`
+	Available int64  `json:"available"`
+	Unit      string `json:"unit,omitempty"`
 }
 type MediaQuotaReservation struct {
 	ID          int64      `json:"id"`
@@ -52,6 +55,8 @@ type MediaQuotaSummary struct {
 	Blocked    bool                    `json:"blocked"`
 	Images     MediaQuotaBalance       `json:"images"`
 	Videos     MediaQuotaBalance       `json:"videos"`
+	Audio      MediaQuotaBalance       `json:"audio"`
+	Model3D    MediaQuotaBalance       `json:"model3d"`
 	Grants     []MediaQuotaGrant       `json:"grants"`
 	Items      []MediaQuotaReservation `json:"items"`
 	HasMore    bool                    `json:"has_more"`
