@@ -87,7 +87,8 @@ No permanent isolated WindHub test runtime was identified in this repository.
 stack, without creating cloud resources. It has a distinct Compose project, fresh
 PostgreSQL/Redis/data volumes, loopback port 48381, and mandatory new test-only
 database/admin/JWT secrets. It never loads the production compose/env file. Pin
-the gateway image to the CI-verified, merged-main digest. The feature stays off.
+the gateway image to a validated, merged-main digest. Record which local and CI
+checks actually ran; absent CI runs are not passing checks. The feature stays off.
 The example admin email is an identifier, never a credential. Generate a fresh
 admin password and other test secrets in a root-readable-only environment file;
 do not put their values in logs, screenshots, release receipts or source control.

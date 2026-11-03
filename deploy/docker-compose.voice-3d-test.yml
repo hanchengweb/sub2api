@@ -2,7 +2,7 @@
 name: windhub-voice3d-test
 services:
   gateway:
-    image: ${WXM_VOICE3D_TEST_IMAGE:?Set an immutable CI-verified candidate image}
+    image: ${WXM_VOICE3D_TEST_IMAGE:?Set an immutable validated merged-main image}
     mem_limit: 512m
     cpus: 0.5
     pids_limit: 128
