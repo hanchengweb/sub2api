@@ -1051,6 +1051,8 @@ export default {
           chatCompletions: 'Chat Completions',
           embeddings: 'Embeddings',
           images: 'Images',
+          audio: '情感语音',
+          model3d: '3D 资产',
           gemini: 'Gemini 原生'
         },
         match: {

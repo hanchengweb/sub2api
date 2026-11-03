@@ -1054,6 +1054,8 @@ export default {
           chatCompletions: 'Chat Completions',
           embeddings: 'Embeddings',
           images: 'Images',
+          audio: 'Expressive Speech',
+          model3d: '3D Assets',
           gemini: 'Gemini Native'
         },
         match: {

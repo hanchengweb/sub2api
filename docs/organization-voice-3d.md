@@ -28,6 +28,12 @@ Bind an API-key account in that group with all of:
 | `seed-tts-2.0` | `volcengine_speech` | `https://openspeech.bytedance.com` | `seed-tts-2.0` |
 | `tripo-v3.1-standard` | `tripo` | `https://openapi.tripo3d.com/v3` | `v3.1-20260211` |
 
+Initialize these provider fields through the existing authenticated admin account
+API (`POST /api/v1/admin/accounts` or `PUT /api/v1/admin/accounts/:id`). Use
+`platform: openai`, `type: apikey`, and the organization's group ID. The account
+editor preserves this provider metadata and explicit mappings. Composite route
+editing and preview both expose the audio and 3D endpoints.
+
 Keep the supplier credential in the server's existing account secret storage as
 `credentials.api_key`. Speech uses `X-Api-Key` and resource `seed-tts-2.0`; it never
 reuses an Ark bearer. Tripo uses bearer authentication. A reseller host, wildcard
@@ -92,6 +98,9 @@ checks actually ran; absent CI runs are not passing checks. The feature stays of
 The example admin email is an identifier, never a credential. Generate a fresh
 admin password and other test secrets in a root-readable-only environment file;
 do not put their values in logs, screenshots, release receipts or source control.
+Generate each value independently with `secrets.token_hex(32)` and run Compose
+directly. Do not use deployment wrappers that print credentials; always set the
+admin password and JWT secret explicitly to avoid auto-generated secret logging.
 Gateway/PostgreSQL/Redis are capped at 512/512/128 MiB, 0.5/0.5/0.25 CPU and
 128/128/64 processes, with three 10 MiB log files per service. These are baseline
 disabled-feature test limits, not a capacity claim for concurrent 128 MiB assets.
