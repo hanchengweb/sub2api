@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/mediatasks"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/voiceassets"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -20,10 +21,15 @@ import (
 type OrganizationMediaTaskHandler struct {
 	engine  *mediatasks.Engine
 	enabled bool
+	voices  *voiceassets.Service
 }
 
-func NewOrganizationMediaTaskHandler(store mediatasks.Store, accounts service.AccountRepository, quota service.OrganizationMediaQuotaRepository, groups service.GroupRepository, composite *service.CompositeRouteResolver) *OrganizationMediaTaskHandler {
-	return &OrganizationMediaTaskHandler{engine: mediatasks.NewEngine(store, mediaTaskQuota{quota}, mediaTaskRoutes{accounts: accounts, groups: groups, composite: composite}, mediatasks.NewOfficialSupplier()), enabled: os.Getenv("WXM_OFFICIAL_MEDIA_ENABLED") == "true"}
+func NewOrganizationMediaTaskHandler(store mediatasks.Store, assets voiceassets.Store, accounts service.AccountRepository, quota service.OrganizationMediaQuotaRepository, groups service.GroupRepository, composite *service.CompositeRouteResolver) *OrganizationMediaTaskHandler {
+	routes := mediaTaskRoutes{accounts: accounts, groups: groups, composite: composite}
+	voices := &voiceassets.Service{Store: assets, Routes: routes, Supplier: voiceassets.NewOfficialSupplier()}
+	engine := mediatasks.NewEngine(store, mediaTaskQuota{quota}, routes, mediatasks.NewOfficialSupplier())
+	engine.VoiceAssets = voices
+	return &OrganizationMediaTaskHandler{engine: engine, voices: voices, enabled: os.Getenv("WXM_OFFICIAL_MEDIA_ENABLED") == "true"}
 }
 func mediaTaskError(c *gin.Context, err error) {
 	status, code, message := 503, "media_task_unavailable", "媒体任务暂时不可用，请稍后查询。"
@@ -67,7 +73,16 @@ func mediaTaskOwner(c *gin.Context) (mediatasks.Owner, bool) {
 		c.AbortWithStatusJSON(403, gin.H{"error": gin.H{"code": "API_KEY_EXPIRED", "message": "当前连接已过期，请重新连接。"}})
 		return mediatasks.Owner{}, false
 	}
-	return mediatasks.Owner{UserID: key.UserID, APIKeyID: key.ID, GroupID: *key.GroupID}, true
+	actor := strings.TrimSpace(c.GetHeader("X-WindHub-Actor"))
+	if actor != "" {
+		id, err := uuid.Parse(actor)
+		if err != nil || id == uuid.Nil {
+			mediaTaskError(c, mediatasks.ErrInvalid)
+			return mediatasks.Owner{}, false
+		}
+		actor = id.String()
+	}
+	return mediatasks.Owner{UserID: key.UserID, APIKeyID: key.ID, GroupID: *key.GroupID, ActorID: actor}, true
 }
 func (h *OrganizationMediaTaskHandler) Create(kind string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -138,7 +153,7 @@ func (h *OrganizationMediaTaskHandler) Models(c *gin.Context) {
 		return
 	}
 	entries := make([]gin.H, 0, 2)
-	for _, row := range []struct{ kind, model, provider string }{{mediatasks.Audio, mediatasks.SpeechModel, "volcengine_speech"}, {mediatasks.Model3D, mediatasks.TripoModel, "tripo"}} {
+	for _, row := range []struct{ kind, model, provider string }{{mediatasks.Audio, mediatasks.SpeechModel, "volcengine_speech"}, {mediatasks.Audio, mediatasks.CloneModel, "volcengine_speech"}, {mediatasks.Model3D, mediatasks.TripoModel, "tripo"}} {
 		_, err := h.engine.Routes.Resolve(c.Request.Context(), o, row.kind, row.model)
 		available := h.enabled && err == nil
 		entry := gin.H{"id": row.model, "kind": row.kind, "provider": row.provider, "available": available}
@@ -229,6 +244,9 @@ func (r mediaTaskRoutes) allowed(ctx context.Context, o mediatasks.Owner, kind, 
 		return false
 	}
 	native := mediatasks.SpeechModel
+	if model == mediatasks.CloneModel {
+		native = mediatasks.CloneModel
+	}
 	if kind == mediatasks.Model3D {
 		native = mediatasks.TripoNativeModel
 	}
@@ -237,6 +255,9 @@ func (r mediaTaskRoutes) allowed(ctx context.Context, o mediatasks.Owner, kind, 
 
 func mediaTaskAccount(a service.Account, kind, model string) bool {
 	expectedBase, provider, native := "https://openspeech.bytedance.com", "volcengine_speech", mediatasks.SpeechModel
+	if model == mediatasks.CloneModel {
+		native = mediatasks.CloneModel
+	}
 	if kind == mediatasks.Model3D {
 		expectedBase, provider, native = "https://openapi.tripo3d.com/v3", "tripo", mediatasks.TripoNativeModel
 	}
@@ -278,7 +299,7 @@ func (r mediaTaskRoutes) Resolve(ctx context.Context, o mediatasks.Owner, kind, 
 	return mediatasks.Provider{}, mediatasks.ErrRoute
 }
 func (r mediaTaskRoutes) Reopen(ctx context.Context, o mediatasks.Owner, t *mediatasks.Task) (mediatasks.Provider, error) {
-	if o.UserID != t.Owner.UserID {
+	if o.UserID != t.Owner.UserID || o.ActorID != t.Owner.ActorID {
 		return mediatasks.Provider{}, mediatasks.ErrNotFound
 	}
 	accounts, err := r.accounts.ListByGroup(ctx, t.Owner.GroupID)

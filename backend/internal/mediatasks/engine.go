@@ -10,11 +10,12 @@ import (
 )
 
 type Engine struct {
-	Store    Store
-	Quota    Quota
-	Routes   Routes
-	Supplier Supplier
-	slots    chan struct{}
+	Store       Store
+	Quota       Quota
+	Routes      Routes
+	Supplier    Supplier
+	VoiceAssets VoiceAssetResolver
+	slots       chan struct{}
 }
 
 func NewEngine(store Store, quota Quota, routes Routes, supplier Supplier) *Engine {
@@ -35,7 +36,15 @@ func (e *Engine) Create(ctx context.Context, o Owner, kind, requestID string, r 
 	if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
-	p, err := e.Routes.Resolve(ctx, o, kind, r.Model)
+	var p Provider
+	if r.VoiceAssetID != "" {
+		if e.VoiceAssets == nil || o.ActorID == "" {
+			return nil, ErrNotFound
+		}
+		r, p, err = e.VoiceAssets.ResolveVoiceAsset(ctx, o, r)
+	} else {
+		p, err = e.Routes.Resolve(ctx, o, kind, r.Model)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +64,9 @@ func (e *Engine) Create(ctx context.Context, o Owner, kind, requestID string, r 
 		return nil, ErrUnavailable
 	}
 	quotaID := fmt.Sprintf("%s:%s", kind, requestID)
+	if o.ActorID != "" {
+		quotaID = fmt.Sprintf("%s:%s:%s", kind, o.ActorID, requestID)
+	}
 	if err = e.Quota.Reserve(ctx, o, quotaID, digest, kind, r.Model, units); err != nil {
 		return nil, err
 	}

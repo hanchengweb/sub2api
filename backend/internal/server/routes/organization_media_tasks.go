@@ -13,6 +13,15 @@ func registerOrganizationMediaTasks(r *gin.Engine, h *handler.OrganizationMediaT
 	}
 	own := r.Group("/v1", middleware.RequestBodyLimit(32<<10), gin.HandlerFunc(auth))
 	own.GET("/media/models", h.Models)
+	own.GET("/voice-assets/catalog", h.VoiceAssetCatalog)
+	own.GET("/voice-assets", h.VoiceAssetsList)
+	own.POST("/voice-assets", h.VoiceAssetCreate)
+	own.GET("/voice-assets/:id", h.VoiceAssetGet)
+	own.PATCH("/voice-assets/:id", h.VoiceAssetPatch)
+	own.DELETE("/voice-assets/:id", h.VoiceAssetDelete)
+	own.POST("/voice-assets/:id/refresh", h.VoiceAssetRefresh)
+	// Uploads have a separate bounded body; ordinary task JSON stays at 32 KiB.
+	r.POST("/v1/voice-assets/clone", middleware.RequestBodyLimit((8<<20)+(16<<10)), gin.HandlerFunc(auth), h.VoiceAssetClone)
 	for _, kind := range []string{mediatasks.Audio, mediatasks.Model3D} {
 		own.POST("/"+kind+"/generations", h.Create(kind))
 		own.GET("/"+kind+"/:id", h.Get(kind))

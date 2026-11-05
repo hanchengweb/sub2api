@@ -13,6 +13,7 @@ const (
 	Audio            = "audio"
 	Model3D          = "model3d"
 	SpeechModel      = "seed-tts-2.0"
+	CloneModel       = "seed-icl-2.0"
 	TripoModel       = "tripo-v3.1-standard"
 	TripoNativeModel = "v3.1-20260211"
 	MaxAudioBytes    = 16 << 20
@@ -31,11 +32,17 @@ var (
 	ErrImageUnavailable = errors.New("model3d_image_unavailable")
 )
 
-type Owner struct{ UserID, APIKeyID, GroupID int64 }
+type Owner struct {
+	UserID, APIKeyID, GroupID int64
+	ActorID                   string
+}
 type Request struct {
 	Model          string          `json:"model"`
 	Input          string          `json:"input,omitempty"`
 	Voice          string          `json:"voice,omitempty"`
+	VoiceAssetID   string          `json:"voice_asset_id,omitempty"`
+	ResolvedVoice  string          `json:"-"`
+	ResourceID     string          `json:"-"`
 	Scene          string          `json:"scene,omitempty"`
 	Emotion        string          `json:"emotion,omitempty"`
 	Instruction    string          `json:"instruction,omitempty"`
@@ -113,6 +120,9 @@ type Provider struct {
 type Routes interface {
 	Resolve(context.Context, Owner, string, string) (Provider, error)
 	Reopen(context.Context, Owner, *Task) (Provider, error)
+}
+type VoiceAssetResolver interface {
+	ResolveVoiceAsset(context.Context, Owner, Request) (Request, Provider, error)
 }
 type Outcome struct {
 	Status, ProviderID, ContentType, ErrorCode string

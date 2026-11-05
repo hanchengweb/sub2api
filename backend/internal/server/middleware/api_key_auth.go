@@ -346,6 +346,15 @@ func isSpeechRequest(method, route string) bool {
 // Organization-only handlers enforce the hard quantity contract independently
 // of personal money/token balances. Match registered routes exactly.
 func isOrganizationMediaTaskRequest(method, route string) bool {
+	if method == http.MethodGet && (route == "/v1/voice-assets" || route == "/v1/voice-assets/catalog" || route == "/v1/voice-assets/:id") {
+		return true
+	}
+	if method == http.MethodPost && (route == "/v1/voice-assets" || route == "/v1/voice-assets/clone" || route == "/v1/voice-assets/:id/refresh") {
+		return true
+	}
+	if (method == http.MethodPatch || method == http.MethodDelete) && route == "/v1/voice-assets/:id" {
+		return true
+	}
 	if method == http.MethodGet && route == "/v1/media/models" {
 		return true
 	}

@@ -82,10 +82,18 @@ func (s *OfficialSupplier) Submit(ctx context.Context, p Provider, o Owner, requ
 }
 func (s *OfficialSupplier) speech(ctx context.Context, p Provider, o Owner, requestID string, r Request) Outcome {
 	additions, _ := json.Marshal(map[string]any{"context_texts": []string{ContextTexts(r)}})
-	body, _ := json.Marshal(map[string]any{"user": map[string]string{"uid": fmt.Sprintf("org-%d", o.UserID)}, "req_params": map[string]any{"text": r.Input, "speaker": r.Voice, "audio_params": map[string]any{"format": "mp3", "sample_rate": 24000, "speech_rate": (r.Speed - 1) * 100}, "additions": string(additions)}})
+	voice, resource := r.Voice, SpeechModel
+	if r.VoiceAssetID != "" {
+		voice, resource = r.ResolvedVoice, r.ResourceID
+	}
+	params := map[string]any{"text": r.Input, "speaker": voice, "audio_params": map[string]any{"format": "mp3", "sample_rate": 24000, "speech_rate": (r.Speed - 1) * 100}, "additions": string(additions)}
+	if resource == CloneModel {
+		params["model"] = "seed-tts-2.0-expressive"
+	}
+	body, _ := json.Marshal(map[string]any{"user": map[string]string{"uid": fmt.Sprintf("org-%d", o.UserID)}, "req_params": params})
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse", bytes.NewReader(body))
 	req.Header.Set("X-Api-Key", p.Key)
-	req.Header.Set("X-Api-Resource-Id", SpeechModel)
+	req.Header.Set("X-Api-Resource-Id", resource)
 	req.Header.Set("X-Api-Request-Id", requestID)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := s.Client.Do(req)
