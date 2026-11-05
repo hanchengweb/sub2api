@@ -74,6 +74,27 @@ func TestOrganizationMediaOfficialRoutesNeverSelectReseller(t *testing.T) {
 		require.ErrorIs(t, err, mediatasks.ErrCredentials)
 	}
 }
+func TestCloneSlotsRequireExplicitPublishedModelAndPrepaidAllowList(t *testing.T) {
+	a := nativeMediaAccount(mediatasks.Audio)
+	a.Extra["voice_clone_speaker_ids"] = []string{"S_prepaid", "custom_speaker_id", "https://example.invalid/voice"}
+	repo := &mediaTaskAccountRepoFixture{accounts: []service.Account{a}}
+	r := mediaTaskRoutes{accounts: repo, groups: mediaTaskGroupRepoFixture{group: publishedMediaGroup(mediatasks.SpeechModel)}}
+	o := mediatasks.Owner{UserID: 1, GroupID: 7}
+	_, err := r.CloneSlots(context.Background(), o)
+	require.ErrorIs(t, err, mediatasks.ErrRoute)
+	a.Credentials["model_mapping"] = map[string]any{mediatasks.CloneModel: mediatasks.CloneModel}
+	repo.accounts = []service.Account{a}
+	r.groups = mediaTaskGroupRepoFixture{group: publishedMediaGroup(mediatasks.CloneModel)}
+	slots, err := r.CloneSlots(context.Background(), o)
+	require.NoError(t, err)
+	require.Len(t, slots, 1)
+	require.Equal(t, "S_prepaid", slots[0].SpeakerID)
+	a.Credentials["base_url"] = "https://toapis.cn/v1"
+	repo.accounts = []service.Account{a}
+	slots, err = r.CloneSlots(context.Background(), o)
+	require.NoError(t, err)
+	require.Empty(t, slots)
+}
 func TestOrganizationMediaReopenUsesOriginalAccountAndGroup(t *testing.T) {
 	repo := &mediaTaskAccountRepoFixture{accounts: []service.Account{nativeMediaAccount(mediatasks.Model3D)}}
 	routes := mediaTaskRoutes{accounts: repo}

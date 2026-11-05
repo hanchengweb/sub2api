@@ -78,6 +78,36 @@ func TestSpeechV2ProtocolAndTerminalReceipt(t *testing.T) {
 		t.Fatal(out.Status, string(out.ProviderUsage))
 	}
 }
+func TestCloneSynthesisPinsResourceSpeakerAndExpressiveInstructions(t *testing.T) {
+	r, units, _, err := Normalize(Audio, Request{Model: CloneModel, Input: "你好", VoiceAssetID: "123e4567-e89b-42d3-a456-426614174000", Scene: "teaching", Emotion: "tender", Speed: 1})
+	if err != nil || units != 2 {
+		t.Fatal(err, units)
+	}
+	r.ResolvedVoice, r.ResourceID = "S_private", CloneModel
+	s := &OfficialSupplier{Client: fixtureClient(func(req *http.Request) (*http.Response, error) {
+		if req.Header.Get("X-Api-Resource-Id") != CloneModel {
+			t.Fatal("wrong clone resource")
+		}
+		var body map[string]any
+		if json.NewDecoder(req.Body).Decode(&body) != nil {
+			t.Fatal("body")
+		}
+		p := body["req_params"].(map[string]any)
+		if p["speaker"] != "S_private" || p["model"] != "seed-tts-2.0-expressive" {
+			t.Fatal(p)
+		}
+		if _, ok := p["additions"].(string); !ok {
+			t.Fatal("additions must be string")
+		}
+		return response(400, `{}`), nil
+	})}
+	s.Submit(context.Background(), Provider{Kind: Audio, Key: "fixture"}, Owner{UserID: 7}, "request", r)
+	for _, bad := range []Request{{Model: CloneModel, Input: "你好", Voice: "S_private", Speed: 1}, {Model: CloneModel, Input: "你好", VoiceAssetID: r.VoiceAssetID, Voice: Voices[0].ID, Speed: 1}, {Model: SpeechModel, Input: "你好", VoiceAssetID: "bad", Speed: 1}} {
+		if _, _, _, e := Normalize(Audio, bad); e == nil {
+			t.Fatal("accepted unowned/raw/conflicting clone")
+		}
+	}
+}
 func TestSpeechPartialInvalidAndOversizeNeverSettle(t *testing.T) {
 	for _, body := range []string{"data: {\"code\":0,\"data\":\"" + base64.StdEncoding.EncodeToString(testMP3()) + "\"}\n", "data: {\"code\":20000000}\n", "data: {\"code\":0,\"data\":\"SUQzZ2FyYmFnZQ==\"}\ndata: {\"code\":20000000}\n", "data: {\"code\":0,\"data\":\"bad%%\"}\n"} {
 		out := ParseSpeechSSE(strings.NewReader(body))

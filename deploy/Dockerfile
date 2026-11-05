@@ -125,9 +125,9 @@ LABEL org.opencontainers.image.source="https://github.com/hanchengweb/sub2api"
 # 镜像站临时故障时还原默认源重试，不让换源本身成为新的单点。
 RUN cp /etc/apk/repositories /etc/apk/repositories.bak \
     && sed -i 's#https://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories \
-    && (apk add --no-cache ca-certificates tzdata curl su-exec \
+    && (apk add --no-cache ca-certificates tzdata curl su-exec ffmpeg \
         || (cp /etc/apk/repositories.bak /etc/apk/repositories \
-            && apk add --no-cache ca-certificates tzdata curl su-exec)) \
+            && apk add --no-cache ca-certificates tzdata curl su-exec ffmpeg)) \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user

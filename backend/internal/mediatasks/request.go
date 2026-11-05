@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 type Choice struct {
@@ -45,10 +47,16 @@ func Normalize(kind string, r Request) (Request, int64, string, error) {
 	switch kind {
 	case Audio:
 		r.Input, r.Instruction = strings.TrimSpace(r.Input), strings.TrimSpace(r.Instruction)
-		if r.Model != SpeechModel || r.Prompt != "" || len(r.Image) > 0 || !plain(r.Input) || !plain(r.Instruction) || utf8.RuneCountInString(r.Input) < 1 || utf8.RuneCountInString(r.Input) > 2000 || utf8.RuneCountInString(r.Instruction) > 300 {
+		if (r.Model != SpeechModel && !(r.Model == CloneModel && r.VoiceAssetID != "")) || r.Prompt != "" || len(r.Image) > 0 || !plain(r.Input) || !plain(r.Instruction) || utf8.RuneCountInString(r.Input) < 1 || utf8.RuneCountInString(r.Input) > 2000 || utf8.RuneCountInString(r.Instruction) > 300 {
 			return r, 0, "", ErrInvalid
 		}
-		if r.Voice == "" {
+		if r.VoiceAssetID != "" {
+			id, err := uuid.Parse(r.VoiceAssetID)
+			if err != nil || id == uuid.Nil || r.Voice != "" {
+				return r, 0, "", ErrInvalid
+			}
+			r.VoiceAssetID = id.String()
+		} else if r.Voice == "" {
 			r.Voice = Voices[0].ID
 		}
 		if r.Scene == "" {
@@ -60,7 +68,7 @@ func Normalize(kind string, r Request) (Request, int64, string, error) {
 		if r.ResponseFormat == "" {
 			r.ResponseFormat = "mp3"
 		}
-		if !inChoices(r.Voice, Voices) || !inChoices(r.Scene, Scenes) || !inChoices(r.Emotion, Emotions) || math.IsNaN(r.Speed) || math.IsInf(r.Speed, 0) || r.Speed < 0.5 || r.Speed > 2 || r.ResponseFormat != "mp3" {
+		if (r.VoiceAssetID == "" && !inChoices(r.Voice, Voices)) || !inChoices(r.Scene, Scenes) || !inChoices(r.Emotion, Emotions) || math.IsNaN(r.Speed) || math.IsInf(r.Speed, 0) || r.Speed < 0.5 || r.Speed > 2 || r.ResponseFormat != "mp3" {
 			return r, 0, "", ErrInvalid
 		}
 		units = int64(utf8.RuneCountInString(r.Input))
@@ -69,7 +77,7 @@ func Normalize(kind string, r Request) (Request, int64, string, error) {
 			return r, 0, "", ErrImageUnavailable
 		}
 		r.Prompt = strings.TrimSpace(r.Prompt)
-		if r.Model != TripoModel || !plain(r.Prompt) || utf8.RuneCountInString(r.Prompt) < 1 || utf8.RuneCountInString(r.Prompt) > 1024 || r.Input != "" || r.Voice != "" || r.Scene != "" || r.Emotion != "" || r.Instruction != "" || r.Speed != 0 || r.ResponseFormat != "" {
+		if r.Model != TripoModel || !plain(r.Prompt) || utf8.RuneCountInString(r.Prompt) < 1 || utf8.RuneCountInString(r.Prompt) > 1024 || r.Input != "" || r.Voice != "" || r.VoiceAssetID != "" || r.Scene != "" || r.Emotion != "" || r.Instruction != "" || r.Speed != 0 || r.ResponseFormat != "" {
 			return r, 0, "", ErrInvalid
 		}
 		units = 1
