@@ -63,6 +63,20 @@ func TestToUserSupportedModels_NilAllowedPlatformsKeepsAll(t *testing.T) {
 	require.Len(t, toUserSupportedModels(src, nil), 2)
 }
 
+func TestImageCacheUserPricingPreservesPriceAndZero(t *testing.T) {
+	for _, price := range []float64{.0016, 0} {
+		pricing := toUserPricing(&service.ChannelModelPricing{ImageCacheReadPrice: &price})
+		require.NotNil(t, pricing.ImageCacheReadPrice)
+		require.Equal(t, price, *pricing.ImageCacheReadPrice)
+		raw, err := json.Marshal(pricing)
+		require.NoError(t, err)
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &fields))
+		require.NotEmpty(t, fields["image_cache_read_price"])
+	}
+	require.Nil(t, toUserPricing(&service.ChannelModelPricing{}).ImageCacheReadPrice)
+}
+
 func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	// 通过序列化 userAvailableChannel 结构体验证响应形状：
 	// 只有 name / description / platforms；不含管理端字段。

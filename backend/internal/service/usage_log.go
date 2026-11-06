@@ -102,6 +102,10 @@ func ApplyLegacyRequestFields(requestType RequestType, fallbackStream bool, fall
 }
 
 type UsageLog struct {
+	CacheReadImageTokens      int
+	CacheReadImageTokensKnown bool
+	CacheReadImageCost        float64
+
 	ID        int64
 	UserID    int64
 	APIKeyID  int64

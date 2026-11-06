@@ -596,6 +596,7 @@ export default {
       outputPrice: '输出',
       cacheWritePrice: '缓存写入',
       cacheReadPrice: '缓存读取',
+      imageCacheReadPrice: '缓存图片输入',
       imageInputPrice: '图片输入',
       imageOutputPrice: '图片输出',
       perRequestPrice: '每次请求',
@@ -668,6 +669,12 @@ export default {
       unitPerSecond: '积分 / 秒'
     },
     table: {
+      tokenTextInput: '文本输入',
+      tokenCachedTextInput: '缓存文本输入',
+      tokenImageInput: '图片输入',
+      tokenCachedImageInput: '缓存图片输入',
+      tokenImageOutput: '图片输出',
+      unitPerMillionTokens: '积分 / 百万 token',
       specification: '规格档位',
       billingUnit: '计费单位',
       cacheWriteFull: '缓存写入',

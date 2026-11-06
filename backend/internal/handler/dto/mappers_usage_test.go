@@ -139,18 +139,21 @@ func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *test
 	accountRateMultiplier := 1.5
 	accountStatsCost := 0.21
 	log := &service.UsageLog{
-		RequestID:             "req_user_visible_billing",
-		Model:                 "gpt-5.4",
-		InputCost:             0.01,
-		OutputCost:            0.02,
-		CacheCreationCost:     0.03,
-		CacheReadCost:         0.04,
-		TotalCost:             0.10,
-		ActualCost:            0.08,
-		RateMultiplier:        0.8,
-		IPAddress:             &ipAddress,
-		AccountRateMultiplier: &accountRateMultiplier,
-		AccountStatsCost:      &accountStatsCost,
+		RequestID:                 "req_user_visible_billing",
+		Model:                     "gpt-5.4",
+		InputCost:                 0.01,
+		OutputCost:                0.02,
+		CacheCreationCost:         0.03,
+		CacheReadCost:             0.04,
+		CacheReadImageTokens:      30,
+		CacheReadImageTokensKnown: true,
+		CacheReadImageCost:        0.015,
+		TotalCost:                 0.10,
+		ActualCost:                0.08,
+		RateMultiplier:            0.8,
+		IPAddress:                 &ipAddress,
+		AccountRateMultiplier:     &accountRateMultiplier,
+		AccountStatsCost:          &accountStatsCost,
 	}
 
 	userDTO := UsageLogFromService(log)
@@ -158,6 +161,9 @@ func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *test
 	require.Equal(t, 0.02, userDTO.OutputCost)
 	require.Equal(t, 0.03, userDTO.CacheCreationCost)
 	require.Equal(t, 0.04, userDTO.CacheReadCost)
+	require.Equal(t, 30, userDTO.CacheReadImageTokens)
+	require.True(t, userDTO.CacheReadImageTokensKnown)
+	require.Equal(t, 0.015, userDTO.CacheReadImageCost)
 	require.Equal(t, 0.10, userDTO.TotalCost)
 	require.Equal(t, 0.08, userDTO.ActualCost)
 	require.Equal(t, 0.8, userDTO.RateMultiplier)

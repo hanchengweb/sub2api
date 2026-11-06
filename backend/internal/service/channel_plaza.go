@@ -71,7 +71,7 @@ func (p *ChannelModelPricing) userFacingPricingKey() string {
 	b.WriteByte('|')
 	for _, f := range []*float64{
 		p.InputPrice, p.OutputPrice, p.CacheWritePrice, p.CacheReadPrice,
-		p.ImageInputPrice, p.ImageOutputPrice, p.PerRequestPrice,
+		p.ImageInputPrice, p.ImageCacheReadPrice, p.ImageOutputPrice, p.PerRequestPrice,
 	} {
 		num(f)
 	}

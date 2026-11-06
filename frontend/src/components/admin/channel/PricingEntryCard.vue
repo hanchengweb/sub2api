@@ -101,7 +101,7 @@
             {{ t('admin.channels.form.defaultPrices') }}
             <span class="ml-1 font-normal text-gray-400">{{ t('common.creditUnit') }}/MTok</span>
           </label>
-          <div class="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-6">
+          <div class="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div>
               <label class="text-xs text-gray-400">{{ t('admin.channels.form.inputPrice') }}</label>
               <input :value="entry.input_price" @input="emitField('input_price', ($event.target as HTMLInputElement).value)"
@@ -126,6 +126,12 @@
               <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageInputPrice') }}</label>
               <input :value="entry.image_input_price" @input="emitField('image_input_price', ($event.target as HTMLInputElement).value)"
                 type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+            </div>
+            <div>
+              <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageCacheReadPrice') }}</label>
+              <input :value="entry.image_cache_read_price" @input="emitField('image_cache_read_price', ($event.target as HTMLInputElement).value)"
+                :aria-label="t('admin.channels.form.imageCacheReadPrice')" type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+              <span v-if="yuanHint(entry.image_cache_read_price)" class="text-xs text-gray-400">{{ yuanHint(entry.image_cache_read_price) }}</span>
             </div>
             <div>
               <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageTokenPrice') }}</label>
@@ -321,7 +327,8 @@ async function onModelsUpdate(newModels: string[]) {
   // 检查是否所有价格字段都为空
   const e = props.entry
   const hasPrice = e.input_price != null || e.output_price != null ||
-                   e.cache_write_price != null || e.cache_read_price != null
+                   e.cache_write_price != null || e.cache_read_price != null ||
+                   e.image_input_price != null || e.image_cache_read_price != null || e.image_output_price != null
   if (hasPrice) return
 
   // 查询第一个新增模型的默认价格
@@ -336,6 +343,7 @@ async function onModelsUpdate(newModels: string[]) {
         cache_write_price: perTokenToMTok(result.cache_write_price ?? null),
         cache_read_price: perTokenToMTok(result.cache_read_price ?? null),
         image_input_price: perTokenToMTok(result.image_input_price ?? null),
+        image_cache_read_price: perTokenToMTok(result.image_cache_read_price ?? null),
         image_output_price: perTokenToMTok(result.image_output_price ?? null),
       })
     }

@@ -155,6 +155,8 @@ func agentCostFieldValue(row *ChannelModelPricing, field string) *float64 {
 		return row.CacheReadPrice
 	case "image_input":
 		return row.ImageInputPrice
+	case "image_cache_read":
+		return row.ImageCacheReadPrice
 	case "image_output":
 		return row.ImageOutputPrice
 	case "per_request":
@@ -310,6 +312,7 @@ func cloneChannelModelPricing(src *ChannelModelPricing) ChannelModelPricing {
 	out.CacheWritePrice = clonePriceValue(src.CacheWritePrice)
 	out.CacheReadPrice = clonePriceValue(src.CacheReadPrice)
 	out.ImageInputPrice = clonePriceValue(src.ImageInputPrice)
+	out.ImageCacheReadPrice = clonePriceValue(src.ImageCacheReadPrice)
 	out.ImageOutputPrice = clonePriceValue(src.ImageOutputPrice)
 	out.PerRequestPrice = clonePriceValue(src.PerRequestPrice)
 
@@ -361,6 +364,7 @@ func agentPricedFields(row *ChannelModelPricing, category string) []agentPricedF
 			agentPricedField{name: "cache_write", value: row.CacheWritePrice, model: model},
 			agentPricedField{name: "cache_read", value: row.CacheReadPrice, model: model},
 			agentPricedField{name: "image_input", value: row.ImageInputPrice, model: model},
+			agentPricedField{name: "image_cache_read", value: row.ImageCacheReadPrice, model: model},
 			agentPricedField{name: "image_output", value: row.ImageOutputPrice, model: model},
 		)
 	} else {

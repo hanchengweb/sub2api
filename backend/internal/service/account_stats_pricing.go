@@ -231,11 +231,14 @@ func calculateTokenStatsCost(pricing *ChannelModelPricing, tokens UsageTokens) *
 		totalTokens := tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
 		if iv := FindMatchingInterval(pricing.Intervals, totalTokens); iv != nil {
 			p = &ChannelModelPricing{
-				InputPrice:      iv.InputPrice,
-				OutputPrice:     iv.OutputPrice,
-				CacheWritePrice: iv.CacheWritePrice,
-				CacheReadPrice:  iv.CacheReadPrice,
-				PerRequestPrice: iv.PerRequestPrice,
+				InputPrice:          iv.InputPrice,
+				OutputPrice:         iv.OutputPrice,
+				CacheWritePrice:     iv.CacheWritePrice,
+				CacheReadPrice:      iv.CacheReadPrice,
+				ImageInputPrice:     pricing.ImageInputPrice,
+				ImageCacheReadPrice: pricing.ImageCacheReadPrice,
+				ImageOutputPrice:    pricing.ImageOutputPrice,
+				PerRequestPrice:     iv.PerRequestPrice,
 			}
 		}
 	}
@@ -244,6 +247,25 @@ func calculateTokenStatsCost(pricing *ChannelModelPricing, tokens UsageTokens) *
 			return 0
 		}
 		return *ptr
+	}
+	if p.ImageCacheReadPrice != nil {
+		// Independent image-cache pricing opts in to the same mutually exclusive
+		// token buckets as customer billing. Existing unsplit cost rules retain
+		// their legacy interpretation.
+		modelPricing := &ModelPricing{
+			InputPricePerToken:         deref(p.InputPrice),
+			OutputPricePerToken:        deref(p.OutputPrice),
+			CacheCreationPricePerToken: deref(p.CacheWritePrice),
+			CacheReadPricePerToken:     deref(p.CacheReadPrice),
+			ImageOutputPricePerToken:   deref(p.ImageOutputPrice),
+			ImageOutputPriceExplicit:   p.ImageOutputPrice != nil,
+		}
+		applyChannelImageInputPrice(p, modelPricing)
+		cost := (&BillingService{}).computeTokenBreakdown(modelPricing, tokens, 1, "", false).TotalCost
+		if cost <= 0 {
+			return nil
+		}
+		return &cost
 	}
 	cost := float64(tokens.InputTokens)*deref(p.InputPrice) +
 		float64(tokens.OutputTokens)*deref(p.OutputPrice) +

@@ -175,6 +175,9 @@ func (UsageLog) Fields() []ent.Field {
 			Default(time.Now).
 			Immutable().
 			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		// Append-only descriptors preserve the checked-in Ent runtime field indices.
+		field.Int("cache_read_image_tokens").Optional().Nillable(),
+		field.Float("cache_read_image_cost").Default(0).SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 	}
 }
 

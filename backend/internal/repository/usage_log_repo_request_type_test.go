@@ -97,6 +97,8 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
 			sqlmock.AnyArg(), // session_id
+			nil,              // cache_read_image_tokens (unknown)
+			0.0,              // cache_read_image_cost
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
@@ -187,6 +189,8 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
 			sqlmock.AnyArg(), // session_id
+			nil,              // cache_read_image_tokens (unknown)
+			0.0,              // cache_read_image_cost
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
@@ -831,6 +835,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullTime{},
 			sql.NullFloat64{},
+			sql.NullInt64{}, // cache_read_image_tokens (unknown)
+			0.0,             // cache_read_image_cost
 			now,
 		}})
 		require.NoError(t, err)
@@ -908,6 +914,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // session_id
 			sql.NullTime{},    // refunded_at
 			sql.NullFloat64{}, // refunded_credits
+			sql.NullInt64{},   // cache_read_image_tokens (unknown)
+			0.0,               // cache_read_image_cost
 			now,
 		}})
 		require.NoError(t, err)
@@ -968,6 +976,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // session_id
 			sql.NullTime{},    // refunded_at
 			sql.NullFloat64{}, // refunded_credits
+			sql.NullInt64{},   // cache_read_image_tokens (unknown)
+			0.0,               // cache_read_image_cost
 			now,
 		}})
 		require.NoError(t, err)
@@ -1028,6 +1038,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // session_id
 			sql.NullTime{},    // refunded_at
 			sql.NullFloat64{}, // refunded_credits
+			sql.NullInt64{},   // cache_read_image_tokens (unknown)
+			0.0,               // cache_read_image_cost
 			now,
 		}})
 		require.NoError(t, err)

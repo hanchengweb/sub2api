@@ -90,6 +90,8 @@ type BillingCache interface {
 
 // ModelPricing 模型价格配置（per-token价格，与LiteLLM格式一致）
 type ModelPricing struct {
+	ImageCacheReadPricePerToken *float64 // nil preserves the legacy cache-read rate; explicit zero is free
+
 	InputPricePerToken                 float64 // 每token输入价格 (USD)
 	InputPricePerTokenPriority         float64 // priority service tier 下每token输入价格 (USD)
 	ImageInputPricePerToken            float64 // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
@@ -141,6 +143,8 @@ func serviceTierCostMultiplier(serviceTier string) float64 {
 
 // UsageTokens 使用的token数量
 type UsageTokens struct {
+	CacheReadImageTokens int // subset of CacheReadTokens, never added again to token totals
+
 	InputTokens           int
 	ImageInputTokens      int
 	OutputTokens          int
@@ -153,6 +157,8 @@ type UsageTokens struct {
 
 // CostBreakdown 费用明细
 type CostBreakdown struct {
+	CacheReadImageCost float64 // subset of CacheReadCost, never added again to TotalCost
+
 	InputCost                 float64 // 文本输入费用（不含图片输入，图片输入单独记入 ImageInputCost）
 	ImageInputCost            float64 // 图片输入 token 费用（如 gpt-image-2 图片编辑）
 	OutputCost                float64
@@ -1056,7 +1062,16 @@ func (s *BillingService) computeTokenBreakdown(
 	// 缓存创建费用
 	bd.CacheCreationCost = s.computeCacheCreationCost(pricing, tokens, cacheCreationPrice, cacheCreationMultiplier)
 
-	bd.CacheReadCost = float64(tokens.CacheReadTokens) * cacheReadPrice
+	imageCached := min(max(tokens.CacheReadImageTokens, 0), max(tokens.CacheReadTokens, 0))
+	imageCachePrice := cacheReadPrice
+	if pricing.ImageCacheReadPricePerToken != nil {
+		imageCachePrice = *pricing.ImageCacheReadPricePerToken
+		if longContextPricingEligible {
+			imageCachePrice *= pricing.LongContextInputMultiplier
+		}
+	}
+	bd.CacheReadImageCost = float64(imageCached) * imageCachePrice
+	bd.CacheReadCost = float64(max(tokens.CacheReadTokens-imageCached, 0))*cacheReadPrice + bd.CacheReadImageCost
 
 	if tierMultiplier != 1.0 {
 		bd.InputCost *= tierMultiplier
@@ -1065,6 +1080,7 @@ func (s *BillingService) computeTokenBreakdown(
 		bd.ImageOutputCost *= tierMultiplier
 		bd.CacheCreationCost *= tierMultiplier
 		bd.CacheReadCost *= tierMultiplier
+		bd.CacheReadImageCost *= tierMultiplier
 	}
 
 	bd.TotalCost = bd.InputCost + bd.ImageInputCost + bd.OutputCost + bd.ImageOutputCost +
@@ -1273,6 +1289,8 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 		OutputTokens:          tokens.OutputTokens, // 输出只算一次
 		CacheCreationTokens:   tokens.CacheCreationTokens,
 		CacheReadTokens:       inRangeCacheTokens,
+		CacheReadImageTokens:  min(tokens.CacheReadImageTokens, inRangeCacheTokens),
+		ImageInputTokens:      min(tokens.ImageInputTokens, inRangeInputTokens),
 		CacheCreation5mTokens: tokens.CacheCreation5mTokens,
 		CacheCreation1hTokens: tokens.CacheCreation1hTokens,
 		ImageOutputTokens:     tokens.ImageOutputTokens,
@@ -1284,8 +1302,10 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 
 	// 范围外部分：× extraMultiplier 计费
 	outRangeTokens := UsageTokens{
-		InputTokens:     outRangeInputTokens,
-		CacheReadTokens: outRangeCacheTokens,
+		InputTokens:          outRangeInputTokens,
+		CacheReadTokens:      outRangeCacheTokens,
+		CacheReadImageTokens: max(tokens.CacheReadImageTokens-inRangeCacheTokens, 0),
+		ImageInputTokens:     max(tokens.ImageInputTokens-inRangeInputTokens, 0),
 	}
 	outRangeCost, err := s.CalculateCost(model, outRangeTokens, rateMultiplier*extraMultiplier)
 	if err != nil {
@@ -1300,6 +1320,7 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 		ImageOutputCost:           inRangeCost.ImageOutputCost,
 		CacheCreationCost:         inRangeCost.CacheCreationCost,
 		CacheReadCost:             inRangeCost.CacheReadCost + outRangeCost.CacheReadCost,
+		CacheReadImageCost:        inRangeCost.CacheReadImageCost + outRangeCost.CacheReadImageCost,
 		TotalCost:                 inRangeCost.TotalCost + outRangeCost.TotalCost,
 		ActualCost:                inRangeCost.ActualCost + outRangeCost.ActualCost,
 		LongContextBillingApplied: outRangeCost.ActualCost > 0,

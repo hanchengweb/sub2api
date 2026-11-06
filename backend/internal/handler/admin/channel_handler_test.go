@@ -320,15 +320,17 @@ func TestPricingRequestToService_Defaults(t *testing.T) {
 func TestPricingRequestToService_WithAllFields(t *testing.T) {
 	reqs := []channelModelPricingRequest{
 		{
-			Platform:         "openai",
-			Models:           []string{"gpt-4", "gpt-4o"},
-			BillingMode:      "per_request",
-			InputPrice:       float64Ptr(0.01),
-			OutputPrice:      float64Ptr(0.03),
-			CacheWritePrice:  float64Ptr(0.005),
-			CacheReadPrice:   float64Ptr(0.002),
-			ImageOutputPrice: float64Ptr(0.04),
-			PerRequestPrice:  float64Ptr(0.5),
+			Platform:            "openai",
+			Models:              []string{"gpt-4", "gpt-4o"},
+			BillingMode:         "per_request",
+			InputPrice:          float64Ptr(0.01),
+			OutputPrice:         float64Ptr(0.03),
+			CacheWritePrice:     float64Ptr(0.005),
+			CacheReadPrice:      float64Ptr(0.002),
+			ImageInputPrice:     float64Ptr(0.0064),
+			ImageCacheReadPrice: float64Ptr(0.0016),
+			ImageOutputPrice:    float64Ptr(0.04),
+			PerRequestPrice:     float64Ptr(0.5),
 		},
 	}
 
@@ -342,8 +344,13 @@ func TestPricingRequestToService_WithAllFields(t *testing.T) {
 	require.Equal(t, float64Ptr(0.03), r.OutputPrice)
 	require.Equal(t, float64Ptr(0.005), r.CacheWritePrice)
 	require.Equal(t, float64Ptr(0.002), r.CacheReadPrice)
+	require.Equal(t, float64Ptr(0.0064), r.ImageInputPrice)
+	require.Equal(t, float64Ptr(0.0016), r.ImageCacheReadPrice)
 	require.Equal(t, float64Ptr(0.04), r.ImageOutputPrice)
 	require.Equal(t, float64Ptr(0.5), r.PerRequestPrice)
+	response := pricingToResponse(&r)
+	require.Equal(t, r.ImageInputPrice, response.ImageInputPrice)
+	require.Equal(t, r.ImageCacheReadPrice, response.ImageCacheReadPrice)
 }
 
 func TestPricingRequestToService_WithIntervals(t *testing.T) {

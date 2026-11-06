@@ -83,19 +83,20 @@ type AccountStatsPricingRule struct {
 
 // ChannelModelPricing 渠道模型定价条目
 type ChannelModelPricing struct {
-	ID               int64
-	ChannelID        int64
-	Platform         string            // 所属平台（anthropic/openai/gemini/...）
-	Models           []string          // 绑定的模型列表
-	BillingMode      BillingMode       // 计费模式
-	InputPrice       *float64          // 每 token 输入价格，单位积分 — 向后兼容 flat 定价。注：曾误写为 USD
-	OutputPrice      *float64          // 每 token 输出价格，单位积分
-	CacheWritePrice  *float64          // 缓存写入价格
-	CacheReadPrice   *float64          // 缓存读取价格
-	ImageInputPrice  *float64          // 图片输入 token 价格（如 gpt-image-2 图片编辑）；未配置时回退文本输入价
-	ImageOutputPrice *float64          // 图片输出价格（向后兼容）
-	PerRequestPrice  *float64          // 默认按次计费价格，单位积分
-	Intervals        []PricingInterval // 区间定价列表
+	ID                  int64
+	ChannelID           int64
+	Platform            string            // 所属平台（anthropic/openai/gemini/...）
+	Models              []string          // 绑定的模型列表
+	BillingMode         BillingMode       // 计费模式
+	InputPrice          *float64          // 每 token 输入价格，单位积分 — 向后兼容 flat 定价。注：曾误写为 USD
+	OutputPrice         *float64          // 每 token 输出价格，单位积分
+	CacheWritePrice     *float64          // 缓存写入价格
+	CacheReadPrice      *float64          // 缓存读取价格
+	ImageInputPrice     *float64          // 图片输入 token 价格（如 gpt-image-2 图片编辑）；未配置时回退文本输入价
+	ImageCacheReadPrice *float64          // 图片缓存读取单价；nil 沿用普通缓存价
+	ImageOutputPrice    *float64          // 图片输出价格（向后兼容）
+	PerRequestPrice     *float64          // 默认按次计费价格，单位积分
+	Intervals           []PricingInterval // 区间定价列表
 	// TimePricing 时段定价（可空）。非空时，上面配的价格视为「高峰价」，
 	// 高峰窗口之外按折扣系数打折。语义见 time_pricing.go。
 	TimePricing *TimePricing

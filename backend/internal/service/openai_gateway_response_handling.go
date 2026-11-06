@@ -1058,14 +1058,16 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 		value.Get("input_tokens_details.image_tokens"),
 		value.Get("prompt_tokens_details.image_tokens"),
 	)
-	return OpenAIUsage{
+	usage := OpenAIUsage{
 		InputTokens:              int(inputTokens),
 		ImageInputTokens:         imageInputTokens,
 		OutputTokens:             int(outputTokens),
 		CacheCreationInputTokens: cacheCreationTokens,
 		CacheReadInputTokens:     cacheReadTokens,
 		ImageOutputTokens:        int(imageOutputTokens),
-	}, true
+	}
+	applyOpenAIImageCacheUsage(value, &usage)
+	return usage, true
 }
 
 func openAICacheReadTokensFromUsage(value gjson.Result) int {

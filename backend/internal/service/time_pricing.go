@@ -187,6 +187,7 @@ func applyTimePricing(p *ChannelModelPricing, tp *TimePricing, now time.Time) {
 	p.CacheWritePrice = scaled(p.CacheWritePrice)
 	p.CacheReadPrice = scaled(p.CacheReadPrice)
 	p.ImageInputPrice = scaled(p.ImageInputPrice)
+	p.ImageCacheReadPrice = scaled(p.ImageCacheReadPrice)
 	p.ImageOutputPrice = scaled(p.ImageOutputPrice)
 	p.PerRequestPrice = scaled(p.PerRequestPrice)
 	for i := range p.Intervals {
