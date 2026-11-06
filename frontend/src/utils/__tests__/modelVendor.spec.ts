@@ -51,4 +51,10 @@ describe('resolveModelKind', () => {
     // 没有视频价就不能凭空归成视频
     expect(resolveModelKind('kling-v3', null, false)).toBe('text')
   })
+
+  it('按 token 计费的 GPT Image 仍归图片，避免目录筛选和试用进入聊天', () => {
+    expect(resolveModelKind('gpt-image-2.6-flare-official', 'token')).toBe('image')
+    expect(resolveModelKind('gpt-image-2.6-sunburst-official', 'token')).toBe('image')
+    expect(resolveModelKind('text-embedding-model', 'token')).toBe('text')
+  })
 })

@@ -591,6 +591,7 @@ export default {
       outputPrice: 'Output',
       cacheWritePrice: 'Cache Write',
       cacheReadPrice: 'Cache Read',
+      imageCacheReadPrice: 'Cached Image Input',
       imageInputPrice: 'Image Input',
       imageOutputPrice: 'Image Output',
       perRequestPrice: 'Per Request',
@@ -663,6 +664,12 @@ export default {
       unitPerSecond: 'credits / second'
     },
     table: {
+      tokenTextInput: 'Text input',
+      tokenCachedTextInput: 'Cached text input',
+      tokenImageInput: 'Image input',
+      tokenCachedImageInput: 'Cached image input',
+      tokenImageOutput: 'Image output',
+      unitPerMillionTokens: 'Credits / million tokens',
       specification: 'Specification',
       billingUnit: 'Billing unit',
       cacheWriteFull: 'Cache write',

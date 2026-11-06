@@ -97,9 +97,19 @@
               </tr></tbody>
             </table>
             <table v-else class="pz-media-table">
-              <caption class="sr-only">{{ m.name }} · {{ sec.unitHint }}</caption>
+              <caption class="sr-only">{{ m.name }} · {{ sec.kind === 'image' && billingMode(m) === BILLING_MODE_TOKEN ? t('modelPlaza.table.unitPerMillionTokens') : sec.unitHint }}</caption>
               <thead><tr><th>{{ t('modelPlaza.table.specification') }}</th><th>{{ t('modelPlaza.table.unitPrice') }}</th><th>{{ t('modelPlaza.table.billingUnit') }}</th></tr></thead>
-              <tbody v-if="videoTiers(m).length">
+              <tbody v-if="sec.kind === 'image' && billingMode(m) === BILLING_MODE_TOKEN && m.pricing">
+                <tr v-for="rate in imageTokenRates(m)" :key="rate.label">
+                  <td>{{ t(rate.label) }}</td>
+                  <td class="pz-price">
+                    <PeakOffPeakPrice v-if="m.time_pricing" :model="m" :value="rate.value" :render="paidPerMillion" />
+                    <template v-else>{{ paidPerMillion(rate.value) }}</template>
+                  </td>
+                  <td class="pz-unit">{{ t('modelPlaza.table.unitPerMillionTokens') }}</td>
+                </tr>
+              </tbody>
+              <tbody v-else-if="videoTiers(m).length">
                 <tr v-for="tier in videoTiers(m)" :key="tier.label">
                   <td>{{ tier.label || '—' }}</td><td class="pz-price">{{ tier.price }}</td><td class="pz-unit">{{ t('modelPlaza.section.unitPerSecond') }}</td>
                 </tr>
@@ -238,7 +248,16 @@ const sections = computed<Section[]>(() => {
   ]
   return defs
     .filter((d) => buckets[d.kind].length > 0)
-    .map((d) => ({ ...d, models: buckets[d.kind], timeNote: timeNoteFor(buckets[d.kind]) }))
+    .map((d) => ({
+      ...d,
+      unitHint: d.kind === 'image' && buckets.image.some((m) => billingMode(m) === BILLING_MODE_TOKEN)
+        ? buckets.image.every((m) => billingMode(m) === BILLING_MODE_TOKEN)
+          ? t('modelPlaza.table.unitPerMillionTokens')
+          : ''
+        : d.unitHint,
+      models: buckets[d.kind],
+      timeNote: timeNoteFor(buckets[d.kind]),
+    }))
 })
 
 /**
@@ -280,6 +299,22 @@ function formatDays(days: number[] | undefined): string {
 function paidPerTenThousand(value: number | null | undefined): string {
   if (value == null) return '-'
   return formatScaled(value * effectiveRate.value, PER_TEN_THOUSAND, MIN_DECIMALS)
+}
+
+function paidPerMillion(value: number | null | undefined): string {
+  if (value == null) return '-'
+  return formatScaled(value * effectiveRate.value, PER_MILLION, MIN_DECIMALS)
+}
+
+function imageTokenRates(m: PlazaModel): Array<{ label: string; value: number | null | undefined }> {
+  const p = m.pricing!
+  return [
+    { label: 'modelPlaza.table.tokenTextInput', value: p.input_price },
+    { label: 'modelPlaza.table.tokenCachedTextInput', value: p.cache_read_price },
+    { label: 'modelPlaza.table.tokenImageInput', value: p.image_input_price },
+    { label: 'modelPlaza.table.tokenCachedImageInput', value: p.image_cache_read_price },
+    { label: 'modelPlaza.table.tokenImageOutput', value: p.image_output_price ?? p.output_price },
+  ]
 }
 
 /** 按次 / 按图 / 按秒单价（乘生效倍率，不换算 1M）。 */

@@ -1545,6 +1545,8 @@ export interface UsageLog {
   output_tokens: number
   cache_creation_tokens: number
   cache_read_tokens: number
+  /** Included in cache_read_tokens, not an additional token total. */
+  cache_read_image_tokens?: number
   cache_creation_5m_tokens: number
   cache_creation_1h_tokens: number
 
@@ -1552,6 +1554,8 @@ export interface UsageLog {
   output_cost: number
   cache_creation_cost: number
   cache_read_cost: number
+  /** Included in cache_read_cost, not an additional charge. */
+  cache_read_image_cost?: number
   total_cost: number
   actual_cost: number
   rate_multiplier: number

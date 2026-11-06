@@ -1053,6 +1053,23 @@ func addOpenAIUsage(dst *OpenAIUsage, usage OpenAIUsage) {
 	if dst == nil {
 		return
 	}
+	// A partial modality breakdown must not become an exact aggregate.
+	if *dst == (OpenAIUsage{}) {
+		dst.CacheReadImageInputTokens = usage.CacheReadImageInputTokens
+		dst.CacheReadImageInputTokensKnown = usage.CacheReadImageInputTokensKnown
+		dst.CacheReadInputTokensKnown = usage.CacheReadInputTokensKnown
+		dst.ImageInputTokensKnown = usage.ImageInputTokensKnown
+	} else {
+		dst.CacheReadImageInputTokensKnown = dst.CacheReadImageInputTokensKnown && usage.CacheReadImageInputTokensKnown
+		dst.CacheReadInputTokensKnown = dst.CacheReadInputTokensKnown && usage.CacheReadInputTokensKnown
+		dst.ImageInputTokensKnown = dst.ImageInputTokensKnown && usage.ImageInputTokensKnown
+		if dst.CacheReadImageInputTokensKnown {
+			dst.CacheReadImageInputTokens += usage.CacheReadImageInputTokens
+		} else {
+			dst.CacheReadImageInputTokens = 0
+		}
+	}
+	dst.TokenDetailsInvalid = dst.TokenDetailsInvalid || usage.TokenDetailsInvalid
 	dst.InputTokens += usage.InputTokens
 	dst.ImageInputTokens += usage.ImageInputTokens
 	dst.OutputTokens += usage.OutputTokens

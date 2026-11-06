@@ -65,6 +65,32 @@ function mountTable(
 }
 
 describe('PlazaModelPricingTable', () => {
+  it('按 token 计费的图片模型展示五桶价格与百万 token 单位，不使用每张价格', () => {
+    const model = tokenModel({
+      name: 'gpt-image-2.6-sunburst-official',
+      platform: 'openai',
+      pricing: {
+        billing_mode: 'token', input_price: 0.004, output_price: 0.024,
+        cache_write_price: null, cache_read_price: 0.001,
+        image_input_price: 0.0064, image_cache_read_price: 0.0016,
+        image_output_price: 0.024, per_request_price: null, intervals: [],
+      },
+    })
+    const wrapper = mountTable([model], 1, 0.5, false)
+    const text = wrapper.text()
+    expect(text).toContain('modelPlaza.section.image')
+    expect(text).not.toContain('modelPlaza.section.text')
+    expect(text).toContain('modelPlaza.table.unitPerMillionTokens')
+    expect(text).not.toContain('modelPlaza.section.unitPerImage')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(5)
+    expect(text).toContain('2000.00 积分')
+    expect(text).toContain('500.00 积分')
+    expect(text).toContain('3200.00 积分')
+    expect(text).toContain('800.00 积分')
+    expect(text).toContain('12000.00 积分')
+    expect(wrapper.get('a.pz-try').attributes('href')).toContain('mode=image')
+  })
+
   it('倍率为 1 时展示渠道单价原值(积分/1M),价格保底 2 位小数', () => {
     const wrapper = mountTable([tokenModel()], 1)
     const text = wrapper.text()

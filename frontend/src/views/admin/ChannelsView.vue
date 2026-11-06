@@ -632,7 +632,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
-import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
+import { apiPricingToForm, formPricingToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
@@ -856,6 +856,7 @@ function addPricingEntry(sectionIdx: number) {
     cache_write_price: null,
     cache_read_price: null,
     image_input_price: null,
+    image_cache_read_price: null,
     image_output_price: null,
     per_request_price: null,
     intervals: []
@@ -889,6 +890,7 @@ async function syncLatestModels(sectionIdx: number) {
       cache_write_price: null,
       cache_read_price: null,
       image_input_price: null,
+      image_cache_read_price: null,
       image_output_price: null,
       per_request_price: null,
       intervals: []
@@ -954,6 +956,7 @@ function addRulePricingEntry(sectionIdx: number, ruleIndex: number) {
     cache_write_price: null,
     cache_read_price: null,
     image_input_price: null,
+    image_cache_read_price: null,
     image_output_price: null,
     per_request_price: null,
     intervals: []
@@ -1061,19 +1064,7 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
         account_ids: rule.account_ids,
         pricing: rule.pricing
           .filter(p => p.models.length > 0)
-          .map(p => ({
-            platform: section.platform,
-            models: p.models,
-            billing_mode: p.billing_mode,
-            input_price: mTokToPerToken(p.input_price),
-            output_price: mTokToPerToken(p.output_price),
-            cache_write_price: mTokToPerToken(p.cache_write_price),
-            cache_read_price: mTokToPerToken(p.cache_read_price),
-            image_input_price: mTokToPerToken(p.image_input_price),
-            image_output_price: mTokToPerToken(p.image_output_price),
-            per_request_price: p.per_request_price != null && p.per_request_price !== '' ? Number(p.per_request_price) : null,
-            intervals: formIntervalsToAPI(p.intervals || [])
-          }))
+          .map(p => formPricingToAPI(p, section.platform))
       })
     }
   }
@@ -1102,19 +1093,7 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
     // Model pricing with platform tag
     for (const entry of section.model_pricing) {
       if (entry.models.length === 0) continue
-      model_pricing.push({
-        platform: section.platform,
-        models: entry.models,
-        billing_mode: entry.billing_mode,
-        input_price: mTokToPerToken(entry.input_price),
-        output_price: mTokToPerToken(entry.output_price),
-        cache_write_price: mTokToPerToken(entry.cache_write_price),
-        cache_read_price: mTokToPerToken(entry.cache_read_price),
-        image_input_price: mTokToPerToken(entry.image_input_price),
-        image_output_price: mTokToPerToken(entry.image_output_price),
-        per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
-        intervals: formIntervalsToAPI(entry.intervals || [])
-      })
+      model_pricing.push(formPricingToAPI(entry, section.platform))
     }
   }
   const uniqueGroupIds = Array.from(new Set(group_ids))
@@ -1200,18 +1179,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
     const mapping = (channel.model_mapping || {})[platform] || {}
     const pricing = (channel.model_pricing || [])
       .filter(p => (p.platform || 'anthropic') === platform)
-      .map(p => ({
-        models: p.models || [],
-        billing_mode: p.billing_mode,
-        input_price: perTokenToMTok(p.input_price),
-        output_price: perTokenToMTok(p.output_price),
-        cache_write_price: perTokenToMTok(p.cache_write_price),
-        cache_read_price: perTokenToMTok(p.cache_read_price),
-        image_input_price: perTokenToMTok(p.image_input_price),
-        image_output_price: perTokenToMTok(p.image_output_price),
-        per_request_price: p.per_request_price,
-        intervals: apiIntervalsToForm(p.intervals || [])
-      } as PricingFormEntry))
+      .map(apiPricingToForm)
 
     // Read web_search_emulation from features_config
     const fc = channel.features_config
@@ -1389,18 +1357,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
       name: apiRule.name || '',
       group_ids: [...(apiRule.group_ids || [])],
       account_ids: [...(apiRule.account_ids || [])],
-      pricing: (apiRule.pricing || []).map(p => ({
-        models: [...(p.models || [])],
-        billing_mode: p.billing_mode,
-        input_price: perTokenToMTok(p.input_price),
-        output_price: perTokenToMTok(p.output_price),
-        cache_write_price: perTokenToMTok(p.cache_write_price),
-        cache_read_price: perTokenToMTok(p.cache_read_price),
-        image_input_price: perTokenToMTok(p.image_input_price),
-        image_output_price: perTokenToMTok(p.image_output_price),
-        per_request_price: p.per_request_price,
-        intervals: apiIntervalsToForm(p.intervals || [])
-      } as PricingFormEntry))
+      pricing: (apiRule.pricing || []).map(apiPricingToForm)
     }
     section.account_stats_pricing_rules.push(formRule)
   }

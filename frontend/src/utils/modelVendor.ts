@@ -53,7 +53,7 @@ export type ModelKind = 'text' | 'image' | 'video'
 /**
  * 判定模型类型。
  *
- * 判据优先级：有视频每秒价 → 视频；名字带 video → 视频；否则看 billing_mode。
+ * 判据优先级：有视频每秒价 → 视频；名字带 video → 视频；已知生图型号 → 图片；否则看 billing_mode。
  *
  * 不能只按名字判：kling-v3 / seedance-2 / MiniMax-H3 / veo3.1-fast 名字里都没有
  * video。也不能只按 billing_mode：线上视频模型的 billing_mode 配的是 image
@@ -67,5 +67,7 @@ export function resolveModelKind(
 ): ModelKind {
   if (hasVideoPricing) return 'video'
   if (/video/i.test(model)) return 'video'
+  // GPT Image 2.6 按 token 收费；计费单位不能把生图模型误分为文本。
+  if (/^(?:t-)?(?:gpt-image-|dall-e-)/i.test(model.trim())) return 'image'
   return billingMode && billingMode !== 'token' ? 'image' : 'text'
 }

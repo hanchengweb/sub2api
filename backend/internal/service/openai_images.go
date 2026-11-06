@@ -222,6 +222,9 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	}
 
 	applyOpenAIImagesDefaults(req)
+	if requiresGPTImage26TokenUsage(req.Model) && req.Stream {
+		return nil, fmt.Errorf("this image model currently requires stream=false for usage verification")
+	}
 	if err := validateOpenAIImagesModel(req.Model); err != nil {
 		return nil, err
 	}
@@ -941,6 +944,11 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	// 对外契约不受影响：用户请求的模型名仍在上面两处（解析期与渠道映射后）校验，
 	// 拿文本模型调图片接口照样返回 400。这里放行的只是运营者自己写的映射目标。
 	upstreamModel := account.GetMappedModel(requestModel)
+	if requiresGPTImage26TokenUsage(upstreamModel) && parsed.Stream {
+		invalid := &OpenAIImagesUpstreamError{StatusCode: http.StatusBadRequest, ErrorType: "invalid_request_error", Code: "stream_not_supported", Message: "This image model requires stream=false for usage verification"}
+		writeOpenAIImagesUpstreamErrorResponse(c, invalid)
+		return nil, invalid
+	}
 	if strings.TrimSpace(upstreamModel) == "" {
 		return nil, fmt.Errorf("images endpoint requires an image model")
 	}
@@ -955,6 +963,14 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel)
 	if err != nil {
 		return nil, err
+	}
+	if requiresGPTImage26TokenUsage(upstreamModel) {
+		format := strings.ToLower(gjson.GetBytes(forwardBody, "output_format").String())
+		if parsed.IsEdits() || parsed.Multipart || (format != "" && format != "png" && format != "jpeg" && format != "webp") || gjson.GetBytes(forwardBody, "svg").Exists() {
+			invalid := &OpenAIImagesUpstreamError{StatusCode: http.StatusBadRequest, ErrorType: "invalid_request_error", Code: "unsupported_image_mode", Message: "GPT Image 2.6 supports JSON generations with png, jpeg or webp; use image_urls for reference images. GIF and SVG are not enabled."}
+			writeOpenAIImagesUpstreamErrorResponse(c, invalid)
+			return nil, invalid
+		}
 	}
 	forwardBody, err = normalizeSeedreamArkRequest(forwardBody, forwardContentType, account.GetOpenAIBaseURL())
 	if err != nil {
@@ -1002,7 +1018,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+		if !requiresGPTImage26TokenUsage(upstreamModel) && s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
@@ -1021,6 +1037,12 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			}
 		}
 		return s.handleOpenAIImagesErrorResponse(upstreamCtx, resp, c, account, upstreamModel)
+	}
+	if requiresGPTImage26TokenUsage(upstreamModel) {
+		resp, err = s.awaitToAPI26ImageTask(upstreamCtx, c, account, upstreamReq, resp, proxyURL)
+		if err != nil {
+			return nil, err
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -1067,7 +1089,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			ImageOutputSizes: imageOutputSizes,
 		}, nil
 	} else {
-		nonStreamUsage, nonStreamCount, nonStreamSizes, responseID, err := s.handleOpenAIImagesNonStreamingResponse(resp, c)
+		nonStreamUsage, nonStreamCount, nonStreamSizes, responseID, err := s.handleOpenAIImagesNonStreamingResponse(resp, c, requiresGPTImage26TokenUsage(upstreamModel))
 		if err != nil {
 			return nil, err
 		}
@@ -1239,10 +1261,18 @@ func cloneMultipartHeader(src textproto.MIMEHeader) textproto.MIMEHeader {
 	return dst
 }
 
-func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context) (OpenAIUsage, int, []string, string, error) {
+func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context, requireExactUsage ...bool) (OpenAIUsage, int, []string, string, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, "", err
+	}
+	usage, usageFound := extractOpenAIUsageFromJSONBytes(body)
+	if len(requireExactUsage) > 0 && requireExactUsage[0] {
+		if err := validateGPTImage26TokenUsage(usage, usageFound); err != nil {
+			invalid := &OpenAIImagesUpstreamError{StatusCode: http.StatusBadGateway, ErrorType: "upstream_usage_error", Code: "usage_unavailable_do_not_retry", Message: "The upstream usage could not be verified. Contact the administrator with this request ID; do not retry generation automatically."}
+			writeOpenAIImagesUpstreamErrorResponse(c, invalid)
+			return OpenAIUsage{}, 0, nil, "", invalid
+		}
 	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := "application/json"
@@ -1253,7 +1283,6 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http
 	}
 	c.Data(resp.StatusCode, contentType, body)
 
-	usage, _ := extractOpenAIUsageFromJSONBytes(body)
 	return usage, extractOpenAIImageCountFromJSONBytes(body), collectOpenAIResponseImageOutputSizesFromJSONBytes(body), strings.TrimSpace(gjson.GetBytes(body, "id").String()), nil
 }
 
@@ -1519,6 +1548,19 @@ func mergeOpenAIUsage(dst *OpenAIUsage, body []byte) {
 		if parsed.ImageOutputTokens > 0 {
 			dst.ImageOutputTokens = parsed.ImageOutputTokens
 		}
+		if parsed.CacheReadInputTokensKnown {
+			dst.CacheReadInputTokens = parsed.CacheReadInputTokens
+			dst.CacheReadInputTokensKnown = true
+		}
+		if parsed.ImageInputTokensKnown {
+			dst.ImageInputTokens = parsed.ImageInputTokens
+			dst.ImageInputTokensKnown = true
+		}
+		if parsed.CacheReadImageInputTokensKnown {
+			dst.CacheReadImageInputTokens = parsed.CacheReadImageInputTokens
+			dst.CacheReadImageInputTokensKnown = true
+		}
+		dst.TokenDetailsInvalid = dst.TokenDetailsInvalid || parsed.TokenDetailsInvalid
 	}
 }
 

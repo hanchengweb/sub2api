@@ -115,9 +115,11 @@ RUN VERSION_VALUE="${VERSION}" && \
 FROM ${ALPINE_IMAGE}
 
 # Labels
+ARG COMMIT=docker
 LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"
 LABEL description="Sub2API - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/hanchengweb/sub2api"
+LABEL org.opencontainers.image.revision="${COMMIT}"
 
 # Install runtime dependencies
 # apk 换国内源。生产机在杭州，dl-cdn.alpinelinux.org 时快时慢：2026-09-11 一次

@@ -1,4 +1,4 @@
-import type { BillingMode, PricingInterval } from '@/api/admin/channels'
+import type { BillingMode, ChannelModelPricing, PricingInterval } from '@/api/admin/channels'
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 
@@ -22,12 +22,13 @@ export interface PricingFormEntry {
   cache_write_price: number | string | null
   cache_read_price: number | string | null
   image_input_price: number | string | null
+  image_cache_read_price?: number | string | null
   image_output_price: number | string | null
   per_request_price: number | string | null
   intervals: IntervalFormEntry[]
 }
 
-// 价格转换：后端存 per-token，前端显示 per-MTok ($/1M tokens)
+// 价格转换：后端存积分/token，前端编辑积分/百万 token。
 const MTOK = 1_000_000
 
 export function toNullableNumber(val: number | string | null | undefined): number | null {
@@ -36,13 +37,13 @@ export function toNullableNumber(val: number | string | null | undefined): numbe
   return isNaN(num) ? null : num
 }
 
-/** 前端显示值($/MTok) → 后端存储值(per-token) */
+/** 前端显示值（积分/百万 token）→ 后端存储值（积分/token）。 */
 export function mTokToPerToken(val: number | string | null | undefined): number | null {
   const num = toNullableNumber(val)
   return num === null ? null : parseFloat((num / MTOK).toPrecision(10))
 }
 
-/** 后端存储值(per-token) → 前端显示值($/MTok) */
+/** 后端存储值（积分/token）→ 前端显示值（积分/百万 token）。 */
 export function perTokenToMTok(val: number | null | undefined): number | null {
   if (val === null || val === undefined) return null
   // toPrecision(10) 消除 IEEE 754 浮点乘法精度误差，如 5e-8 * 1e6 = 0.04999...96 → 0.05
@@ -75,6 +76,40 @@ export function formIntervalsToAPI(intervals: IntervalFormEntry[]): PricingInter
     per_request_price: toNullableNumber(iv.per_request_price),
     sort_order: iv.sort_order
   }))
+}
+
+/** Shared by channel prices and account cost rules so edits/imports keep all token rates. */
+export function apiPricingToForm(pricing: ChannelModelPricing): PricingFormEntry {
+  return {
+    models: [...(pricing.models || [])],
+    billing_mode: pricing.billing_mode,
+    input_price: perTokenToMTok(pricing.input_price),
+    output_price: perTokenToMTok(pricing.output_price),
+    cache_write_price: perTokenToMTok(pricing.cache_write_price),
+    cache_read_price: perTokenToMTok(pricing.cache_read_price),
+    image_input_price: perTokenToMTok(pricing.image_input_price),
+    image_cache_read_price: perTokenToMTok(pricing.image_cache_read_price),
+    image_output_price: perTokenToMTok(pricing.image_output_price),
+    per_request_price: pricing.per_request_price,
+    intervals: apiIntervalsToForm(pricing.intervals || []),
+  }
+}
+
+export function formPricingToAPI(entry: PricingFormEntry, platform: string): ChannelModelPricing {
+  return {
+    platform,
+    models: [...entry.models],
+    billing_mode: entry.billing_mode,
+    input_price: mTokToPerToken(entry.input_price),
+    output_price: mTokToPerToken(entry.output_price),
+    cache_write_price: mTokToPerToken(entry.cache_write_price),
+    cache_read_price: mTokToPerToken(entry.cache_read_price),
+    image_input_price: mTokToPerToken(entry.image_input_price),
+    image_cache_read_price: mTokToPerToken(entry.image_cache_read_price),
+    image_output_price: mTokToPerToken(entry.image_output_price),
+    per_request_price: toNullableNumber(entry.per_request_price),
+    intervals: formIntervalsToAPI(entry.intervals || []),
+  }
 }
 
 // ── 模型模式冲突检测 ──────────────────────────────────────
