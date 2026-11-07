@@ -187,7 +187,8 @@ func PublicIP(ip netip.Addr) bool {
 }
 func ApprovedModelURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.Port() != "" && u.Port() != "443" || strings.ToLower(u.Hostname()) != "cdn.tripo3d.ai" {
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.Port() != "" && u.Port() != "443" ||
+		strings.ToLower(u.Hostname()) != "cdn.tripo3d.ai" && strings.ToLower(u.Hostname()) != "openapi.cdn.tripo3d.com" {
 		return nil, errors.New("model_download_host_unapproved")
 	}
 	return u, nil

@@ -158,6 +158,38 @@ func TestTripoFixedProfileAndUnknownStatus(t *testing.T) {
 		t.Fatal(out)
 	}
 }
+func TestApprovedModelURLStorageHosts(t *testing.T) {
+	for _, raw := range []string{
+		"https://cdn.tripo3d.ai/a.glb",
+		"https://openapi.cdn.tripo3d.com/a.glb?expires=123",
+		"https://openapi.cdn.tripo3d.com:443/a.glb",
+	} {
+		if u, err := ApprovedModelURL(raw); err != nil || u.String() != raw {
+			t.Fatalf("rejected approved model URL %q: %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		"http://cdn.tripo3d.ai/a.glb",
+		"http://openapi.cdn.tripo3d.com/a.glb",
+		"https://cdn.tripo3d.ai.evil.test/a.glb",
+		"https://openapi.cdn.tripo3d.com.evil.test/a.glb",
+		"https://sub.cdn.tripo3d.ai/a.glb",
+		"https://sub.openapi.cdn.tripo3d.com/a.glb",
+		"https://user@cdn.tripo3d.ai/a.glb",
+		"https://user@openapi.cdn.tripo3d.com/a.glb",
+		"https://cdn.tripo3d.ai:8443/a.glb",
+		"https://openapi.cdn.tripo3d.com:8443/a.glb",
+		"https://127.0.0.1/a.glb",
+		"https://[::1]/a.glb",
+		"https://cdn.tripo3d.ai/a.glb#fragment",
+		"https://openapi.cdn.tripo3d.com/a.glb#fragment",
+	} {
+		if _, err := ApprovedModelURL(raw); err == nil {
+			t.Fatalf("accepted unapproved model URL %q", raw)
+		}
+	}
+}
+
 func TestModelDownloadAndSelfContainedValidation(t *testing.T) {
 	good := testGLB(`{"asset":{"version":"2.0"},"scenes":[{}]}`)
 	if ValidateGLB(good) != nil {
@@ -166,11 +198,6 @@ func TestModelDownloadAndSelfContainedValidation(t *testing.T) {
 	for _, b := range [][]byte{[]byte("glTF"), testGLB(`{"asset":{"version":"1.0"}}`), testGLB(`{"asset":{"version":"2.0"},"buffers":[{"uri":"https://evil.test/a.bin","byteLength":4}]}`), testGLB(`{"asset":{"version":"2.0"},"extensions":{"custom":{"uri":"https://evil.test"}}}`), append(append([]byte{}, good...), 0)} {
 		if ValidateGLB(b) == nil {
 			t.Fatal("accepted malformed/external GLB")
-		}
-	}
-	for _, raw := range []string{"http://cdn.tripo3d.ai/a.glb", "https://cdn.tripo3d.ai.evil.test/a.glb", "https://user@cdn.tripo3d.ai/a.glb", "https://cdn.tripo3d.ai:8443/a.glb", "https://127.0.0.1/a.glb", "https://cdn.tripo3d.ai/a.glb#fragment"} {
-		if _, err := ApprovedModelURL(raw); err == nil {
-			t.Fatal(raw)
 		}
 	}
 	for _, ip := range []string{"127.0.0.1", "10.0.0.1", "100.64.1.1", "169.254.169.254", "192.0.2.1", "::1", "::ffff:127.0.0.1", "fc00::1", "fec0::1", "2002:7f00:1::"} {
