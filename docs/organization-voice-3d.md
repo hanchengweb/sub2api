@@ -62,9 +62,16 @@ provider receipts and private bytes in PostgreSQL. Input text, credentials and
 signed supplier URLs are not stored. Audio is limited to 16 MiB; GLB to 128 MiB.
 The GLB validator checks binary version/length/chunks, embedded buffers/images,
 and rejects external URI/URL fields, including in extensions. Downloads allow only
-the documented `cdn.tripo3d.ai` host, pin DNS-verified public IPs for TLS, reject
+the exact `cdn.tripo3d.ai` and `openapi.cdn.tripo3d.com` hosts, pin DNS-verified public IPs for TLS, reject
 redirects, and send no supplier authorization to storage. Any newly observed CDN
 host requires official evidence and a reviewed allowlist update.
+
+The second host was verified on 2026-11-07 from the authenticated official task
+query for an existing successful standard generation. Its signed `output.model_url`
+used `openapi.cdn.tripo3d.com`; rejecting that host left the completed provider
+task in `model3d_content_unavailable`. This addition does not permit wildcard
+subdomains or redirects. Recover affected tasks by querying their existing task
+ID; never submit another generation to retrieve an already completed result.
 
 A persistent quota reservation precedes task dispatch. Concurrent duplicates share
 one task. A failure before task insertion can be retried with the same ID and
