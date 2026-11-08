@@ -74,7 +74,7 @@ func ErrorMessage(code string) string {
 	case "media_provider_rejected":
 		return "官方服务拒绝了本次参数，请检查生成设置。"
 	case "model3d_upload_failed":
-		return "参考图片上传未完成，尚未提交3D生成，请保留原任务编号。"
+		return "参考图片上传失败，本次未提交3D生成，请保留原任务编号。"
 	default:
 		return "生成结果需要核对，请查询原任务，勿重复生成。"
 	}
