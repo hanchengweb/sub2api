@@ -17,6 +17,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestOfficialVoiceCatalogMatchesGeneration(t *testing.T) {
+	for _, voice := range mediatasks.Voices {
+		require.True(t, OfficialVoice(voice.ID), voice.ID)
+	}
+	require.False(t, OfficialVoice("S_private-slot"))
+	require.False(t, OfficialVoice("ICL_arbitrary"))
+}
+
 type memoryStore struct {
 	sync.Mutex
 	values map[string]*Asset

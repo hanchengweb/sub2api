@@ -40,6 +40,22 @@ reuses an Ark bearer. Tripo uses bearer authentication. A reseller host, wildcar
 mapping, missing credential or unauthorized group stops before dispatch. There is
 one selected account per submission and no fallback to ToAPIs, chat or Edge TTS.
 
+The reviewed `internal/mediatasks/seed_tts_voices.json` snapshot contains 473
+official TTS2 presets (266 native `_uranus_bigtts`, 207 public `ICL_` presets),
+from the official tone list updated 2026-11-06. Public `ICL_` speakers do not
+consume or grant access to private `S_` clone slots. The domestic
+`openspeech.bytedance.com` resource and unidirectional endpoint cover the listed
+regional/mode restrictions. This is documented resource compatibility, not 473
+successful account synthesis receipts; supplier authorization/balance failures
+still follow the existing task error path. Both the media and voice-asset
+catalogs use this same fixed whitelist; arbitrary speakers remain rejected.
+
+Optional `preview_url` values are public official samples only. All 473 snapshot
+values were read from the official console's read-only `ListSpeakers` response,
+using the exact observed URLs on `lf3-static.bytednsdoc.com`; exceptional names
+and formats are preserved. Missing samples remain absent; catalog/asset creation
+never submits a billable synthesis to produce a preview.
+
 ## API and durable behavior
 
 - `GET /v1/media/models`: the two public models, actual route availability,

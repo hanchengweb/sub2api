@@ -17,7 +17,6 @@ type Choice struct {
 	Name string `json:"name"`
 }
 
-var Voices = []Choice{{"zh_female_vv_uranus_bigtts", "Vivi2.0"}, {"zh_female_xiaohe_uranus_bigtts", "小何2.0"}, {"zh_male_m191_uranus_bigtts", "云舟2.0"}, {"zh_male_taocheng_uranus_bigtts", "小天2.0"}}
 var Scenes = []Choice{{"general", "通用"}, {"teaching", "教学讲解"}, {"narration", "旁白"}, {"encouragement", "鼓励"}, {"storytelling", "讲故事"}, {"customer_service", "客服"}}
 var Emotions = []Choice{{"neutral", "自然"}, {"happy", "愉快"}, {"sad", "悲伤"}, {"angry", "生气"}, {"tender", "温柔"}, {"excited", "兴奋"}, {"serious", "严肃"}}
 
@@ -68,7 +67,7 @@ func Normalize(kind string, r Request) (Request, int64, string, error) {
 		if r.ResponseFormat == "" {
 			r.ResponseFormat = "mp3"
 		}
-		if (r.VoiceAssetID == "" && !inChoices(r.Voice, Voices)) || !inChoices(r.Scene, Scenes) || !inChoices(r.Emotion, Emotions) || math.IsNaN(r.Speed) || math.IsInf(r.Speed, 0) || r.Speed < 0.5 || r.Speed > 2 || r.ResponseFormat != "mp3" {
+		if (r.VoiceAssetID == "" && !ValidVoice(r.Voice)) || !inChoices(r.Scene, Scenes) || !inChoices(r.Emotion, Emotions) || math.IsNaN(r.Speed) || math.IsInf(r.Speed, 0) || r.Speed < 0.5 || r.Speed > 2 || r.ResponseFormat != "mp3" {
 			return r, 0, "", ErrInvalid
 		}
 		units = int64(utf8.RuneCountInString(r.Input))

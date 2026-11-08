@@ -36,12 +36,7 @@ func validOwner(o mediatasks.Owner) bool {
 	return e == nil && id != uuid.Nil && id.String() == o.ActorID
 }
 func OfficialVoice(id string) bool {
-	for _, v := range mediatasks.Voices {
-		if id == v.ID {
-			return true
-		}
-	}
-	return false
+	return mediatasks.ValidVoice(id)
 }
 func (s *Service) List(ctx context.Context, o mediatasks.Owner) ([]*Asset, error) {
 	if !validOwner(o) {
