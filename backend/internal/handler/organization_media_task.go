@@ -52,8 +52,8 @@ func mediaTaskError(c *gin.Context, err error) {
 		status, code, message = 409, "media_quota_review_required", "媒体用量待核对，已暂停新生成。"
 	case errors.Is(err, mediatasks.ErrBusy):
 		status, code, message = 429, "media_provider_busy", "媒体服务繁忙，请稍后使用同一请求编号重试。"
-	case errors.Is(err, mediatasks.ErrImageUnavailable):
-		status, code, message = 422, "model3d_image_unavailable", "图片生成3D尚未开放，请使用文字描述。"
+	case errors.Is(err, mediatasks.ErrImageInvalid):
+		status, code, message = 422, "model3d_image_invalid", "参考图片须为有效的PNG、JPEG或WebP，文件不超过20MiB、边长不超过8192且不超过32M像素。"
 	}
 	c.Header("Cache-Control", "no-store")
 	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": code, "message": message, "type": "media_error"}})
@@ -103,7 +103,11 @@ func (h *OrganizationMediaTaskHandler) Create(kind string) gin.HandlerFunc {
 		if kind == mediatasks.Audio {
 			r.Speed = 1
 		}
-		d := json.NewDecoder(io.LimitReader(c.Request.Body, 32<<10))
+		limit := int64(32 << 10)
+		if kind == mediatasks.Model3D {
+			limit = mediatasks.MaxModel3DRequestBytes
+		}
+		d := json.NewDecoder(io.LimitReader(c.Request.Body, limit+1))
 		d.DisallowUnknownFields()
 		if d.Decode(&r) != nil || d.Decode(&struct{}{}) != io.EOF {
 			mediaTaskError(c, mediatasks.ErrInvalid)
@@ -179,8 +183,8 @@ func (h *OrganizationMediaTaskHandler) Models(c *gin.Context) {
 			entry["max_input_characters"] = 2000
 			entry["unit"] = "characters"
 		} else {
-			entry["modes"] = []string{"text"}
-			entry["image_available"] = false
+			entry["modes"] = []string{"text", "image"}
+			entry["image_available"] = true
 			entry["unit"] = "tasks"
 		}
 		entries = append(entries, entry)

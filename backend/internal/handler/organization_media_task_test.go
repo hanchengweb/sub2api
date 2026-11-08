@@ -2,12 +2,34 @@ package handler
 
 import (
 	"context"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/mediatasks"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOrganizationModel3DCatalogAdvertisesImageAndText(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	accounts := &mediaTaskAccountRepoFixture{accounts: []service.Account{nativeMediaAccount(mediatasks.Model3D)}}
+	h := NewOrganizationMediaTaskHandler(nil, nil, accounts, nil,
+		mediaTaskGroupRepoFixture{group: publishedMediaGroup(mediatasks.TripoModel)}, nil)
+	h.enabled = true
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/v1/media/models", nil)
+	group := int64(7)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 2, UserID: 1, GroupID: &group,
+		User: &service.User{ID: 1, AccountType: "organization_service"}})
+	h.Models(c)
+	require.Equal(t, 200, w.Code)
+	require.Contains(t, w.Body.String(), `"modes":["text","image"]`)
+	require.Contains(t, w.Body.String(), `"image_available":true`)
+	require.Contains(t, w.Body.String(), `"id":"tripo-v3.1-standard"`)
+}
 
 func nativeMediaAccount(kind string) service.Account {
 	provider, base, model, native := "volcengine_speech", "https://openspeech.bytedance.com", mediatasks.SpeechModel, mediatasks.SpeechModel

@@ -219,7 +219,7 @@ func TestRequestBoundsAndProductUnits(t *testing.T) {
 			t.Fatal(bad)
 		}
 	}
-	if _, _, _, err := Normalize(Model3D, Request{Model: TripoModel, Image: json.RawMessage(`{}`)}); err != ErrImageUnavailable {
+	if _, _, _, err := Normalize(Model3D, Request{Model: TripoModel, Image: json.RawMessage(`{}`)}); err != ErrImageInvalid {
 		t.Fatal(err)
 	}
 }

@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"strings"
 	"time"
@@ -45,8 +47,20 @@ func (s *OfficialSupplier) Submit(ctx context.Context, p Provider, o Owner, requ
 	if p.Kind == Audio {
 		return s.speech(ctx, p, o, requestID, r)
 	}
-	body, _ := json.Marshal(map[string]any{"prompt": r.Prompt, "model": TripoNativeModel, "texture": true, "pbr": true, "geometry_quality": "standard", "texture_quality": "standard", "texture_version": "v3.0-20250812", "quad": false, "generate_parts": false, "face_limit": 50000})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://openapi.tripo3d.com/v3/generation/text-to-model", bytes.NewReader(body))
+	payload := map[string]any{"model": TripoNativeModel, "texture": true, "pbr": true, "geometry_quality": "standard", "texture_quality": "standard", "texture_version": "v3.0-20250812", "quad": false, "generate_parts": false, "face_limit": 50000}
+	endpoint := "https://openapi.tripo3d.com/v3/generation/text-to-model"
+	if len(r.Image) > 0 {
+		token, failure := s.uploadModelImage(ctx, p, r)
+		if failure != nil {
+			return *failure
+		}
+		payload["input"] = token
+		endpoint = "https://openapi.tripo3d.com/v3/generation/image-to-model"
+	} else {
+		payload["prompt"] = r.Prompt
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+p.Key)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := s.Client.Do(req)
@@ -79,6 +93,64 @@ func (s *OfficialSupplier) Submit(ctx context.Context, p Provider, o Owner, requ
 		return uncertain("media_submit_indeterminate")
 	}
 	return Outcome{Status: "running", ProviderID: receipt.Data.TaskID}
+}
+
+// No generation request has been sent on any failure here, including a lost upload
+// receipt. Settle zero once; retrying the original task never uploads or submits again.
+func (s *OfficialSupplier) uploadModelImage(ctx context.Context, p Provider, r Request) (string, *Outcome) {
+	fail := func(code string) (string, *Outcome) { out := rejected(code); return "", &out }
+	if len(r.imageFile) == 0 || len(r.imageFile) > MaxModelImageBytes || (r.imageMIME != "image/png" && r.imageMIME != "image/jpeg") {
+		return fail("model3d_upload_failed")
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	ext := ".png"
+	if r.imageMIME == "image/jpeg" {
+		ext = ".jpg"
+	}
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="file"; filename="reference`+ext+`"`)
+	header.Set("Content-Type", r.imageMIME)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return fail("model3d_upload_failed")
+	}
+	if _, err = part.Write(r.imageFile); err != nil {
+		return fail("model3d_upload_failed")
+	}
+	if err = writer.Close(); err != nil {
+		return fail("model3d_upload_failed")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://openapi.tripo3d.com/v3/files", &body)
+	if err != nil {
+		return fail("model3d_upload_failed")
+	}
+	req.Header.Set("Authorization", "Bearer "+p.Key)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res, err := s.Client.Do(req)
+	if err != nil {
+		return fail("model3d_upload_failed")
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		if res.StatusCode == 401 || res.StatusCode == 402 || res.StatusCode == 403 || res.StatusCode == 429 {
+			out := rejectedHTTP(res.StatusCode)
+			return "", &out
+		}
+		return fail("model3d_upload_failed")
+	}
+	var receipt struct {
+		Code *int `json:"code"`
+		Data struct {
+			FileToken string `json:"file_token"`
+		} `json:"data"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(res.Body, 64<<10))
+	if decoder.Decode(&receipt) != nil || decoder.Decode(&struct{}{}) != io.EOF || receipt.Code == nil || *receipt.Code != 0 ||
+		len(receipt.Data.FileToken) == 0 || len(receipt.Data.FileToken) > 512 || strings.ContainsAny(receipt.Data.FileToken, ":/\\?# \t\r\n") {
+		return fail("model3d_upload_failed")
+	}
+	return receipt.Data.FileToken, nil
 }
 func (s *OfficialSupplier) speech(ctx context.Context, p Provider, o Owner, requestID string, r Request) Outcome {
 	additions, _ := json.Marshal(map[string]any{"context_texts": []string{ContextTexts(r)}})
