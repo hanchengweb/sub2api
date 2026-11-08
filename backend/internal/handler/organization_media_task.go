@@ -167,7 +167,13 @@ func (h *OrganizationMediaTaskHandler) Models(c *gin.Context) {
 			}
 		}
 		if row.kind == mediatasks.Audio {
-			entry["voices"] = mediatasks.Voices
+			if row.model == mediatasks.SpeechModel {
+				entry["voices"] = mediatasks.Voices
+				entry["default_voice"] = mediatasks.Voices[0].ID
+			} else {
+				entry["voices"] = []mediatasks.Voice{}
+				entry["voice_asset_required"] = true
+			}
 			entry["scenes"] = mediatasks.Scenes
 			entry["emotions"] = mediatasks.Emotions
 			entry["max_input_characters"] = 2000
