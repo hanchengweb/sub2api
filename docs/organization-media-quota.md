@@ -52,6 +52,28 @@ Seedream Pro remains one image per request. The personal ToAPIs route keeps its
 original request contract. Native parameter reference (checked 2026-10-11):
 https://docs.volcengine.com/docs/ark/image-generation-api?lang=zh
 
+## Standard 3D image inputs
+
+`POST /v1/model3d/generations` accepts `model: "tripo-v3.1-standard"` and
+exactly one of `prompt` (1–1024 characters) or `image` (a PNG/JPEG/WebP base64
+data URL). Remote URLs, caller-supplied file tokens and other generation options
+are rejected. The original image must be at most 20 MiB, each dimension 1–8192,
+and at most 32,000,000 pixels. Full decoding happens before reservation;
+WebP becomes PNG, also bounded at 20 MiB, because the official Files API accepts
+PNG/JPEG. Only this endpoint's body limit accommodates base64 plus JSON; audio
+keeps its 32 KiB bound.
+
+The gateway uploads the validated bytes once to the official `/v3/files`, then
+uses its returned token as `input` at `/v3/generation/image-to-model`. Both
+image and text generation keep native model `v3.1-20260211`, standard geometry
+and texture, PBR and the existing GLB delivery. Either mode reserves one task.
+An upload failure sends no generation request and settles zero; an uncertain
+generation receipt retains the original reservation. Replays and restart
+recovery never upload or submit another generation.
+
+Provider contracts: [Files](https://developers.tripo3d.com/zh/docs/files),
+[standard image generation](https://developers.tripo3d.com/zh/docs/generation-image-to-model/standard).
+
 ## Ledger and recovery
 
 All mutations serialize on the organization user row. A reservation, selected

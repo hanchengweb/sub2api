@@ -10,26 +10,30 @@ import (
 )
 
 const (
-	Audio            = "audio"
-	Model3D          = "model3d"
-	SpeechModel      = "seed-tts-2.0"
-	CloneModel       = "seed-icl-2.0"
-	TripoModel       = "tripo-v3.1-standard"
-	TripoNativeModel = "v3.1-20260211"
-	MaxAudioBytes    = 16 << 20
-	MaxModelBytes    = 128 << 20
+	Audio                  = "audio"
+	Model3D                = "model3d"
+	SpeechModel            = "seed-tts-2.0"
+	CloneModel             = "seed-icl-2.0"
+	TripoModel             = "tripo-v3.1-standard"
+	TripoNativeModel       = "v3.1-20260211"
+	MaxAudioBytes          = 16 << 20
+	MaxModelBytes          = 128 << 20
+	MaxModelImageBytes     = 20 << 20
+	MaxModelImageDimension = 8192
+	MaxModelImagePixels    = 32_000_000
+	MaxModel3DRequestBytes = 4*((MaxModelImageBytes+2)/3) + (16 << 10)
 )
 
 var (
-	ErrNotFound         = errors.New("media_task_not_found")
-	ErrConflict         = errors.New("media_task_conflict")
-	ErrInvalid          = errors.New("media_request_invalid")
-	ErrRoute            = errors.New("media_route_unavailable")
-	ErrCredentials      = errors.New("media_credentials_missing")
-	ErrQuotaRequired    = errors.New("media_quota_required")
-	ErrBusy             = errors.New("media_provider_busy")
-	ErrUnavailable      = errors.New("media_task_unavailable")
-	ErrImageUnavailable = errors.New("model3d_image_unavailable")
+	ErrNotFound      = errors.New("media_task_not_found")
+	ErrConflict      = errors.New("media_task_conflict")
+	ErrInvalid       = errors.New("media_request_invalid")
+	ErrRoute         = errors.New("media_route_unavailable")
+	ErrCredentials   = errors.New("media_credentials_missing")
+	ErrQuotaRequired = errors.New("media_quota_required")
+	ErrBusy          = errors.New("media_provider_busy")
+	ErrUnavailable   = errors.New("media_task_unavailable")
+	ErrImageInvalid  = errors.New("model3d_image_invalid")
 )
 
 type Owner struct {
@@ -50,6 +54,9 @@ type Request struct {
 	ResponseFormat string          `json:"response_format,omitempty"`
 	Prompt         string          `json:"prompt,omitempty"`
 	Image          json.RawMessage `json:"image,omitempty"`
+	// Validated upload material stays in this execution only, never in task storage.
+	imageFile []byte
+	imageMIME string
 }
 type TaskError struct {
 	Code    string `json:"code"`
@@ -66,6 +73,8 @@ func ErrorMessage(code string) string {
 		return "官方服务当前限流，本次生成未受理。"
 	case "media_provider_rejected":
 		return "官方服务拒绝了本次参数，请检查生成设置。"
+	case "model3d_upload_failed":
+		return "参考图片上传未完成，尚未提交3D生成，请保留原任务编号。"
 	default:
 		return "生成结果需要核对，请查询原任务，勿重复生成。"
 	}

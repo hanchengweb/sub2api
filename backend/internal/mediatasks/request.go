@@ -72,12 +72,21 @@ func Normalize(kind string, r Request) (Request, int64, string, error) {
 		}
 		units = int64(utf8.RuneCountInString(r.Input))
 	case Model3D:
-		if len(r.Image) > 0 {
-			return r, 0, "", ErrImageUnavailable
-		}
 		r.Prompt = strings.TrimSpace(r.Prompt)
-		if r.Model != TripoModel || !plain(r.Prompt) || utf8.RuneCountInString(r.Prompt) < 1 || utf8.RuneCountInString(r.Prompt) > 1024 || r.Input != "" || r.Voice != "" || r.VoiceAssetID != "" || r.Scene != "" || r.Emotion != "" || r.Instruction != "" || r.Speed != 0 || r.ResponseFormat != "" {
+		hasImage := len(r.Image) > 0
+		if r.Model != TripoModel || !plain(r.Prompt) || (r.Prompt != "") == hasImage || utf8.RuneCountInString(r.Prompt) > 1024 || r.Input != "" || r.Voice != "" || r.VoiceAssetID != "" || r.Scene != "" || r.Emotion != "" || r.Instruction != "" || r.Speed != 0 || r.ResponseFormat != "" {
 			return r, 0, "", ErrInvalid
+		}
+		if hasImage {
+			var err error
+			r.imageFile, r.imageMIME, err = modelImageFile(r.Image)
+			if err != nil {
+				return r, 0, "", err
+			}
+			// Canonical JSON string spelling makes equivalent escaped retries replay.
+			var value string
+			_ = json.Unmarshal(r.Image, &value)
+			r.Image, _ = json.Marshal(value)
 		}
 		units = 1
 	default:
