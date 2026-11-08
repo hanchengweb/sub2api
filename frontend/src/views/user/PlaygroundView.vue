@@ -72,7 +72,7 @@
                 <!-- 生成进度：只在「有任务、还没出结果、也没报错」时显示 -->
                 <div v-if="msg.taskId && !msg.mediaUrl && !msg.error" class="mt-1 w-48">
                   <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
-                    <span>{{ msg.mediaKind === 'video' ? t('playground.generatingVideo') : t('playground.generatingImage') }}</span>
+                    <span>{{ msg.submissionUnknown ? t('playground.confirmingSubmission') : msg.mediaKind === 'video' ? t('playground.generatingVideo') : t('playground.generatingImage') }}</span>
                     <span class="font-mono">{{ msg.progress ?? 0 }}%</span>
                   </div>
                   <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
@@ -160,7 +160,7 @@
               <Select v-if="mode === 'video'" v-model="videoDuration" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramDuration')" :options="durationOptions.map(value => ({ value, label: t('playground.seconds', { n: value }) }))">
                 <template #selected="{ option }"><span class="param-label">{{ t('playground.paramDuration') }}</span> {{ option?.label }}</template>
               </Select>
-              <Select v-model="aspectRatio" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramAspect')" :options="ASPECT_OPTIONS.map(value => ({ value, label: value }))">
+              <Select v-model="aspectRatio" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramAspect')" :options="aspectOptions.map(value => ({ value, label: value === 'adaptive' ? t('playground.aspectAdaptive') : value }))">
                 <template #selected="{ option }"><span class="param-label">{{ t('playground.paramAspect') }}</span> {{ option?.label }}</template>
               </Select>
               <Select v-model="resolution" class="pg-param" :disabled="busy" :searchable="false" :aria-label="t('playground.paramResolution')" :options="resolutionOptions.map(r => ({ value: r.value, label: r.label + optionPriceSuffix(r.value, imageQuality) }))">
@@ -364,6 +364,15 @@ const VIDEO_RESOLUTIONS = [
 // toAPI 视频时长边界 6~30 秒（见 video_billing_resolution.go 的
 // toapiVideoMin/MaxDurationSeconds）；超出范围会被上游拒绝并产生一次退款往返。
 const VIDEO_DURATIONS = [6, 8, 10, 12, 15, 20, 25, 30]
+const H3_RESOLUTIONS = [
+  { value: '480p', label: '480p' },
+  { value: '768p', label: '768p' },
+  { value: '1080p', label: '1080p' },
+  { value: '2k', label: '2K' },
+  { value: '4k', label: '4K' }
+]
+const H3_DURATIONS = Array.from({ length: 27 }, (_, index) => index + 4)
+const H3_ASPECT_OPTIONS = ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
 
 /**
  * 质量档。上游按「清晰度 × 质量」分档收费，同一个 1K 从低到高能差 35 倍
@@ -523,8 +532,10 @@ const supportsQuality = computed(() => {
   return tiers.some((label) => label.includes('·'))
 })
 
-const resolutionOptions = computed(() => (mode.value === 'video' ? VIDEO_RESOLUTIONS : IMAGE_RESOLUTIONS))
-const durationOptions = VIDEO_DURATIONS
+const isH3 = computed(() => mode.value === 'video' && /^minimax-h3(?:-lite)?$/i.test(selectedModel.value))
+const resolutionOptions = computed(() => mode.value === 'video' ? isH3.value ? H3_RESOLUTIONS : VIDEO_RESOLUTIONS : IMAGE_RESOLUTIONS)
+const durationOptions = computed(() => isH3.value ? H3_DURATIONS : VIDEO_DURATIONS)
+const aspectOptions = computed(() => isH3.value ? H3_ASPECT_OPTIONS : ASPECT_OPTIONS)
 
 /**
  * 本次调用的费用预估。
@@ -592,6 +603,17 @@ function pricingTiersOf(model: string): string[] {
 function videoPricePerSecond(m: PlazaModel, res: string): number | null {
   const vp = m.video_pricing
   if (!vp) return null
+  // H3 五档分别计费；缺价时不借用相邻档位，避免显示错误预估。
+  if (/^minimax-h3(?:-lite)?$/i.test(m.name)) {
+    const prices: Record<string, number | null | undefined> = {
+      '480p': vp.price_per_second_480p,
+      '768p': vp.price_per_second_768p,
+      '1080p': vp.price_per_second_1080p,
+      '2k': vp.price_per_second_2k,
+      '4k': vp.price_per_second_4k
+    }
+    return prices[res] ?? null
+  }
   // 回落方向一律往贵的走：预估比实扣低会让用户以为被多扣了。
   if (res === '4k') return vp.price_per_second_4k ?? vp.price_per_second_1080p ?? vp.price_per_second_720p ?? null
   if (res === '1080p') return vp.price_per_second_1080p ?? vp.price_per_second_4k ?? vp.price_per_second_720p ?? null
@@ -683,6 +705,7 @@ function toSynced(conv: PlaygroundConversation) {
 /** 接口形状转回本地会话。 */
 function fromSynced(raw: Awaited<ReturnType<typeof fetchConversations>> extends (infer T)[] | null ? T : never): PlaygroundConversation {
   const urls = (m: { media_urls?: string[] | null }) => m.media_urls ?? []
+  const local = new Map((conversations.value.find(conv => conv.id === raw.id)?.messages ?? []).map(msg => [msg.id, msg]))
   return {
     id: raw.id,
     title: raw.title,
@@ -697,6 +720,9 @@ function fromSynced(raw: Awaited<ReturnType<typeof fetchConversations>> extends 
       mediaUrl: urls(m)[0],
       mediaKind: (m.media_kind ?? undefined) as 'image' | 'video' | undefined,
       taskId: m.task_id ?? undefined,
+      submissionKey: local.get(m.id)?.submissionKey,
+      submissionUnknown: local.get(m.id)?.submissionUnknown,
+      submissionError: local.get(m.id)?.submissionError,
       error: m.error ?? undefined,
       needsTopUp: Boolean(m.needs_top_up),
       createdAt: m.created_at ?? Date.now()
@@ -809,16 +835,18 @@ async function submit() {
     // 余额不足是新用户最常撞上的一条（注册不再自动送积分），单独给中文引导，
     // 不要把 "Insufficient account balance" 这句英文原文丢给用户。
     const needsTopUp = isInsufficientBalance(err)
+    const unknown = err instanceof Error && (err as Error & { code?: string }).code === 'h3_submission_unknown'
     appendMessage(conv, {
       id: newId(),
       role: 'assistant',
       content: '',
-      error: needsTopUp
+      error: unknown ? t('playground.unknownSubmission') : needsTopUp
         ? t('playground.insufficientBalance')
         : err instanceof Error
           ? err.message
           : String(err),
       needsTopUp,
+      ...(unknown ? { submissionUnknown: true, submissionKey: (err as Error & { idempotencyKey?: string }).idempotencyKey, submissionError: err instanceof Error ? err.message : String(err) } : {}),
       createdAt: Date.now()
     })
   } finally {
@@ -901,6 +929,12 @@ async function adoptMedia(
 async function runMedia(conv: PlaygroundConversation, prompt: string) {
   const isVideo = mode.value === 'video'
   busyHint.value = isVideo ? t('playground.generatingVideo') : t('playground.generatingImage')
+  const userMessage = conv.messages[conv.messages.length - 1]
+  const submissionKey = isH3.value ? `h3-${userMessage?.id || newId()}` : undefined
+  if (submissionKey && userMessage) {
+    userMessage.submissionKey = submissionKey
+    persist()
+  }
 
   // size 是画幅比例、resolution 才是清晰度档位 —— 与 OpenAI 的语义相反，
   // 这是 toAPI 的约定（见 quickstart 文档），传反了会被上游拒绝。
@@ -908,6 +942,8 @@ async function runMedia(conv: PlaygroundConversation, prompt: string) {
     ? await createVideoTask(conv.model, prompt, {
         resolution: resolution.value,
         duration: videoDuration.value,
+        ...(isH3.value ? { aspect_ratio: aspectRatio.value } : {}),
+        ...(submissionKey ? { idempotencyKey: submissionKey } : {}),
         // 有参考图就是图生视频，没有就是文生视频；上游字段名固定叫 image
         image: referenceImageUrl.value || undefined
       })
@@ -923,6 +959,8 @@ async function runMedia(conv: PlaygroundConversation, prompt: string) {
     role: 'assistant',
     content: '',
     taskId: mediaTaskId(task),
+    submissionKey: task.idempotencyKey || submissionKey,
+    submissionUnknown: Boolean(submissionKey && task.status === 'unknown'),
     mediaKind: isVideo ? 'video' : 'image',
     createdAt: Date.now()
   })
@@ -958,7 +996,10 @@ async function pollTask(
   for (;;) {
     if (disposed) return
     if (Date.now() > deadline) {
-      reply.error = t('playground.timeout')
+      if (reply.submissionKey || taskId.startsWith('csh3-')) {
+        reply.submissionUnknown = true
+        reply.content = t('playground.unknownStatus')
+      } else reply.error = t('playground.timeout')
       persist()
       return
     }
@@ -967,7 +1008,21 @@ async function pollTask(
     })
     if (disposed) return
 
-    const result: MediaTaskResult = isVideo ? await getVideoTask(taskId) : await getImageTask(taskId)
+    let result: MediaTaskResult
+    try {
+      result = isVideo ? await getVideoTask(taskId) : await getImageTask(taskId)
+    } catch (err) {
+      if (!reply.submissionKey && !taskId.startsWith('csh3-')) throw err
+      reply.submissionUnknown = true
+      reply.submissionError = err instanceof Error ? err.message : String(err)
+      reply.content = t('playground.unknownStatus')
+      persist()
+      return
+    }
+    if (reply.submissionKey || taskId.startsWith('csh3-')) {
+      reply.submissionUnknown = result.status === 'unknown'
+      reply.content = ''
+    }
 
     // 上游在任务查询里回 progress（0~100）。给真实百分比而不是一条空转的动画——
     // 生图要一分钟上下，没有进度用户不知道是在跑还是卡死了。
@@ -1053,7 +1108,7 @@ async function loadModels() {
     // 只按名字判会漏一大片——kling-v3 / seedance-2 / MiniMax-H3 / veo3.1-fast
     // 名字里都没有 video。而视频模型又没有渠道定价行，billing_mode 也拿不到，
     // 于是既进不了视频桶、也进不了生图桶，最后全掉进「对话」下拉里。
-    if (priced.get(name)?.model?.video_pricing || /video/i.test(name)) video.push(name)
+    if (priced.get(name)?.model?.video_pricing || /video/i.test(name) || /^minimax-h3(?:-lite)?$/i.test(name)) video.push(name)
     else if (mode && mode !== BILLING_MODE_TOKEN) image.push(name)
     else chat.push(name)
   }
@@ -1071,9 +1126,17 @@ watch([mode, availableModels], () => {
 
 // 生图与视频的清晰度档位是两套值（1k/2k/4k vs 480p/720p/1080p）。
 // 切模式后不校正的话，会把 "1k" 当分辨率发给视频接口。
-watch(mode, () => {
+watch([mode, selectedModel], () => {
   const allowed = resolutionOptions.value.map((r) => r.value)
-  if (!allowed.includes(resolution.value)) resolution.value = allowed[0]
+  if (isH3.value) {
+    resolution.value = '768p'
+    videoDuration.value = 5
+    aspectRatio.value = '16:9'
+  } else {
+    if (!allowed.includes(resolution.value)) resolution.value = allowed[0]
+    if (!VIDEO_DURATIONS.includes(videoDuration.value)) videoDuration.value = 8
+    if (!(ASPECT_OPTIONS as readonly string[]).includes(aspectRatio.value)) aspectRatio.value = '1:1'
+  }
 })
 
 /**

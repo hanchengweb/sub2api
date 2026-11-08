@@ -15,7 +15,7 @@ import (
 
 const (
 	bindMediaTaskChargeSQL  = `(?s)INSERT INTO media_task_charges \(task_key, task_id, user_id, api_key_id, group_id, credits, request_id\)\s+VALUES \(\$1, NULLIF\(\$2, ''\), \$3, \$4, \$5, \$6, NULLIF\(\$7, ''\)\)\s+ON CONFLICT \(task_key\) DO UPDATE\s+SET credits = EXCLUDED\.credits, task_id = EXCLUDED\.task_id, request_id = EXCLUDED\.request_id\s+WHERE media_task_charges\.refunded_at IS NULL`
-	takeMediaTaskChargeSQL  = `(?s)UPDATE media_task_charges\s+SET refunded_at = NOW\(\)\s+WHERE task_key = \$1 AND refunded_at IS NULL\s+RETURNING user_id, api_key_id, credits, COALESCE\(request_id, ''\)`
+	takeMediaTaskChargeSQL  = `(?s)UPDATE media_task_charges\s+SET refunded_at = NOW\(\)\s+WHERE task_key = \$1 AND refunded_at IS NULL AND h3_snapshot IS NULL\s+RETURNING user_id, api_key_id, credits, COALESCE\(request_id, ''\)`
 	markUsageLogRefundedSQL = `(?s)UPDATE usage_logs\s+SET refunded_at = NOW\(\),\s+refunded_credits = \$3,\s+total_cost = GREATEST\(total_cost - \$3, 0\),\s+actual_cost = GREATEST\(actual_cost - \$3, 0\),\s+account_stats_cost = 0\s+WHERE request_id = \$1 AND api_key_id = \$2 AND refunded_at IS NULL`
 )
 
@@ -132,7 +132,7 @@ func TestTakeMediaTaskCharge_EmptyKeyIsNoop(t *testing.T) {
 }
 
 const (
-	takeByTaskIDSQL  = `(?s)UPDATE media_task_charges\s+SET refunded_at = NOW\(\)\s+WHERE task_id = \$1 AND refunded_at IS NULL\s+RETURNING user_id, api_key_id, credits, COALESCE\(request_id, ''\)`
+	takeByTaskIDSQL  = `(?s)UPDATE media_task_charges\s+SET refunded_at = NOW\(\)\s+WHERE task_id = \$1 AND refunded_at IS NULL AND h3_snapshot IS NULL\s+RETURNING user_id, api_key_id, credits, COALESCE\(request_id, ''\)`
 	recordWebhookSQL = `(?s)INSERT INTO webhook_events \(provider, event_id, event_type, task_id\)\s+VALUES \(\$1, \$2, \$3, NULLIF\(\$4, ''\)\)\s+ON CONFLICT \(provider, event_id\) DO NOTHING`
 )
 

@@ -16,6 +16,7 @@ export default {
     refImageTooLarge: 'Image must be 10MB or smaller',
     refImageFailed: 'Reference image upload failed',
     paramAspect: 'Ratio',
+    aspectAdaptive: 'Adaptive',
     paramResolution: 'Quality',
     paramCount: 'Count',
     seconds: '{n} seconds',
@@ -62,6 +63,9 @@ export default {
     generationFailed: 'Generation failed. The credits charged for this request were refunded',
     noMediaUrl: 'The task finished but returned no usable result URL',
     timeout: 'Timed out waiting. The task may still be running — check your usage records later',
+    confirmingSubmission: 'Checking the original task…',
+    unknownSubmission: 'The submission result is unconfirmed. The original request was saved and was not resent. Check your task records before generating again.',
+    unknownStatus: 'The original task status is unconfirmed. Reopen this conversation later to continue checking. Do not generate it again.',
     disclaimer: 'The playground draws on the same balance as API calls and is billed by actual usage',
   },
 }

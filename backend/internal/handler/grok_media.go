@@ -218,6 +218,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	}
 	routingStart := time.Now()
 	requiredCapability := grokMediaRequiredCapability(endpoint)
+	if endpoint == service.GrokMediaEndpointVideosGenerations && service.IsCompShareH3Model(requestModel) {
+		requiredCapability = service.OpenAIEndpointCapabilityCompShareH3
+	}
 	mediaPlatform := service.PlatformGrok
 	unavailableCode, unavailableMessage := "grok_media_no_eligible_account", "No eligible Grok media accounts"
 	if endpoint == service.GrokMediaEndpointVideosGenerations && apiKey.Group != nil {
@@ -320,7 +323,14 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		)
 
 		account := selection.Account
-		if endpoint.RequiresMediaGenerationCapability() && !account.IsArkVideoAccount() {
+		if endpoint.IsGenerationRequest() && service.IsCompShareH3Model(requestModel) && !account.IsCompShareH3Account() {
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+			failedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+		if endpoint.RequiresMediaGenerationCapability() && !account.IsArkVideoAccount() && !account.IsCompShareH3Account() {
 			eligible, eligibilityReason, eligibilityErr := h.ensureGrokMediaAccountEligibility(requestCtx, account)
 			if !eligible {
 				mediaEligibilityRejected = true
@@ -359,6 +369,26 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			}
 			return
 		}
+		if account.IsCompShareH3Account() {
+			ready := true
+			if endpoint == service.GrokMediaEndpointVideosGenerations {
+				ready = h.prepareCompShareH3(c, apiKey, account, body)
+			} else if endpoint.IsVideoLookupRequest() {
+				snap, lookupErr := h.gatewayService.GetCompShareH3(requestCtx, requestID, subject.UserID, apiKey.ID)
+				if lookupErr != nil || snap == nil || snap.AccountID != account.ID {
+					h.errorResponse(c, 404, "not_found_error", "Video request not found")
+					ready = false
+				} else {
+					c.Set(service.CompShareH3ContextKey, snap)
+				}
+			}
+			if !ready {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				return
+			}
+		}
 		forwardStart := time.Now()
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
@@ -367,6 +397,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					accountReleaseFunc()
 				}
 			}()
+			if account.IsCompShareH3Account() && h.apiKeyService != nil {
+				defer h.apiKeyService.InvalidateAuthCacheByKey(context.WithoutCancel(requestCtx), apiKey.Key)
+			}
 			return h.gatewayService.ForwardGrokMedia(requestCtx, c, account, endpoint, requestID, body, contentType)
 		}()
 		if err == nil && result != nil && endpoint.IsGenerationRequest() {
@@ -494,7 +527,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				)
 			}
 		}
-		if shouldRecordGrokMediaUsage(endpoint, requestModel) {
+		if shouldRecordGrokMediaUsage(endpoint, requestModel) && !account.IsCompShareH3Account() {
 			recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestModel, body, requestID)
 		}
 		reqLog.Debug("grok_media.request_completed",

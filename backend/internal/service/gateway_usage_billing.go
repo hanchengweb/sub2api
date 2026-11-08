@@ -71,6 +71,7 @@ type usageLogBestEffortWriter interface {
 
 // postUsageBillingParams 统一扣费所需的参数
 type postUsageBillingParams struct {
+	CompShareH3           *CompShareH3Snapshot
 	Cost                  *CostBreakdown
 	User                  *User
 	APIKey                *APIKey
@@ -238,6 +239,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	}
 
 	cmd := &UsageBillingCommand{
+		CompShareH3:        p.CompShareH3,
 		RequestID:          requestID,
 		APIKeyID:           p.APIKey.ID,
 		UserID:             p.User.ID,

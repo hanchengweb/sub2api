@@ -1,4 +1,5 @@
 import { buildApiUrl } from './url'
+import { newId } from '@/utils/playgroundStore'
 
 /**
  * 在线使用页的网关代理客户端。
@@ -137,6 +138,9 @@ export interface MediaTask {
   id?: string
   /** 上游对任务 id 的字段名不统一，两个都可能出现。 */
   task_id?: string
+  request_id?: string
+  /** 客户端提交标识；结果未知时保留，不能自动再发 POST。 */
+  idempotencyKey?: string
   status?: string
   progress?: number
   error?: { code?: string; message?: string }
@@ -229,23 +233,53 @@ export async function uploadReferenceImage(
 export async function createVideoTask(
   model: string,
   prompt: string,
-  opts: { resolution?: string; duration?: number; image?: string },
+  opts: { resolution?: string; duration?: number; image?: string; aspect_ratio?: string; idempotencyKey?: string },
   options?: { signal?: AbortSignal }
 ): Promise<MediaTaskResult> {
-  const response = await fetch(buildApiUrl('/playground/videos/generations'), {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({
-      model,
-      prompt,
-      resolution: opts.resolution,
-      duration: opts.duration,
-      ...(opts.image ? { image: opts.image } : {})
-    }),
-    signal: options?.signal
-  })
-  if (!response.ok) throw await toError(response)
-  return (await response.json()) as MediaTaskResult
+  const h3 = /^minimax-h3(?:-lite)?$/i.test(model)
+  const idempotencyKey = h3 ? opts.idempotencyKey || `h3-${newId()}` : undefined
+  let response: Response
+  try {
+    response = await fetch(buildApiUrl('/playground/videos/generations'), {
+      method: 'POST',
+      headers: { ...authHeaders(), ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
+      body: JSON.stringify({
+        model,
+        prompt,
+        resolution: opts.resolution,
+        duration: opts.duration,
+        ...(opts.aspect_ratio ? { aspect_ratio: opts.aspect_ratio } : {}),
+        ...(opts.image ? { image: opts.image } : {})
+      }),
+      signal: options?.signal
+    })
+  } catch (err) {
+    if (!h3) throw err
+    throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
+      code: 'h3_submission_unknown', idempotencyKey, noRetry: true
+    })
+  }
+  if (h3 && response.status === 502) {
+    const receipt = await response.clone().json().catch(() => null) as MediaTaskResult | null
+    if (receipt?.status === 'unknown' && receipt.error?.code === 'h3_submission_unknown'
+      && typeof receipt.id === 'string' && /^csh3-[a-f0-9]{16,56}$/.test(receipt.id)
+      && receipt.request_id === receipt.id) {
+      return { ...receipt, idempotencyKey }
+    }
+  }
+  if (!response.ok) {
+    const error = await toError(response)
+    if (idempotencyKey) Object.assign(error, { idempotencyKey, noRetry: true })
+    throw error
+  }
+  try {
+    return { ...(await response.json()) as MediaTaskResult, ...(idempotencyKey ? { idempotencyKey } : {}) }
+  } catch (err) {
+    if (!h3) throw err
+    throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
+      code: 'h3_submission_unknown', idempotencyKey, noRetry: true
+    })
+  }
 }
 
 export interface MediaTaskItem {
@@ -256,6 +290,7 @@ export interface MediaTaskItem {
 export interface MediaTaskResult extends MediaTask {
   data?: MediaTaskItem[]
   url?: string
+  video?: { url?: string }
   /**
    * 异步生图任务完成时，结果套在 result 里：
    *   {"status":"completed","result":{"type":"image","data":[{"url":"https://..."}]}}
@@ -356,7 +391,7 @@ export function mediaUrlsOf(task: MediaTaskResult): string[] {
     return ''
   }
   return [...new Set([
-    task.url, ...(task.data ?? []).map(pick),
+    task.url, task.video?.url, ...(task.data ?? []).map(pick),
     task.result?.url, ...(task.result?.data ?? []).map(pick)
   ].filter((url): url is string => Boolean(url)))]
 }
@@ -382,13 +417,13 @@ export async function getVideoTask(
 /** 任务是否已进入终态。 */
 export function isTerminalStatus(status: string | undefined): boolean {
   const s = (status ?? '').toLowerCase()
-  return ['success', 'succeeded', 'completed', 'failed', 'failure', 'error', 'cancelled', 'canceled'].includes(s)
+  return ['success', 'succeeded', 'completed', 'failed', 'failure', 'error', 'cancelled', 'canceled', 'blocked'].includes(s)
 }
 
 /** 终态是否为失败。 */
 export function isFailedStatus(status: string | undefined): boolean {
   const s = (status ?? '').toLowerCase()
-  return ['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(s)
+  return ['failed', 'failure', 'error', 'cancelled', 'canceled', 'blocked'].includes(s)
 }
 
 /**

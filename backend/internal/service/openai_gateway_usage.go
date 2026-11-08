@@ -215,7 +215,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	// Determine billing type
-	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+	isSubscriptionBilling := result.CompShareH3 == nil && subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 	billingType := BillingTypeBalance
 	if isSubscriptionBilling {
 		billingType = BillingTypeSubscription
@@ -225,6 +225,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	durationMs := int(result.Duration.Milliseconds())
 	accountRateMultiplier := account.BillingRateMultiplier()
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
+	if result.CompShareH3 != nil {
+		requestID = result.CompShareH3.RequestID
+	}
 	if result.OpenAIWSMode {
 		if upstreamRequestID := strings.TrimSpace(result.RequestID); upstreamRequestID != "" {
 			requestID = upstreamRequestID
@@ -267,7 +270,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
-		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionOrDefault(result.VideoResolution))
+		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionForModel(result.Model, result.VideoResolution))
 		videoDurationSeconds := NormalizeVideoBillingDurationForModel(result.UpstreamModel, result.VideoDurationSeconds)
 		usageLog.VideoDurationSeconds = &videoDurationSeconds
 	}
@@ -286,7 +289,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// 异步图片任务：上游返回任务 ID 时本次已全额扣费，但任务随后可能失败（上游对失败
 	// 任务不计费）。这里记下扣了多少，任务查询接口发现终态失败时按此原额退回。
 	// 只对图片计费口径记录：token/视频走同步或另有结算路径。
-	if cost != nil && result.ImageCount > 0 && cost.ActualCost > 0 &&
+	if result.CompShareH3 == nil && cost != nil && result.ImageCount > 0 && cost.ActualCost > 0 &&
 		cost.BillingMode != string(BillingModeToken) && apiKey != nil && user != nil {
 		if taskID := strings.TrimSpace(result.ResponseID); taskID != "" {
 			if err := s.BindOpenAIImageTaskCharge(ctx, apiKey.GroupID, taskID, user.ID, apiKey.ID, cost.ActualCost, requestID); err != nil {
@@ -302,6 +305,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		usageLog.RateMultiplier = imageMultiplier
 	} else {
 		usageLog.RateMultiplier = multiplier
+	}
+	if result.CompShareH3 != nil {
+		usageLog.RateMultiplier = result.CompShareH3.Multiplier
 	}
 	usageLog.AccountRateMultiplier = &accountRateMultiplier
 	usageLog.BillingType = billingType
@@ -346,7 +352,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if apiKey.GroupID != nil {
 		usageLog.GroupID = apiKey.GroupID
 	}
-	if subscription != nil {
+	if subscription != nil && result.CompShareH3 == nil {
 		usageLog.SubscriptionID = &subscription.ID
 	}
 
@@ -374,6 +380,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	billingErr := func() error {
 		_, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+			CompShareH3:           result.CompShareH3,
 			Cost:                  cost,
 			User:                  user,
 			APIKey:                apiKey,
@@ -390,6 +397,13 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	if billingErr != nil {
 		return billingErr
+	}
+	if result.CompShareH3 != nil {
+		if s.usageLogRepo == nil {
+			return errors.New("H3 usage receipt unavailable")
+		}
+		_, err := s.usageLogRepo.Create(ctx, usageLog)
+		return err
 	}
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 
@@ -410,6 +424,10 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	longContextBillingEnabled bool,
 ) (*CostBreakdown, error) {
 	billingModel := firstUsageBillingModel(billingModels)
+	if result != nil && result.CompShareH3 != nil {
+		snap := result.CompShareH3
+		return &CostBreakdown{TotalCost: snap.BaseCost, ActualCost: snap.Credits, BillingMode: string(BillingModeVideo)}, nil
+	}
 	if result != nil && result.WebSearchCalls > 0 {
 		// Codex alpha/search 网页搜索按次计费：上游不返回 usage/token 字段，单价只取
 		// 分组覆盖价（nil 时默认 0.01 = 官方 $10/1000 次），不参与渠道级模型定价。

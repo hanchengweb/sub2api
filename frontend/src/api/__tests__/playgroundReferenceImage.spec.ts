@@ -7,6 +7,15 @@ afterEach(() => {
 })
 
 describe('图生视频的参考图链路', () => {
+  it('H3 保留清晰度、长时长和画幅，不增加收费选项', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ task_id: 'h3-task' }) })
+    vi.stubGlobal('fetch', fetcher)
+    await createVideoTask('MiniMax-H3', '海边日落', { resolution: '2k', duration: 30, aspect_ratio: '21:9' })
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      model: 'MiniMax-H3', prompt: '海边日落', resolution: '2k', duration: 30, aspect_ratio: '21:9'
+    })
+  })
+
   it('走 playground 代理上传，字段名必须是 file', async () => {
     localStorage.setItem('auth_token', 'test-session')
     const fetcher = vi.fn().mockResolvedValue({

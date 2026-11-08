@@ -94,6 +94,9 @@ func buildGrokBillingURL(account *Account, cfg *config.Config, weekly bool) (str
 }
 
 func buildGrokMediaURL(account *Account, cfg *config.Config, endpoint GrokMediaEndpoint, requestID string) (string, error) {
+	if account.IsCompShareH3Account() {
+		return buildCompShareH3URL(account, cfg, endpoint, requestID)
+	}
 	if account.IsArkVideoAccount() {
 		return buildArkVideoURL(account, cfg, endpoint, requestID)
 	}

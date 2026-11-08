@@ -16,6 +16,10 @@ export interface PlaygroundMessage {
   mediaUrls?: string[]
   /** 异步任务 id；未完成时用它在重进页面后续上轮询 */
   taskId?: string
+  /** H3 的原提交标识与未知状态；只回查原任务，不自动重发。 */
+  submissionKey?: string
+  submissionUnknown?: boolean
+  submissionError?: string
   /** 该任务是图还是视频——恢复轮询时要用它选对查询接口。
    *  不能靠会话的 mode 推断：用户可能在等待期间切换了模式。 */
   mediaKind?: 'image' | 'video'

@@ -168,6 +168,8 @@ func (g *Group) VideoModelPricesFor(model string) *VideoPriceConfig {
 		return nil
 	}
 	cfg := &VideoPriceConfig{
+		Price768P:  pick(VideoBillingResolution768P),
+		Price2K:    pick(VideoBillingResolution2K),
 		Price480P:  pick(VideoBillingResolution480P),
 		Price720P:  pick(VideoBillingResolution720P),
 		Price1080P: pick(VideoBillingResolution1080P),
@@ -181,7 +183,7 @@ func (g *Group) VideoModelPricesFor(model string) *VideoPriceConfig {
 	// （seedance-2-5 只有 480P/720P），剩下的档一旦有人点到就是全额倒贴。
 	// 补最贵档：要么上游根本不支持该分辨率、请求被拒走退款，要么我们至少不亏。
 	var top *float64
-	for _, p := range []*float64{cfg.Price480P, cfg.Price720P, cfg.Price1080P, cfg.Price4K} {
+	for _, p := range []*float64{cfg.Price480P, cfg.Price720P, cfg.Price768P, cfg.Price1080P, cfg.Price2K, cfg.Price4K} {
 		if p != nil && (top == nil || *p > *top) {
 			top = p
 		}
@@ -189,7 +191,11 @@ func (g *Group) VideoModelPricesFor(model string) *VideoPriceConfig {
 	if top == nil {
 		return nil
 	}
-	for _, slot := range []**float64{&cfg.Price480P, &cfg.Price720P, &cfg.Price1080P, &cfg.Price4K} {
+	slots := []**float64{&cfg.Price480P, &cfg.Price720P, &cfg.Price1080P, &cfg.Price4K}
+	if IsCompShareH3Model(model) {
+		slots = append(slots, &cfg.Price768P, &cfg.Price2K)
+	}
+	for _, slot := range slots {
 		if *slot == nil {
 			*slot = top
 		}
@@ -209,7 +215,7 @@ func (g *Group) GetVideoModelPrice(model, resolution string) *float64 {
 	if !ok || len(byResolution) == 0 {
 		return nil
 	}
-	if price, ok := byResolution[NormalizeVideoBillingResolutionOrDefault(resolution)]; ok {
+	if price, ok := byResolution[NormalizeVideoBillingResolutionForModel(model, resolution)]; ok {
 		return &price
 	}
 	return nil
