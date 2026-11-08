@@ -57,7 +57,7 @@ vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
     ...actual,
-    useI18n: () => ({ t: (key: string) => key }),
+    useI18n: () => ({ t: (key: string, params?: { total?: string }) => key === 'playground.costVideo' ? `${key}:${params?.total}` : key }),
   }
 })
 
@@ -374,6 +374,57 @@ describe('PlaygroundView 参数与费用预估', () => {
     await flushPromises()
   }
 
+  it('H3 提供五档、全部整数秒和画幅，并按选中档位预估费用', async () => {
+    listModels.mockResolvedValue(['MiniMax-H3', 't-grok-video-1.5'])
+    getModelPlaza.mockResolvedValue({ groups: [{ rate_multiplier: 2, models: [{
+      name: 'MiniMax-H3', pricing: null, video_pricing: {
+        price_per_second_480p: 5, price_per_second_720p: null, price_per_second_768p: 10,
+        price_per_second_1080p: 19, price_per_second_2k: 20, price_per_second_4k: 22
+      }
+    }] }] })
+    createVideoTask.mockResolvedValue({ data: [{ url: 'https://cdn.example/h3.mp4' }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await switchTo(wrapper, 'playground.modeVideo')
+    const param = (label: string) => wrapper.findAllComponents(Select).find(sel => sel.props('ariaLabel') === `playground.param${label}`)!
+    expect(param('Resolution').props('options').map((o: { value: string }) => o.value)).toEqual(['480p', '768p', '1080p', '2k', '4k'])
+    expect(param('Duration').props('options').map((o: { value: number }) => o.value)).toEqual(Array.from({ length: 27 }, (_, index) => index + 4))
+    expect(param('Resolution').props('modelValue')).toBe('768p')
+    expect(param('Duration').props('modelValue')).toBe(5)
+    expect(param('Aspect').props('modelValue')).toBe('16:9')
+    expect(wrapper.text()).toContain('playground.costVideo:100')
+    param('Resolution').vm.$emit('update:modelValue', '2k')
+    param('Duration').vm.$emit('update:modelValue', 30)
+    param('Aspect').vm.$emit('update:modelValue', '21:9')
+    await nextTick()
+    expect(wrapper.text()).toContain('playground.costVideo:1200')
+    await send(wrapper, '海边日落')
+    expect(createVideoTask).toHaveBeenCalledWith('MiniMax-H3', '海边日落', expect.objectContaining({ resolution: '2k', duration: 30, aspect_ratio: '21:9' }))
+    await wrapper.get('[data-testid="model-select"]').trigger('click')
+    await wrapper.findAll('[data-testid="model-option"]').find(option => option.text().includes('t-grok-video-1.5'))!.trigger('click')
+    await flushPromises()
+    expect(param('Resolution').props('options').map((o: { value: string }) => o.value)).toEqual(['480p', '720p', '1080p'])
+    expect(param('Duration').props('options').map((o: { value: number }) => o.value)).toEqual([6, 8, 10, 12, 15, 20, 25, 30])
+  })
+
+  it('H3 未配置选中档位价格时不拿其他分辨率的价格预估', async () => {
+    listModels.mockResolvedValue(['MiniMax-H3'])
+    getModelPlaza.mockResolvedValue({ groups: [{ models: [{ name: 'MiniMax-H3', video_pricing: { price_per_second_720p: 100 } }] }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await switchTo(wrapper, 'playground.modeVideo')
+    expect(wrapper.text()).not.toContain('playground.costVideo')
+  })
+
+  it('模型广场不可用时仍将 H3 放在视频模式', async () => {
+    listModels.mockResolvedValue(['MiniMax-H3'])
+    getModelPlaza.mockRejectedValue(new Error('plaza unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+    await switchTo(wrapper, 'playground.modeVideo')
+    expect(await modelOptionIds(wrapper)).toEqual(['MiniMax-H3'])
+  })
+
   it('参数条只显示当前模式用得上的项', async () => {
     const wrapper = mountView()
     await flushPromises()
@@ -435,6 +486,94 @@ describe('PlaygroundView 参数与费用预估', () => {
   })
 })
 
+
+describe('PlaygroundView H3 unknown recovery', () => {
+  const taskId = `csh3-${'a'.repeat(56)}`
+  async function openH3() {
+    listModels.mockResolvedValue(['MiniMax-H3'])
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('playground.modeVideo'))!.trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+  const savedMessages = () => JSON.parse(localStorage.getItem('playground_conversations_v1')!)[0].messages
+
+  it('queries the original receipt after unknown and adopts its eventual video without another submit', async () => {
+    vi.useFakeTimers()
+    try {
+      createVideoTask.mockResolvedValue({ id: taskId, status: 'unknown' })
+      getVideoTask.mockResolvedValueOnce({ id: taskId, status: 'unknown' })
+        .mockResolvedValue({ id: taskId, status: 'succeeded', video: { url: '/api/v1/playground/videos/provider/content' } })
+      const wrapper = await openH3()
+      await send(wrapper, 'one clip')
+      const key = createVideoTask.mock.calls[0][2].idempotencyKey
+      expect(savedMessages()[0].submissionKey).toBe(key)
+      expect(savedMessages()[1]).toMatchObject({ taskId, submissionUnknown: true, submissionKey: key })
+      expect(wrapper.text()).toContain('playground.confirmingSubmission')
+      await vi.advanceTimersByTimeAsync(11000)
+      await flushPromises()
+      expect(getVideoTask.mock.calls.map(([id]) => id)).toEqual([taskId, taskId])
+      expect(createVideoTask).toHaveBeenCalledTimes(1)
+      expect(savedMessages()[1]).toMatchObject({ taskId, submissionUnknown: false, mediaUrl: '/api/v1/playground/videos/provider/content' })
+      wrapper.unmount()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('stores an unreceipted network error and the original key without polling or reposting', async () => {
+    createVideoTask.mockImplementation((_model, _prompt, opts) => Promise.reject(Object.assign(new TypeError('connection lost'), {
+      code: 'h3_submission_unknown', idempotencyKey: opts.idempotencyKey, noRetry: true
+    })))
+    const wrapper = await openH3()
+    await send(wrapper, 'one clip')
+    const messages = savedMessages()
+    expect(messages[1]).toMatchObject({ submissionUnknown: true, submissionError: 'connection lost', submissionKey: messages[0].submissionKey })
+    expect(messages[1].taskId).toBeUndefined()
+    expect(wrapper.text()).toContain('playground.unknownSubmission')
+    expect(createVideoTask).toHaveBeenCalledTimes(1)
+    expect(getVideoTask).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('retains the original ID after a query failure and resumes GET when the conversation reopens', async () => {
+    vi.useFakeTimers()
+    try {
+      createVideoTask.mockResolvedValue({ id: taskId, status: 'unknown' })
+      getVideoTask.mockRejectedValueOnce(new TypeError('query disconnected'))
+        .mockResolvedValue({ id: taskId, status: 'succeeded', video: { url: '/api/v1/playground/videos/provider/content' } })
+      const first = await openH3()
+      await send(first, 'one clip')
+      await vi.advanceTimersByTimeAsync(6000)
+      await flushPromises()
+      expect(savedMessages()[1]).toMatchObject({ taskId, submissionUnknown: true, submissionError: 'query disconnected' })
+      expect(savedMessages()[1].error).toBeUndefined()
+      first.unmount()
+      const reopened = await openH3()
+      await vi.advanceTimersByTimeAsync(6000)
+      await flushPromises()
+      expect(createVideoTask).toHaveBeenCalledTimes(1)
+      expect(getVideoTask.mock.calls.map(([id]) => id)).toEqual([taskId, taskId])
+      expect(savedMessages()[1].mediaUrl).toBe('/api/v1/playground/videos/provider/content')
+      reopened.unmount()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('keeps an unknown task recoverable after the polling window ends', async () => {
+    vi.useFakeTimers()
+    try {
+      createVideoTask.mockResolvedValue({ id: taskId, status: 'unknown' })
+      getVideoTask.mockResolvedValue({ id: taskId, status: 'unknown' })
+      const wrapper = await openH3()
+      await send(wrapper, 'one clip')
+      await vi.advanceTimersByTimeAsync(606000)
+      await flushPromises()
+      expect(savedMessages()[1]).toMatchObject({ taskId, submissionUnknown: true, content: 'playground.unknownStatus' })
+      expect(savedMessages()[1].error).toBeUndefined()
+      expect(createVideoTask).toHaveBeenCalledTimes(1)
+      wrapper.unmount()
+    } finally { vi.useRealTimers() }
+  })
+})
 
 describe('PlaygroundView 模型名单兜底', () => {
   /**

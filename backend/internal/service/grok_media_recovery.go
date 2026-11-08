@@ -62,6 +62,16 @@ func (s *OpenAIGatewayService) SelectGrokMediaVideoLookupAccount(ctx context.Con
 		return nil, ErrGrokVideoBindingNotFound
 	}
 	lookup := *account
+	if account.IsCompShareH3Account() {
+		// A reserved task consumes no additional provider/account quota when read.
+		lookup.Extra = make(map[string]any, len(account.Extra))
+		for k, v := range account.Extra {
+			lookup.Extra[k] = v
+		}
+		for _, k := range []string{"quota_limit", "quota_daily_limit", "quota_weekly_limit"} {
+			lookup.Extra[k] = 0.0
+		}
+	}
 	transient := account.Type == AccountTypeAPIKey && account.TempUnschedulableReason == "grok upstream temporary error" && account.TempUnschedulableUntil != nil
 	if transient {
 		lookup.TempUnschedulableUntil = nil

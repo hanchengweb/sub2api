@@ -116,6 +116,13 @@ func (h *OpenAIGatewayHandler) OrganizationMediaQuotaMiddleware() gin.HandlerFun
 			c.Next()
 			return
 		}
+		if lookup && h.gatewayService != nil {
+			if snap, e := h.gatewayService.GetCompShareH3(c.Request.Context(), c.Param("request_id"), key.UserID, key.ID); e == nil && snap != nil {
+				c.Header("X-Media-Billing-Mode", "balance")
+				c.Next()
+				return
+			}
+		}
 		requestID := ""
 		var reservation *service.MediaQuotaReservation
 		if !lookup {
@@ -155,6 +162,11 @@ func (h *OpenAIGatewayHandler) OrganizationMediaQuotaMiddleware() gin.HandlerFun
 				return
 			}
 			model := gjson.GetBytes(body, "model").String()
+			if kind == "video" && service.IsCompShareH3Model(model) && h.gatewayService != nil && h.gatewayService.HasCompShareH3Route(c.Request.Context(), key) {
+				c.Header("X-Media-Billing-Mode", "balance")
+				c.Next()
+				return
+			}
 			// Count/duration aliases and automatic multi-output modes must not exceed
 			// the explicit reservation. Only the bounded generation contract is accepted.
 			allowed := map[string]bool{"model": true, "prompt": true, "n": true, "response_format": true, "size": true, "resolution": true, "quality": true, "output_format": true, "background": true, "moderation": true, "stream": true, "watermark": true, "metadata": true, "image": true, "image_urls": true, "reference_images": true, "mask": true, "duration": true, "aspect_ratio": true, "video_generation_mode": true, "seed": true}

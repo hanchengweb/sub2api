@@ -33,6 +33,8 @@ type PlazaModel struct {
 
 // PlazaVideoPricing 视频模型的每秒单价（按清晰度分档）。
 type PlazaVideoPricing struct {
+	PricePer768P  *float64
+	PricePer2K    *float64
 	PricePer480P  *float64
 	PricePer720P  *float64
 	PricePer1080P *float64
@@ -367,6 +369,8 @@ func isPlazaVideoModelName(name string) bool {
 func plazaVideoPricingFor(g *Group, name string) *PlazaVideoPricing {
 	if cfg := g.VideoModelPricesFor(name); cfg != nil {
 		return &PlazaVideoPricing{
+			PricePer768P:  cfg.Price768P,
+			PricePer2K:    cfg.Price2K,
 			PricePer480P:  cfg.Price480P,
 			PricePer720P:  cfg.Price720P,
 			PricePer1080P: cfg.Price1080P,

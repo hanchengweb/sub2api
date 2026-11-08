@@ -65,6 +65,16 @@ function mountTable(
 }
 
 describe('PlazaModelPricingTable', () => {
+  it('H3 的五档单价包含 768p 和 2K，按用户倍率展示', () => {
+    const wrapper = mountTable([tokenModel({ name: 'MiniMax-H3', pricing: null, video_pricing: {
+      price_per_second_480p: 5, price_per_second_720p: null, price_per_second_768p: 10,
+      price_per_second_1080p: 19, price_per_second_2k: 20, price_per_second_4k: 22
+    } })], 2)
+    for (const label of ['480p', '768p', '1080p', '2K', '4K']) expect(wrapper.text()).toContain(label)
+    for (const price of ['10.00', '20.00', '38.00', '40.00', '44.00']) expect(wrapper.text()).toContain(`${price} 积分`)
+    expect(wrapper.text()).not.toContain('720p')
+  })
+
   it('按 token 计费的图片模型展示五桶价格与百万 token 单位，不使用每张价格', () => {
     const model = tokenModel({
       name: 'gpt-image-2.6-sunburst-official',

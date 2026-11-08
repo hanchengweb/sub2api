@@ -200,6 +200,16 @@ func parseGrokMediaJSONRequest(body []byte, info *GrokMediaRequestInfo) {
 			}
 		}
 	}
+	for _, item := range gjson.GetBytes(body, "content").Array() {
+		if item.Get("type").String() == "text" {
+			info.Prompt += " " + item.Get("text").String()
+		}
+		if item.Get("type").String() == "image_url" {
+			if u := item.Get("image_url.url").String(); u != "" {
+				info.InputImageURLs = append(info.InputImageURLs, u)
+			}
+		}
+	}
 	appendJSONImageURLs(gjson.GetBytes(body, "image"))
 	appendJSONImageURLs(gjson.GetBytes(body, "images"))
 	appendJSONImageURLs(gjson.GetBytes(body, "reference_images"))
@@ -336,6 +346,17 @@ func (s *OpenAIGatewayService) ResolveGrokMediaVideoRequestAccount(
 	requestID string,
 	userID, apiKeyID int64,
 ) (int64, error) {
+	if s != nil {
+		if repo, ok := s.usageBillingRepo.(CompShareH3Repository); ok {
+			snap, err := repo.GetCompShareH3(ctx, requestID, userID, apiKeyID)
+			if err != nil {
+				return 0, err
+			}
+			if snap != nil && snap.GroupID == derefGroupID(groupID) {
+				return snap.AccountID, nil
+			}
+		}
+	}
 	if s == nil || s.cache == nil {
 		return 0, fmt.Errorf("grok video request binding cache is unavailable")
 	}
@@ -358,6 +379,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	startTime := time.Now()
 	if account == nil {
 		return nil, fmt.Errorf("grok account is required")
+	}
+	if account.IsCompShareH3Account() {
+		return s.forwardCompShareH3(ctx, c, account, endpoint, requestID, body, contentType)
 	}
 	if account.IsArkVideoAccount() {
 		return s.forwardArkVideo(ctx, c, account, endpoint, requestID, body, contentType)
@@ -550,6 +574,25 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 	contentURL, err := grokMediaSignedVideoContentURL(statusBody, requestID)
 	if account.IsArkVideoAccount() {
 		contentURL, err = arkVideoContentURL(statusBody)
+	}
+	if account.IsCompShareH3Account() {
+		if gjson.GetBytes(statusBody, "task.id").String() != requestID {
+			return nil, fmt.Errorf("CompShare task receipt mismatch")
+		}
+		if raw, ok := c.Get(CompShareH3ContextKey); ok {
+			if snap, ok := raw.(*CompShareH3Snapshot); ok {
+				status := gjson.GetBytes(statusBody, "task.status").String()
+				if status == "succeeded" && gjson.GetBytes(statusBody, "task.usage.output_seconds").Type != gjson.Number {
+					return nil, fmt.Errorf("H3 terminal usage requires numeric output_seconds")
+				}
+				if status == "succeeded" || status == "failed" || status == "cancelled" || status == "blocked" {
+					if settleErr := s.settleCompShareH3(ctx, snap, status, gjson.GetBytes(statusBody, "task.resolution").String(), gjson.GetBytes(statusBody, "task.usage.output_seconds").Float()); settleErr != nil {
+						return nil, settleErr
+					}
+				}
+			}
+		}
+		contentURL, err = compShareH3ContentURL(statusBody)
 	}
 	if err != nil {
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())

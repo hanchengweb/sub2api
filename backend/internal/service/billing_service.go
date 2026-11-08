@@ -1391,6 +1391,8 @@ type ImagePriceConfig struct {
 
 // VideoPriceConfig 视频生成计费配置。所有价格均为**每秒**单价（USD/s），与 xAI 官方计费口径一致。
 type VideoPriceConfig struct {
+	Price768P  *float64
+	Price2K    *float64
 	Price480P  *float64 // 480p 每秒价格（nil 表示使用默认值）
 	Price720P  *float64 // 720p 每秒价格（nil 表示使用默认值）
 	Price1080P *float64 // 1080p 每秒价格（nil 表示使用默认值）
@@ -1528,6 +1530,14 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 func (s *BillingService) getVideoUnitPrice(model string, resolution string, groupConfig *VideoPriceConfig) float64 {
 	if groupConfig != nil {
 		switch resolution {
+		case VideoBillingResolution768P:
+			if groupConfig.Price768P != nil {
+				return *groupConfig.Price768P
+			}
+		case VideoBillingResolution2K:
+			if groupConfig.Price2K != nil {
+				return *groupConfig.Price2K
+			}
 		case VideoBillingResolution480P:
 			if groupConfig.Price480P != nil {
 				return *groupConfig.Price480P

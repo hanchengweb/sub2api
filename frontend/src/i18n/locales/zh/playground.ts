@@ -16,6 +16,7 @@ export default {
     refImageTooLarge: '图片不能超过 10MB',
     refImageFailed: '参考图上传失败',
     paramAspect: '比例',
+    aspectAdaptive: '自动适配',
     paramResolution: '清晰度',
     paramCount: '张数',
     seconds: '{n} 秒',
@@ -62,6 +63,9 @@ export default {
     generationFailed: '生成失败，已退回本次扣除的积分',
     noMediaUrl: '任务已完成，但没有返回可用的结果地址',
     timeout: '等待超时，任务可能仍在处理，请稍后到用量记录中查看',
+    confirmingSubmission: '正在确认原任务状态…',
+    unknownSubmission: '提交结果尚未确认，已保留原请求记录，未自动重发；请先核查任务记录，避免重复生成。',
+    unknownStatus: '原任务状态暂未确认。已保留任务记录，稍后重新打开此会话可继续查询，请勿重复生成。',
     disclaimer: '在线使用与 API 调用共用同一份余额，按实际用量计费',
   },
 }

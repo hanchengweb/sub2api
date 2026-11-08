@@ -5,6 +5,8 @@ import "strings"
 const (
 	VideoBillingResolution480P  = "480p"
 	VideoBillingResolution720P  = "720p"
+	VideoBillingResolution768P  = "768p"
+	VideoBillingResolution2K    = "2k"
 	VideoBillingResolution1080P = "1080p"
 	VideoBillingResolution4K    = "4k"
 )
@@ -59,6 +61,7 @@ type videoUpstreamLimit struct {
 // （grok-imagine-video 在 grok-video 前，seedance-2-fast / seedance-2-5 在 seedance-2 前），
 // 否则会被误匹配。toAPI 的默认值来自 toapis.com/model-guide/<模型> 的参数表（2026-09-27 核对）。
 var videoUpstreamLimits = []videoUpstreamLimit{
+	{Prefix: "minimax-h3", MinSeconds: 4, MaxSeconds: 30, DefaultSeconds: 5, DefaultResolution: VideoBillingResolution768P},
 	// Official Ark models use explicit, fixed gateway defaults. The adapter always
 	// sends duration=5 when omitted; Ark 2.5's native automatic default is not used.
 	{Prefix: "doubao-seedance-2-5-", MinSeconds: 4, MaxSeconds: 30, DefaultSeconds: 5, DefaultResolution: VideoBillingResolution720P},
@@ -162,6 +165,14 @@ func NormalizeVideoBillingResolutionForModel(model, resolution string) string {
 	if strings.TrimSpace(resolution) == "" {
 		if def := videoDefaultResolutionForModel(model); def != "" {
 			return def
+		}
+	}
+	if IsCompShareH3Model(model) {
+		switch strings.ToLower(strings.TrimSpace(resolution)) {
+		case "768p":
+			return VideoBillingResolution768P
+		case "2k":
+			return VideoBillingResolution2K
 		}
 	}
 	return NormalizeVideoBillingResolutionOrDefault(resolution)

@@ -76,6 +76,8 @@ type modelPlazaPeakWindow struct {
 
 // modelPlazaVideoPricing 视频模型每秒单价（按清晰度分档）。
 type modelPlazaVideoPricing struct {
+	PricePer768P  *float64 `json:"price_per_second_768p"`
+	PricePer2K    *float64 `json:"price_per_second_2k"`
 	PricePer480P  *float64 `json:"price_per_second_480p"`
 	PricePer720P  *float64 `json:"price_per_second_720p"`
 	PricePer1080P *float64 `json:"price_per_second_1080p"`
@@ -238,6 +240,8 @@ func toModelPlazaVideoPricing(p *service.PlazaVideoPricing) *modelPlazaVideoPric
 		return nil
 	}
 	return &modelPlazaVideoPricing{
+		PricePer768P:  p.PricePer768P,
+		PricePer2K:    p.PricePer2K,
 		PricePer480P:  p.PricePer480P,
 		PricePer720P:  p.PricePer720P,
 		PricePer1080P: p.PricePer1080P,

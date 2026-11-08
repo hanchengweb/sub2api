@@ -55,6 +55,11 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		return nil, err
 	}
 
+	if cmd.CompShareH3 != nil {
+		if err := bindCompShareH3Charge(ctx, tx, cmd); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -179,7 +184,18 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	}
 
 	if cmd.BalanceCost > 0 {
-		newBalance, sufficient, err := deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.BalanceCost)
+		var newBalance float64
+		var sufficient bool
+		var err error
+		if cmd.CompShareH3 != nil {
+			err = tx.QueryRowContext(ctx, `UPDATE users SET balance=balance-$1,updated_at=NOW() WHERE id=$2 AND deleted_at IS NULL AND balance >= $1 RETURNING balance`, cmd.BalanceCost, cmd.UserID).Scan(&newBalance)
+			if errors.Is(err, sql.ErrNoRows) {
+				return service.ErrInsufficientBalance
+			}
+			sufficient = err == nil
+		} else {
+			newBalance, sufficient, err = deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.BalanceCost)
+		}
 		if err != nil {
 			return err
 		}
@@ -614,7 +630,7 @@ func (r *usageBillingRepository) TakeMediaTaskCharge(ctx context.Context, taskKe
 	const takeSQL = `
 		UPDATE media_task_charges
 		SET refunded_at = NOW()
-		WHERE task_key = $1 AND refunded_at IS NULL
+		WHERE task_key = $1 AND refunded_at IS NULL AND h3_snapshot IS NULL
 		RETURNING user_id, api_key_id, credits, COALESCE(request_id, '')
 	`
 	rows, err := r.db.QueryContext(ctx, takeSQL, taskKey)
@@ -693,7 +709,7 @@ func (r *usageBillingRepository) TakeMediaTaskChargeByTaskID(ctx context.Context
 	const takeSQL = `
 		UPDATE media_task_charges
 		SET refunded_at = NOW()
-		WHERE task_id = $1 AND refunded_at IS NULL
+		WHERE task_id = $1 AND refunded_at IS NULL AND h3_snapshot IS NULL
 		RETURNING user_id, api_key_id, credits, COALESCE(request_id, '')
 	`
 	rows, err := r.db.QueryContext(ctx, takeSQL, taskID)
