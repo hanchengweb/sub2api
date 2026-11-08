@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/mediatasks"
@@ -45,9 +46,22 @@ func (r mediaTaskRoutes) CloneSlots(ctx context.Context, o mediatasks.Owner) ([]
 		if json.Unmarshal(raw, &ids) != nil {
 			continue
 		}
+		// Organization service identity comes from the authenticated key, not actor headers.
+		if o.UserID > 0 {
+			raw, _ = json.Marshal(a.Extra["voice_clone_speaker_ids_by_user"])
+			var byUser map[string]json.RawMessage
+			if json.Unmarshal(raw, &byUser) == nil {
+				var scoped []string
+				if json.Unmarshal(byUser[strconv.FormatInt(o.UserID, 10)], &scoped) == nil {
+					ids = append(ids, scoped...)
+				}
+			}
+		}
+		seen := make(map[string]bool)
 		for _, id := range ids {
-			if prepaidSpeakerID.MatchString(id) {
+			if prepaidSpeakerID.MatchString(id) && !seen[id] {
 				slots = append(slots, voiceassets.Slot{AccountID: a.ID, SpeakerID: id})
+				seen[id] = true
 			}
 			if len(slots) >= 1000 {
 				return slots, nil

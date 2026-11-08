@@ -33,7 +33,13 @@ actor, including quota claims.
 
 Cloning requires an administrator to configure **already prepaid, untrained**
 `S_...` IDs in the selected official Speech account's
-`extra.voice_clone_speaker_ids` array. Its existing provider must be
+`extra.voice_clone_speaker_ids` array for the existing shared pool. To reserve
+slots for one organization service identity, configure
+`extra.voice_clone_speaker_ids_by_user` as `{"62":["S_prepaid"]}`. The key is the
+authenticated organization service **UserID**, never an API key ID or member
+actor. Only that user's array is merged with the shared pool for both availability
+and the durable claim; other users' entries are never selected. Invalid entries
+grant no scoped slots. Its existing provider must be
 `volcengine_speech` at `https://openspeech.bytedance.com`, with an exact
 `seed-icl-2.0` mapping. An empty/exhausted pool fails closed. No provider purchase,
 postpaid `custom_speaker_id`, automatic training retry, or slot reuse is supported.
