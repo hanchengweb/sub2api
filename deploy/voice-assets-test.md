@@ -11,7 +11,7 @@ Endpoints under `/v1`:
 
 - `GET /voice-assets/catalog`, `GET /voice-assets`, `GET /voice-assets/:id`.
 - `POST /voice-assets`: `{kind:"official",name,voice}`; `voice` is one of the
-  four published official presets. The created UUID pins its provider account.
+  473 reviewed official presets. The created UUID pins its provider account.
 - `PATCH /voice-assets/:id`: `{name?,enabled?}`; `DELETE` returns `{deleted:true}`.
 - `POST /voice-assets/clone`: multipart `name`, `audio`, optional `demo_text`,
   and `consent=true`, plus a stable UUID `X-Client-Request-ID`.
