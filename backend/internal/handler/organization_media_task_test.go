@@ -13,6 +13,7 @@ import (
 )
 
 func TestOrganizationModel3DCatalogAdvertisesImageAndText(t *testing.T) {
+	t.Setenv("WXM_MODEL3D_IMAGE_ENABLED", "true")
 	gin.SetMode(gin.TestMode)
 	accounts := &mediaTaskAccountRepoFixture{accounts: []service.Account{nativeMediaAccount(mediatasks.Model3D)}}
 	h := NewOrganizationMediaTaskHandler(nil, nil, accounts, nil,
@@ -29,6 +30,32 @@ func TestOrganizationModel3DCatalogAdvertisesImageAndText(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"modes":["text","image"]`)
 	require.Contains(t, w.Body.String(), `"image_available":true`)
 	require.Contains(t, w.Body.String(), `"id":"tripo-v3.1-standard"`)
+}
+
+func TestOrganizationModel3DImageGateClosedCatalogAndError(t *testing.T) {
+	t.Setenv("WXM_MODEL3D_IMAGE_ENABLED", "")
+	gin.SetMode(gin.TestMode)
+	accounts := &mediaTaskAccountRepoFixture{accounts: []service.Account{nativeMediaAccount(mediatasks.Model3D)}}
+	h := NewOrganizationMediaTaskHandler(nil, nil, accounts, nil,
+		mediaTaskGroupRepoFixture{group: publishedMediaGroup(mediatasks.TripoModel)}, nil)
+	h.enabled = true
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/v1/media/models", nil)
+	group := int64(7)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 2, UserID: 1, GroupID: &group,
+		User: &service.User{ID: 1, AccountType: "organization_service"}})
+	h.Models(c)
+	require.Equal(t, 200, w.Code)
+	require.Contains(t, w.Body.String(), `"modes":["text"]`)
+	require.Contains(t, w.Body.String(), `"image_available":false`)
+
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	mediaTaskError(c, mediatasks.ErrImageUnavailable)
+	require.Equal(t, 422, w.Code)
+	require.Contains(t, w.Body.String(), `"code":"model3d_image_unavailable"`)
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 }
 
 func nativeMediaAccount(kind string) service.Account {

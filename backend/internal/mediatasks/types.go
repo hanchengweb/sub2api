@@ -25,15 +25,16 @@ const (
 )
 
 var (
-	ErrNotFound      = errors.New("media_task_not_found")
-	ErrConflict      = errors.New("media_task_conflict")
-	ErrInvalid       = errors.New("media_request_invalid")
-	ErrRoute         = errors.New("media_route_unavailable")
-	ErrCredentials   = errors.New("media_credentials_missing")
-	ErrQuotaRequired = errors.New("media_quota_required")
-	ErrBusy          = errors.New("media_provider_busy")
-	ErrUnavailable   = errors.New("media_task_unavailable")
-	ErrImageInvalid  = errors.New("model3d_image_invalid")
+	ErrNotFound         = errors.New("media_task_not_found")
+	ErrConflict         = errors.New("media_task_conflict")
+	ErrInvalid          = errors.New("media_request_invalid")
+	ErrRoute            = errors.New("media_route_unavailable")
+	ErrCredentials      = errors.New("media_credentials_missing")
+	ErrQuotaRequired    = errors.New("media_quota_required")
+	ErrBusy             = errors.New("media_provider_busy")
+	ErrUnavailable      = errors.New("media_task_unavailable")
+	ErrImageInvalid     = errors.New("model3d_image_invalid")
+	ErrImageUnavailable = errors.New("model3d_image_unavailable")
 )
 
 type Owner struct {
