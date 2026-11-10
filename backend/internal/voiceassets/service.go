@@ -213,7 +213,7 @@ func (s *Service) Cloning(ctx context.Context, o mediatasks.Owner) (bool, error)
 	if e != nil {
 		return false, e
 	}
-	return s.Store.HasFreeSlot(ctx, slots)
+	return s.Store.HasFreeSlot(ctx, o, slots)
 }
 func (s *Service) ResolveVoiceAsset(ctx context.Context, o mediatasks.Owner, r mediatasks.Request) (mediatasks.Request, mediatasks.Provider, error) {
 	if !validOwner(o) {

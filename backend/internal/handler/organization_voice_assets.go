@@ -7,9 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/mediatasks"
@@ -17,8 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
-
-var prepaidSpeakerID = regexp.MustCompile(`^S_[A-Za-z0-9_-]{1,120}$`)
 
 func (r mediaTaskRoutes) CloneSlots(ctx context.Context, o mediatasks.Owner) ([]voiceassets.Slot, error) {
 	if !r.allowed(ctx, o, mediatasks.Audio, mediatasks.CloneModel) || r.accounts == nil {
@@ -39,30 +35,8 @@ func (r mediaTaskRoutes) CloneSlots(ctx context.Context, o mediatasks.Owner) ([]
 		if !mediaTaskAccount(a, mediatasks.Audio, mediatasks.CloneModel) || strings.TrimSpace(a.GetCredential("api_key")) == "" {
 			continue
 		}
-		// This explicit operator-owned allow-list is only for already prepaid slots.
-		// Never infer a slot from a user input, provider URL or postpaid custom ID.
-		raw, _ := json.Marshal(a.Extra["voice_clone_speaker_ids"])
-		var ids []string
-		if json.Unmarshal(raw, &ids) != nil {
-			continue
-		}
-		// Organization service identity comes from the authenticated key, not actor headers.
-		if o.UserID > 0 {
-			raw, _ = json.Marshal(a.Extra["voice_clone_speaker_ids_by_user"])
-			var byUser map[string]json.RawMessage
-			if json.Unmarshal(raw, &byUser) == nil {
-				var scoped []string
-				if json.Unmarshal(byUser[strconv.FormatInt(o.UserID, 10)], &scoped) == nil {
-					ids = append(ids, scoped...)
-				}
-			}
-		}
-		seen := make(map[string]bool)
-		for _, id := range ids {
-			if prepaidSpeakerID.MatchString(id) && !seen[id] {
-				slots = append(slots, voiceassets.Slot{AccountID: a.ID, SpeakerID: id})
-				seen[id] = true
-			}
+		for _, slot := range voiceassets.ConfiguredSlots(a.ID, o.UserID, a.Extra) {
+			slots = append(slots, slot)
 			if len(slots) >= 1000 {
 				return slots, nil
 			}

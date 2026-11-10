@@ -45,8 +45,8 @@ func (a *Asset) Public() *Asset {
 }
 
 type Slot struct {
-	AccountID int64
-	SpeakerID string
+	AccountID int64  `json:"account_id"`
+	SpeakerID string `json:"speaker_id"`
 }
 type Store interface {
 	List(context.Context, mediatasks.Owner) ([]*Asset, error)
@@ -56,7 +56,7 @@ type Store interface {
 	Patch(context.Context, mediatasks.Owner, string, *string, *bool) (*Asset, error)
 	Delete(context.Context, mediatasks.Owner, string) error
 	UpdateTraining(context.Context, *Asset) error
-	HasFreeSlot(context.Context, []Slot) (bool, error)
+	HasFreeSlot(context.Context, mediatasks.Owner, []Slot) (bool, error)
 }
 type Routes interface {
 	Resolve(context.Context, mediatasks.Owner, string, string) (mediatasks.Provider, error)
