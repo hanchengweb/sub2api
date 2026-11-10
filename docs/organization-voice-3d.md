@@ -15,6 +15,13 @@ The feature is off unless `WXM_OFFICIAL_MEDIA_ENABLED=true`. Do not enable it in
 production as part of this test-only change. Use new test-only supplier accounts
 and organization service keys; never copy production credentials or databases.
 
+New image-to-3D submissions additionally require
+`WXM_MODEL3D_IMAGE_ENABLED=true`; this independent gate defaults to closed.
+When closed, the catalog advertises text only and new image tasks are rejected
+before route selection, quota reservation, task creation or supplier upload.
+Existing request receipts still replay and original task GETs remain available.
+Text-to-3D and other media paths keep their existing authorization and quota rules.
+
 The organization's group must be active and explicitly publish the exact public
 model in enabled `models_list_config.models`. The group must be OpenAI or Composite.
 A Composite group additionally needs an enabled exact route for endpoint `audio`
@@ -59,11 +66,12 @@ never submits a billable synthesis to produce a preview.
 ## API and durable behavior
 
 - `GET /v1/media/models`: the two public models, actual route availability,
-  `error_code` when unavailable, approved voice/scene/emotion choices and text-only
-  3D capability. Availability does not replace the quota check.
+  `error_code` when unavailable, approved voice/scene/emotion choices and enabled
+  3D modes (text only by default). Availability does not replace the quota check.
 - `POST /v1/audio/generations`, `POST /v1/model3d/generations`: require a stable UUID
   in `X-Client-Request-ID`. Audio accepts model/input/voice/scene/emotion/instruction/
-  speed/response_format; 3D accepts only model/prompt in this first slice.
+  speed/response_format; 3D accepts model/prompt or, when its independent gate is
+  enabled, model/image with a bounded inline PNG/JPEG/WebP data URL.
 - `GET /v1/audio/:id`, `GET /v1/model3d/:id`: owner-bound task status and usage.
 - The same paths plus `/content`: authenticated private MP3 or self-contained GLB.
 
@@ -107,7 +115,7 @@ unrecoverable speech submission or a task lost before a provider ID was saved.
 
 Speech scene/emotion presets combine into one documented TTS2 `context_texts`
 instruction. They do not claim TTS1 numerical emotion control or guarantee voice
-quality. Image-to-3D is explicitly unavailable; costly/premium profiles are rejected.
+quality. Image-to-3D defaults to unavailable; costly/premium profiles are rejected.
 
 ## Organization clone-slot administration
 

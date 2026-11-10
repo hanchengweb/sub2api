@@ -289,6 +289,7 @@ func (imageRoutes) Reopen(context.Context, Owner, *Task) (Provider, error) {
 }
 
 func TestImageTaskReplayAndRestartNeverUploadOrGenerateAgain(t *testing.T) {
+	t.Setenv("WXM_MODEL3D_IMAGE_ENABLED", "true")
 	for _, uploadFails := range []bool{true, false} {
 		t.Run(map[bool]string{true: "upload-failed", false: "generation-unknown"}[uploadFails], func(t *testing.T) {
 			store, quota := &imageTaskStore{}, &imageQuota{}
@@ -327,6 +328,7 @@ func TestImageTaskReplayAndRestartNeverUploadOrGenerateAgain(t *testing.T) {
 				t.Fatal("execution did not finish")
 			}
 			// A reconstructed engine has only the durable original receipt, never persisted input.
+			t.Setenv("WXM_MODEL3D_IMAGE_ENABLED", "false")
 			restarted := NewEngine(store, quota, imageRoutes{}, supplier)
 			for range 3 {
 				replay, e := restarted.Create(context.Background(), owner, Model3D, "original-request", r)

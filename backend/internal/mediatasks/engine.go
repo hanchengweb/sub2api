@@ -6,21 +6,24 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 )
 
 type Engine struct {
-	Store       Store
-	Quota       Quota
-	Routes      Routes
-	Supplier    Supplier
-	VoiceAssets VoiceAssetResolver
-	slots       chan struct{}
+	Store             Store
+	Quota             Quota
+	Routes            Routes
+	Supplier          Supplier
+	VoiceAssets       VoiceAssetResolver
+	modelImageEnabled bool
+	slots             chan struct{}
 }
 
 func NewEngine(store Store, quota Quota, routes Routes, supplier Supplier) *Engine {
-	return &Engine{Store: store, Quota: quota, Routes: routes, Supplier: supplier, slots: make(chan struct{}, 8)}
+	return &Engine{Store: store, Quota: quota, Routes: routes, Supplier: supplier, modelImageEnabled: os.Getenv("WXM_MODEL3D_IMAGE_ENABLED") == "true", slots: make(chan struct{}, 8)}
 }
+func (e *Engine) ModelImageEnabled() bool { return e.modelImageEnabled }
 func (e *Engine) Create(ctx context.Context, o Owner, kind, requestID string, r Request) (*Task, error) {
 	r, units, digest, err := Normalize(kind, r)
 	if err != nil {
@@ -35,6 +38,11 @@ func (e *Engine) Create(ctx context.Context, o Owner, kind, requestID string, r 
 	}
 	if !errors.Is(err, ErrNotFound) {
 		return nil, err
+	}
+	// Existing receipts still replay with the gate closed. New image tasks stop
+	// before route selection, quota reservation, persistence or supplier upload.
+	if kind == Model3D && len(r.Image) > 0 && !e.modelImageEnabled {
+		return nil, ErrImageUnavailable
 	}
 	var p Provider
 	if r.VoiceAssetID != "" {

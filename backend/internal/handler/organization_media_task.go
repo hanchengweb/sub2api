@@ -54,6 +54,8 @@ func mediaTaskError(c *gin.Context, err error) {
 		status, code, message = 429, "media_provider_busy", "媒体服务繁忙，请稍后使用同一请求编号重试。"
 	case errors.Is(err, mediatasks.ErrImageInvalid):
 		status, code, message = 422, "model3d_image_invalid", "参考图片须为有效的PNG、JPEG或WebP，文件不超过20MiB、边长不超过8192且不超过32M像素。"
+	case errors.Is(err, mediatasks.ErrImageUnavailable):
+		status, code, message = 422, "model3d_image_unavailable", "图片生成3D尚未开放，请使用文字描述。"
 	}
 	c.Header("Cache-Control", "no-store")
 	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": code, "message": message, "type": "media_error"}})
@@ -183,8 +185,11 @@ func (h *OrganizationMediaTaskHandler) Models(c *gin.Context) {
 			entry["max_input_characters"] = 2000
 			entry["unit"] = "characters"
 		} else {
-			entry["modes"] = []string{"text", "image"}
-			entry["image_available"] = true
+			entry["modes"] = []string{"text"}
+			entry["image_available"] = available && h.engine.ModelImageEnabled()
+			if h.engine.ModelImageEnabled() {
+				entry["modes"] = []string{"text", "image"}
+			}
 			entry["unit"] = "tasks"
 		}
 		entries = append(entries, entry)

@@ -33,6 +33,7 @@ func (s *modelImageDecodeStore) Find(context.Context, mediatasks.Owner, string, 
 
 func TestModel3DImageBodyLimitAndClosedJSONContract(t *testing.T) {
 	t.Setenv("WXM_OFFICIAL_MEDIA_ENABLED", "true")
+	t.Setenv("WXM_MODEL3D_IMAGE_ENABLED", "true")
 	gin.SetMode(gin.TestMode)
 	store := &modelImageDecodeStore{}
 	h := handler.NewOrganizationMediaTaskHandler(store, nil, nil, nil, nil, nil)
