@@ -37,6 +37,74 @@ func TestSchedulerMetadataAccountKeepsOpenAISubscriptionIdentity(t *testing.T) {
 	require.Empty(t, metadata.GetCredential("access_token"))
 }
 
+func TestSchedulerMetadataRoundTripPreservesVideoRoutingEligibility(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		platform   string
+		baseURL    string
+		model      string
+		capability service.OpenAIEndpointCapability
+		eligible   bool
+	}{
+		{"official_h3", service.PlatformGrok, "https://cp.compshare.cn", service.CompShareH3Model, service.OpenAIEndpointCapabilityCompShareH3, true},
+		{"ordinary_grok_media", service.PlatformGrok, "https://api.x.ai/v1", "grok-imagine-video", service.OpenAIEndpointCapabilityGrokMediaGeneration, true},
+		{"official_ark_video", service.PlatformOpenAI, "https://ark.cn-beijing.volces.com/api/v3", "doubao-seedance-1-0-pro", service.OpenAIEndpointCapabilityArkVideo, true},
+		{"reseller_is_not_h3", service.PlatformGrok, "https://toapis.cn/v1", service.CompShareH3Model, service.OpenAIEndpointCapabilityCompShareH3, false},
+		{"lookalike_origin_is_not_h3", service.PlatformGrok, "https://cp.compshare.cn.evil.invalid", service.CompShareH3Model, service.OpenAIEndpointCapabilityCompShareH3, false},
+		{"wrong_platform_is_not_h3", service.PlatformOpenAI, "https://cp.compshare.cn", service.CompShareH3Model, service.OpenAIEndpointCapabilityCompShareH3, false},
+		{"reseller_is_not_ark", service.PlatformOpenAI, "https://toapis.cn/v1", "doubao-seedance-1-0-pro", service.OpenAIEndpointCapabilityArkVideo, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := service.Account{
+				ID: 27, Platform: tc.platform, Type: service.AccountTypeAPIKey,
+				Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{4},
+				Credentials: map[string]any{
+					"base_url":      tc.baseURL,
+					"api_key":       "fixture-api-key",
+					"model_mapping": map[string]any{tc.model: tc.model},
+				},
+			}
+			// Exercise the metadata wire format consumed by GetSnapshot before
+			// the scheduler hydrates full credentials or rechecks the database.
+			_, payload, err := marshalSchedulerCacheAccount(account)
+			require.NoError(t, err)
+			metadata, err := decodeCachedAccount(payload)
+			require.NoError(t, err)
+			require.True(t, metadata.IsSchedulableForModel(tc.model))
+			require.True(t, metadata.IsModelSupported(tc.model))
+			require.Equal(t, tc.eligible, metadata.SupportsOpenAIEndpointCapability(tc.capability))
+		})
+	}
+}
+
+func TestSchedulerMetadataRoundTripRetainsCredentialBoundary(t *testing.T) {
+	account := service.Account{
+		ID: 27, Platform: service.PlatformGrok, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"base_url":      "https://cp.compshare.cn",
+			"api_key":       "fixture-api-key",
+			"model_mapping": map[string]any{service.CompShareH3Model: service.CompShareH3Model},
+			"access_token":  "fixture-access-secret",
+			"refresh_token": "fixture-refresh-secret",
+			"client_secret": "fixture-client-secret",
+			"cookie":        "fixture-cookie-secret",
+		},
+	}
+	full, payload, err := marshalSchedulerCacheAccount(account)
+	require.NoError(t, err)
+	metadata, err := decodeCachedAccount(payload)
+	require.NoError(t, err)
+	require.True(t, metadata.SupportsOpenAIEndpointCapability(service.OpenAIEndpointCapabilityCompShareH3))
+	// api_key was already part of the scheduler contract; retaining the route
+	// must not widen the whitelist to other authentication material.
+	require.Equal(t, "fixture-api-key", metadata.GetCredential("api_key"))
+	for _, secret := range []string{"fixture-access-secret", "fixture-refresh-secret", "fixture-client-secret", "fixture-cookie-secret"} {
+		require.Contains(t, string(full), secret)
+		require.NotContains(t, string(payload), secret)
+	}
+}
+
 func TestSchedulerMetadataAccountProjectsUpstreamBillingProbe(t *testing.T) {
 	lastError := strings.Repeat("upstream diagnostic ", 512)
 	probe := map[string]any{
