@@ -141,7 +141,7 @@ func NormalizeCompShareH3Request(body []byte) ([]byte, error) {
 			if image == "" {
 				return nil, errors.New("invalid H3 image")
 			}
-			content = append(content, map[string]any{"type": "image_url", "image_url": map[string]string{"url": image}, "role": "first_frame"})
+			content = append(content, map[string]any{"type": "image_url", "image_url": map[string]any{"url": image}, "role": "first_frame"})
 		}
 		for _, image := range gjson.GetBytes(body, "reference_images").Array() {
 			imageURL := grokMediaJSONImageURL(image)
@@ -151,7 +151,7 @@ func NormalizeCompShareH3Request(body []byte) ([]byte, error) {
 			if imageURL == "" {
 				return nil, errors.New("invalid H3 reference image")
 			}
-			content = append(content, map[string]any{"type": "image_url", "image_url": map[string]string{"url": imageURL}, "role": "reference_image"})
+			content = append(content, map[string]any{"type": "image_url", "image_url": map[string]any{"url": imageURL}, "role": "reference_image"})
 		}
 	}
 	hasText := false
