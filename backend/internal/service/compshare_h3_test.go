@@ -90,6 +90,49 @@ func TestCompShareH3FreeReferencesAndModeration(t *testing.T) {
 	}
 }
 
+func TestCompShareH3ImageReferenceInputs(t *testing.T) {
+	const imageURL = "https://no-such-host.invalid/frame.png"
+	const dataURL = "data:image/png;base64,aW1hZ2U="
+	for _, tc := range []struct {
+		name, fields, role, url string
+	}{
+		{"image_https", `"image":"` + imageURL + `"`, "first_frame", imageURL},
+		{"image_data", `"image":"` + dataURL + `"`, "first_frame", dataURL},
+		{"image_url_object", `"image":{"url":"` + imageURL + `"}`, "first_frame", imageURL},
+		{"image_legacy_object", `"image":{"image_url":"` + imageURL + `"}`, "first_frame", imageURL},
+		{"reference_https", `"reference_images":["` + imageURL + `"]`, "reference_image", imageURL},
+		{"reference_data", `"reference_images":["` + dataURL + `"]`, "reference_image", dataURL},
+		{"reference_url_object", `"reference_images":[{"url":"` + imageURL + `"}]`, "reference_image", imageURL},
+		{"reference_legacy_object", `"reference_images":[{"image_url":"` + imageURL + `"}]`, "reference_image", imageURL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := NormalizeCompShareH3Request([]byte(`{"model":"MiniMax-H3","prompt":"animate","resolution":"768p","duration":5,"aspect_ratio":"16:9","video_generation_mode":"first_frame_image_to_video",` + tc.fields + `}`))
+			require.NoError(t, err)
+			require.Len(t, gjson.GetBytes(body, "content").Array(), 2)
+			require.Equal(t, "animate", gjson.GetBytes(body, "content.0.text").String())
+			require.Equal(t, "image_url", gjson.GetBytes(body, "content.1.type").String())
+			require.Equal(t, tc.url, gjson.GetBytes(body, "content.1.image_url.url").String())
+			require.Equal(t, tc.role, gjson.GetBytes(body, "content.1.role").String())
+
+			native, err := NormalizeCompShareH3Request([]byte(`{"model":"MiniMax-H3","content":[{"type":"text","text":"animate"},{"type":"image_url","image_url":{"url":"` + tc.url + `"},"role":"` + tc.role + `"}]}`))
+			require.NoError(t, err)
+			require.JSONEq(t, string(native), string(body))
+		})
+	}
+}
+
+func TestCompShareH3RejectsUnsafeImageReferences(t *testing.T) {
+	for _, imageURL := range []string{
+		"http://no-such-host.invalid/frame.png", "file:///frame.png", "https:///missing-host",
+		"https://user@no-such-host.invalid/frame.png", "https://no-such-host.invalid:8443/frame.png",
+	} {
+		for _, field := range []string{`"image":"` + imageURL + `"`, `"reference_images":["` + imageURL + `"]`} {
+			_, err := NormalizeCompShareH3Request([]byte(`{"model":"MiniMax-H3","prompt":"animate",` + field + `}`))
+			require.EqualError(t, err, "invalid H3 media URL", field)
+		}
+	}
+}
+
 func TestCompShareH3SettlementUsesFrozenPriceAndActualDelivery(t *testing.T) {
 	snap := compShareH3TestSnapshot()
 	amount, err := CompShareH3SettlementAmount(snap, "succeeded", "768P", 4)
