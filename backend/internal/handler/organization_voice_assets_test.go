@@ -84,7 +84,7 @@ func TestCloneSlotsRejectMalformedScopedConfiguration(t *testing.T) {
 	routes := cloneSlotRoutes(map[string]any{"voice_clone_speaker_ids": "S_invalid_flat", "voice_clone_speaker_ids_by_user": map[string]any{"62": []string{"S_private"}}})
 	slots, err := routes.CloneSlots(context.Background(), mediatasks.Owner{UserID: 62, GroupID: 7})
 	require.NoError(t, err)
-	require.Empty(t, slots)
+	require.Equal(t, []voiceassets.Slot{{AccountID: 9, SpeakerID: "S_private"}}, slots)
 }
 
 type cloneSlotCaptureStore struct {
@@ -94,7 +94,7 @@ type cloneSlotCaptureStore struct {
 	stop         error
 }
 
-func (s *cloneSlotCaptureStore) HasFreeSlot(_ context.Context, slots []voiceassets.Slot) (bool, error) {
+func (s *cloneSlotCaptureStore) HasFreeSlot(_ context.Context, _ mediatasks.Owner, slots []voiceassets.Slot) (bool, error) {
 	s.availability = append([]voiceassets.Slot(nil), slots...)
 	for _, slot := range slots {
 		if slot.SpeakerID == "S_private62" {

@@ -199,6 +199,7 @@ func ProvideHandlers(
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
+	adminHandlers.APIKey.SetVoiceSlotManager(organizationMediaTasks.voices)
 	return &Handlers{
 		OrganizationMediaTasks: organizationMediaTasks,
 		Speech:                 speech,

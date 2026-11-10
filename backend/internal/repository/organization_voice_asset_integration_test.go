@@ -20,13 +20,15 @@ func TestOrganizationVoiceSlotsAtomicAcrossOwnersAndNeverReused(t *testing.T) {
 	db, _ := mediaQuotaTestDB(t)
 	tx, e := db.Begin()
 	require.NoError(t, e)
-	for _, file := range []string{"247_organization_audio_model3d.sql", "249_organization_voice_assets.sql"} {
+	for _, file := range []string{"247_organization_audio_model3d.sql", "249_organization_voice_assets.sql", "252_organization_voice_clone_slots.sql"} {
 		migration, e := os.ReadFile("../../migrations/" + file)
 		require.NoError(t, e)
 		_, e = tx.Exec(string(migration))
 		require.NoError(t, e)
 	}
 	require.NoError(t, tx.Commit())
+	_, e = db.Exec(`CREATE TABLE accounts(id BIGINT PRIMARY KEY,extra JSONB NOT NULL,status TEXT NOT NULL DEFAULT 'active',deleted_at TIMESTAMPTZ); INSERT INTO accounts(id,extra) VALUES(7,'{"voice_clone_speaker_ids":["S_prepaid"]}')`)
+	require.NoError(t, e)
 	store := NewOrganizationVoiceAssetRepository(db)
 	ctx := context.Background()
 	slot := []voiceassets.Slot{{AccountID: 7, SpeakerID: "S_prepaid"}}
@@ -63,7 +65,7 @@ func TestOrganizationVoiceSlotsAtomicAcrossOwnersAndNeverReused(t *testing.T) {
 	_, e = store.Get(ctx, other, winner.ID)
 	require.ErrorIs(t, e, mediatasks.ErrNotFound)
 	require.NoError(t, store.Delete(ctx, winner.Owner, winner.ID))
-	free, e := store.HasFreeSlot(ctx, slot)
+	free, e := store.HasFreeSlot(ctx, winner.Owner, slot)
 	require.NoError(t, e)
 	require.False(t, free)
 	_, _, e = store.ClaimClone(ctx, winner, slot)

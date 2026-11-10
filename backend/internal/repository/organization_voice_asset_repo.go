@@ -78,6 +78,14 @@ func (r *organizationVoiceAssetRepository) ClaimClone(ctx context.Context, a *vo
 	if !errors.Is(e, mediatasks.ErrNotFound) {
 		return nil, false, e
 	}
+	slots, e = configuredVoiceSlots(ctx, tx, a.Owner.UserID, slots, true)
+	if e != nil {
+		return nil, false, e
+	}
+	var managed bool
+	if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organization_voice_slot_policies WHERE user_id=$1 AND managed)`, a.Owner.UserID).Scan(&managed); e != nil {
+		return nil, false, e
+	}
 	found := false
 	for _, slot := range slots {
 		if _, e = tx.ExecContext(ctx, `INSERT INTO organization_voice_speaker_slots(account_id,speaker_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, slot.AccountID, slot.SpeakerID); e != nil {
@@ -85,7 +93,10 @@ func (r *organizationVoiceAssetRepository) ClaimClone(ctx context.Context, a *vo
 		}
 		var account int64
 		var speaker string
-		e = tx.QueryRowContext(ctx, `SELECT account_id,speaker_id FROM organization_voice_speaker_slots WHERE account_id=$1 AND speaker_id=$2 AND asset_id IS NULL FOR UPDATE SKIP LOCKED`, slot.AccountID, slot.SpeakerID).Scan(&account, &speaker)
+		e = tx.QueryRowContext(ctx, `SELECT account_id,speaker_id FROM organization_voice_speaker_slots
+            WHERE account_id=$1 AND speaker_id=$2 AND asset_id IS NULL
+            AND (($4 AND allocated_user_id=$3) OR (NOT $4 AND allocated_user_id IS NULL))
+            FOR UPDATE SKIP LOCKED`, slot.AccountID, slot.SpeakerID, a.Owner.UserID, managed).Scan(&account, &speaker)
 		if errors.Is(e, sql.ErrNoRows) {
 			continue
 		}
@@ -103,7 +114,7 @@ func (r *organizationVoiceAssetRepository) ClaimClone(ctx context.Context, a *vo
 	if e != nil {
 		return nil, false, e
 	}
-	result, e := tx.ExecContext(ctx, `UPDATE organization_voice_speaker_slots SET asset_id=$3 WHERE account_id=$1 AND speaker_id=$2 AND asset_id IS NULL`, a.AccountID, a.SpeakerID, a.ID)
+	result, e := tx.ExecContext(ctx, `UPDATE organization_voice_speaker_slots SET asset_id=$3,allocated_user_id=$4 WHERE account_id=$1 AND speaker_id=$2 AND asset_id IS NULL`, a.AccountID, a.SpeakerID, a.ID, a.Owner.UserID)
 	if e != nil {
 		return nil, false, e
 	}
@@ -138,16 +149,13 @@ func (r *organizationVoiceAssetRepository) UpdateTraining(ctx context.Context, a
 	_, e := r.db.ExecContext(ctx, `UPDATE organization_voice_assets SET status=$2,error_code=$3,updated_at=NOW() WHERE id=$1 AND kind='clone' AND deleted_at IS NULL AND (status<>'ready' OR $2='ready')`, a.ID, a.Status, code)
 	return e
 }
-func (r *organizationVoiceAssetRepository) HasFreeSlot(ctx context.Context, slots []voiceassets.Slot) (bool, error) {
-	for _, s := range slots {
-		var used bool
-		e := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organization_voice_speaker_slots WHERE account_id=$1 AND speaker_id=$2 AND asset_id IS NOT NULL)`, s.AccountID, s.SpeakerID).Scan(&used)
-		if e != nil {
-			return false, e
-		}
-		if !used {
-			return true, nil
-		}
-	}
-	return false, nil
+func (r *organizationVoiceAssetRepository) HasFreeSlot(ctx context.Context, o mediatasks.Owner, slots []voiceassets.Slot) (bool, error) {
+	var free bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(
+        SELECT 1 FROM jsonb_to_recordset($1::jsonb) AS c(account_id BIGINT,speaker_id TEXT)
+        LEFT JOIN organization_voice_speaker_slots s USING(account_id,speaker_id)
+        WHERE s.asset_id IS NULL AND (
+            (EXISTS(SELECT 1 FROM organization_voice_slot_policies WHERE user_id=$2 AND managed) AND s.allocated_user_id=$2)
+            OR (NOT EXISTS(SELECT 1 FROM organization_voice_slot_policies WHERE user_id=$2 AND managed) AND s.allocated_user_id IS NULL)))`, voiceSlotsJSON(voiceassets.SortedSlots(slots)), o.UserID).Scan(&free)
+	return free, err
 }

@@ -109,6 +109,85 @@ Speech scene/emotion presets combine into one documented TTS2 `context_texts`
 instruction. They do not claim TTS1 numerical emotion control or guarantee voice
 quality. Image-to-3D is explicitly unavailable; costly/premium profiles are rejected.
 
+## Organization clone-slot administration
+
+Administrators can read or explicitly manage an existing organization through
+`GET` and `PUT` on
+`/api/v1/admin/organization-services/:issuer/:environment/:organization_id/voice-clone-slots`.
+The route validates the existing issuer/environment/organization identity and
+never creates an organization. Responses use the regular `{code,message,data}`
+envelope. The data contains `organization_id`, `organization_issuer`,
+`organization_environment`, `user_id`, `managed`, `version`, `total_slots`,
+`used_slots`, `available_slots` and `allocatable_slots`. Counts never expose
+supplier speaker IDs or account credentials.
+
+An unmanaged organization's read returns `managed=false`, `version=0`,
+`total_slots=used_slots` and `available_slots=0`. This read does not initialize a
+policy, reserve inventory or contact a supplier. Existing shared-pool clone
+behavior continues until its first successful explicit PUT.
+
+PUT requires `Idempotency-Key` equal to the canonical lowercase UUID in
+`request_id`, with this JSON body:
+
+```json
+{
+  "request_id": "e134109b-546d-4a72-8eb6-ac4bb6c136a7",
+  "expected_user_id": 42,
+  "expected_version": 0,
+  "total_slots": 2,
+  "reason": "Contract adjustment"
+}
+```
+
+`expected_user_id` must match the current organization service user.
+`expected_version` is a nonnegative integer below the signed 64-bit maximum;
+`total_slots` is an integer in `0..1000000000`. The trimmed reason has 1..500
+Unicode characters. Missing/null fields, noninteger numbers, unknown fields,
+trailing JSON and bodies above 16 KiB are rejected. Each successful new request,
+including an unchanged total, increments the version and records the authenticated
+administrator, reason and before/after totals. A replay of the same normalized
+parameters for `(user_id, request_id)` returns its original durable receipt before
+checking the current version; different parameters conflict. The successful PUT
+adds `request_id` to its response data.
+
+Slots represent actual already configured prepaid `S_` speaker IDs from the
+selected supplier account's `extra.voice_clone_speaker_ids` shared inventory or
+`extra.voice_clone_speaker_ids_by_user["<service-user-id>"]` organization list.
+`allocatable_slots` is the number of additional eligible unclaimed, unreserved
+speakers, not a maximum total. A UI may propose at most `total_slots +
+allocatable_slots`; the write transaction rechecks current inventory and ownership.
+This API never purchases capacity, creates speaker IDs, trains a voice or performs
+synthesis.
+
+Migration 252 adopts every historical claim, including soft-deleted assets, into
+its organization ownership. All clone assets count as used, including failed,
+indeterminate and soft-deleted assets. Reductions cannot go below used capacity
+and release only unused reservations. A managed organization can claim only its
+own reserved speakers; a managed zero total cannot borrow shared inventory.
+Legacy organizations also cannot claim another organization's reservation. Catalog
+availability applies the same ownership filter. Existing asset reads and synthesis
+retain their existing authorization path. Inventory rows are locked in the same
+global `(account_id, speaker_id)` order for administration and clone claims.
+
+Errors use the HTTP status as envelope `code` and a fixed `message`:
+
+| HTTP | Message |
+|---|---|
+| 400 | `voice_clone_slot_request_invalid` |
+| 404 | `organization_not_found` |
+| 409 | `organization_identity_mismatch` |
+| 409 | `voice_clone_slot_version_conflict` |
+| 409 | `voice_clone_slot_below_used` |
+| 409 | `voice_clone_slot_inventory_insufficient` |
+| 409 | `voice_clone_slot_idempotency_conflict` |
+| 503 | `voice_clone_slots_unavailable` |
+
+Keep migration 252, slot ownership, policy and audit/receipt rows on application
+rollback. Rolling back to an application that predates reservation-aware clone
+claims requires disabling new clone creation; otherwise that version could claim
+speakers reserved for another organization. Existing assets must not be deleted
+to reclaim prepaid slots.
+
 ## Isolated test runtime and rollback
 
 No permanent isolated WindHub test runtime was identified in this repository.

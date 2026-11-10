@@ -6,6 +6,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/voiceassets"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,8 +14,13 @@ import (
 // AdminAPIKeyHandler handles admin API key management
 type AdminAPIKeyHandler struct {
 	mediaQuota    service.OrganizationMediaQuotaRepository
+	voiceSlots    voiceassets.SlotManager
 	adminService  service.AdminService
 	apiKeyService *service.APIKeyService
+}
+
+func (h *AdminAPIKeyHandler) SetVoiceSlotManager(manager voiceassets.SlotManager) {
+	h.voiceSlots = manager
 }
 
 func (h *AdminAPIKeyHandler) SetMediaQuotaRepository(repo service.OrganizationMediaQuotaRepository) {

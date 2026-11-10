@@ -122,7 +122,7 @@ func (s *memoryStore) UpdateTraining(_ context.Context, a *Asset) error {
 	s.values[a.ID] = cloneAsset(a)
 	return nil
 }
-func (s *memoryStore) HasFreeSlot(_ context.Context, slots []Slot) (bool, error) {
+func (s *memoryStore) HasFreeSlot(_ context.Context, _ mediatasks.Owner, slots []Slot) (bool, error) {
 	s.Lock()
 	defer s.Unlock()
 	for _, slot := range slots {
