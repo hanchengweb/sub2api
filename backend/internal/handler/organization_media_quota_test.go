@@ -151,6 +151,29 @@ func TestOrganizationMediaQuotaBoundsAndPersonalUnaffected(t *testing.T) {
 	require.Empty(t, s.claims)
 }
 
+func TestOrganizationMediaQuotaH3UsesItsAtomicReceiptInsteadOfGenericReservation(t *testing.T) {
+	for _, body := range []string{
+		`{"model":"MiniMax-H3","prompt":"fixture","duration":4,"image":"https://no-such-host.invalid/first.png"}`,
+		`{"model":"MiniMax-H3","content":[{"type":"text","text":"fixture"},{"type":"audio_url","audio_url":{"url":"https://no-such-host.invalid/a.wav"},"role":"reference_audio"}],"ratio":"16:9"}`,
+	} {
+		s := &mediaQuotaStub{enabled: true, reserveErr: service.ErrMediaQuotaExceeded}
+		called := 0
+		r := quotaRouter(s, "organization_service", func(h *OpenAIGatewayHandler, c *gin.Context) {
+			called++
+			got, err := io.ReadAll(c.Request.Body)
+			require.NoError(t, err)
+			require.JSONEq(t, body, string(got))
+			_, generic := c.Get(mediaQuotaClaimKey)
+			require.False(t, generic)
+			c.JSON(202, gin.H{"status": "queued"})
+		})
+		require.Equal(t, 202, quotaRequest(r, "/v1/videos/generations", body).Code)
+		require.Equal(t, 1, called)
+		require.Empty(t, s.claims)
+		require.Empty(t, s.settlements)
+	}
+}
+
 func TestOrganizationMediaQuotaAcceptsSeedreamWatermarkWithoutChangingCount(t *testing.T) {
 	for _, flag := range []string{"true", "false"} {
 		s := &mediaQuotaStub{enabled: true}

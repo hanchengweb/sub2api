@@ -209,24 +209,34 @@ func NormalizeCompShareH3Request(body []byte) ([]byte, error) {
 }
 
 type CompShareH3Snapshot struct {
-	RequestID      string               `json:"request_id"`
-	TaskID         string               `json:"task_id"`
-	UserID         int64                `json:"user_id"`
-	APIKeyID       int64                `json:"api_key_id"`
-	GroupID        int64                `json:"group_id"`
-	AccountID      int64                `json:"account_id"`
-	PayloadHash    string               `json:"payload_hash"`
-	Request        json.RawMessage      `json:"request"`
-	Resolution     string               `json:"resolution"`
-	Duration       int                  `json:"duration"`
-	Prices         map[string]float64   `json:"prices"`
-	Multiplier     float64              `json:"multiplier"`
-	BaseCost       float64              `json:"base_cost"`
-	Credits        float64              `json:"credits"`
-	Billing        *UsageBillingCommand `json:"billing,omitempty"`
-	Dispatched     bool                 `json:"-"`
-	Settled        bool                 `json:"-"`
-	TerminalStatus string               `json:"-"`
+	RequestID           string               `json:"request_id"`
+	MediaQuotaRequestID string               `json:"media_quota_request_id,omitempty"`
+	TaskID              string               `json:"task_id"`
+	UserID              int64                `json:"user_id"`
+	APIKeyID            int64                `json:"api_key_id"`
+	GroupID             int64                `json:"group_id"`
+	AccountID           int64                `json:"account_id"`
+	PayloadHash         string               `json:"payload_hash"`
+	Request             json.RawMessage      `json:"request"`
+	Resolution          string               `json:"resolution"`
+	Duration            int                  `json:"duration"`
+	Prices              map[string]float64   `json:"prices"`
+	Multiplier          float64              `json:"multiplier"`
+	BaseCost            float64              `json:"base_cost"`
+	Credits             float64              `json:"credits"`
+	Billing             *UsageBillingCommand `json:"billing,omitempty"`
+	Dispatched          bool                 `json:"-"`
+	Settled             bool                 `json:"-"`
+	TerminalStatus      string               `json:"-"`
+}
+
+// The receipt freezes whether this task uses organization seconds. Old receipts
+// have no marker and keep their original balance-only accounting on every replay.
+func (s *CompShareH3Snapshot) BillingMode() string {
+	if s != nil && s.MediaQuotaRequestID != "" {
+		return "organization_quota"
+	}
+	return "balance"
 }
 
 type CompShareH3Repository interface {
@@ -234,23 +244,6 @@ type CompShareH3Repository interface {
 	ClaimCompShareH3(context.Context, string) (bool, error)
 	BindCompShareH3(context.Context, string, string) error
 	SettleCompShareH3(context.Context, string, int64, int64, string, string, float64) (float64, error)
-}
-
-func (s *OpenAIGatewayService) HasCompShareH3Route(ctx context.Context, key *APIKey) bool {
-	if s == nil || s.accountRepo == nil || key == nil || key.GroupID == nil {
-		return false
-	}
-	accounts, err := s.accountRepo.ListByGroup(ctx, *key.GroupID)
-	if err != nil {
-		return false
-	}
-	for i := range accounts {
-		a := &accounts[i]
-		if a.IsCompShareH3Account() && a.GetMappedModel(CompShareH3Model) == CompShareH3Model && a.IsModelSupported(CompShareH3Model) {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *OpenAIGatewayService) PrepareCompShareH3(ctx context.Context, key *APIKey, a *Account, body []byte, id string) (*CompShareH3Snapshot, error) {
@@ -311,7 +304,15 @@ func (s *OpenAIGatewayService) ClaimCompShareH3(ctx context.Context, snap *CompS
 	if !ok {
 		return false, errors.New("H3 billing unavailable")
 	}
-	return repo.ClaimCompShareH3(ctx, snap.RequestID)
+	claimed, err := repo.ClaimCompShareH3(ctx, snap.RequestID)
+	if errors.Is(err, ErrMediaQuotaExceeded) {
+		// Expiry was verified before the dispatch claim. No supplier request was
+		// sent, so release both reservations instead of leaving an unknown task.
+		if releaseErr := s.settleCompShareH3(ctx, snap, "submission_rejected", "", 0); releaseErr != nil {
+			return false, fmt.Errorf("H3 undispatched reservation release failed: %w", releaseErr)
+		}
+	}
+	return claimed, err
 }
 
 func (s *OpenAIGatewayService) GetCompShareH3(ctx context.Context, id string, userID, keyID int64) (*CompShareH3Snapshot, error) {
@@ -401,7 +402,7 @@ func (s *OpenAIGatewayService) forwardCompShareH3(ctx context.Context, c *gin.Co
 		}
 		if snap.TaskID == "" {
 			if snap.Settled {
-				c.JSON(200, gin.H{"id": snap.RequestID, "request_id": snap.RequestID, "status": "failed", "billing_mode": "balance"})
+				c.JSON(200, gin.H{"id": snap.RequestID, "request_id": snap.RequestID, "status": "failed", "billing_mode": snap.BillingMode()})
 				return &OpenAIForwardResult{}, nil
 			}
 			c.JSON(202, gin.H{"id": snap.RequestID, "request_id": snap.RequestID, "status": "unknown", "message": "Submission receipt is unknown; query this original request only"})
@@ -509,7 +510,7 @@ func (s *OpenAIGatewayService) forwardCompShareH3(ctx context.Context, c *gin.Co
 	if status == "blocked" {
 		data["status"] = "failed"
 	}
-	data["billing_mode"] = "balance"
+	data["billing_mode"] = snap.BillingMode()
 	if status == "succeeded" {
 		proxyURL := grokMediaContentProxyURL(c, taskID)
 		data["url"] = proxyURL

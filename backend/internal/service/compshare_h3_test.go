@@ -29,6 +29,7 @@ type compShareH3RepoStub struct {
 	UsageBillingRepository
 	snap                   *CompShareH3Snapshot
 	bindCalls, settleCalls int
+	claimErr, settleErr    error
 }
 
 func (r *compShareH3RepoStub) GetCompShareH3(_ context.Context, id string, user, key int64) (*CompShareH3Snapshot, error) {
@@ -38,6 +39,9 @@ func (r *compShareH3RepoStub) GetCompShareH3(_ context.Context, id string, user,
 	return nil, nil
 }
 func (r *compShareH3RepoStub) ClaimCompShareH3(context.Context, string) (bool, error) {
+	if r.claimErr != nil {
+		return false, r.claimErr
+	}
 	if r.snap.Dispatched {
 		return false, nil
 	}
@@ -51,8 +55,64 @@ func (r *compShareH3RepoStub) BindCompShareH3(_ context.Context, id, task string
 }
 func (r *compShareH3RepoStub) SettleCompShareH3(_ context.Context, id string, user, key int64, status, res string, seconds float64) (float64, error) {
 	r.settleCalls++
+	if r.settleErr != nil {
+		return 0, r.settleErr
+	}
 	_, err := CompShareH3SettlementAmount(r.snap, status, res, seconds)
 	return 0, err
+}
+
+func TestCompShareH3ExpiredUndispatchedQuotaReleasesReservation(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		claimErr, settleErr error
+		wantSettlements     int
+	}{
+		{"expired", ErrMediaQuotaExceeded, nil, 1},
+		{"expiry_release_pending", ErrMediaQuotaExceeded, errors.New("fixture settlement unavailable"), 1},
+		{"claim_unknown", errors.New("fixture transport unavailable"), nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap := compShareH3TestSnapshot()
+			snap.MediaQuotaRequestID = snap.RequestID
+			repo := &compShareH3RepoStub{snap: snap, claimErr: tc.claimErr, settleErr: tc.settleErr}
+			svc := &OpenAIGatewayService{usageBillingRepo: repo}
+			claimed, err := svc.ClaimCompShareH3(context.Background(), snap)
+			require.False(t, claimed)
+			require.Error(t, err)
+			require.False(t, snap.Dispatched)
+			require.Equal(t, tc.wantSettlements, repo.settleCalls)
+			if tc.settleErr != nil {
+				require.ErrorIs(t, err, tc.settleErr)
+				require.NotErrorIs(t, err, ErrMediaQuotaExceeded)
+			} else {
+				require.ErrorIs(t, err, tc.claimErr)
+			}
+		})
+	}
+}
+
+func TestCompShareH3TerminalResponseUsesFrozenBillingMode(t *testing.T) {
+	for _, organizationQuota := range []bool{false, true} {
+		snap := compShareH3TestSnapshot()
+		snap.TaskID = "provider-fixture"
+		wantMode := "balance"
+		if organizationQuota {
+			snap.MediaQuotaRequestID = snap.RequestID
+			wantMode = "organization_quota"
+		}
+		repo := &compShareH3RepoStub{snap: snap}
+		upstream := &grokMediaContentUpstreamStub{responses: []*http.Response{grokMediaContentStatusResponse(`{"task":{"id":"provider-fixture","status":"succeeded","resolution":"768P","usage":{"output_seconds":4},"content":{"url":"https://compshare-files.cn-wlcb.ufileos.com/fixture.mp4"}}}`)}}
+		svc := &OpenAIGatewayService{cfg: &config.Config{}, usageBillingRepo: repo, httpUpstream: upstream}
+		c, w := grokMediaContentTestContext(http.MethodGet, "/v1/videos/provider-fixture", nil)
+		c.Set(CompShareH3ContextKey, snap)
+		_, err := svc.ForwardGrokMedia(context.Background(), c, compShareH3TestAccount(), GrokMediaEndpointVideoStatus, snap.TaskID, nil, "")
+		require.NoError(t, err)
+		require.Equal(t, 200, w.Code)
+		require.Equal(t, wantMode, gjson.Get(w.Body.String(), "billing_mode").String())
+		require.Equal(t, int64(4), gjson.Get(w.Body.String(), "video.duration").Int())
+		require.Equal(t, 1, repo.settleCalls)
+	}
 }
 
 func TestCompShareH3RequestBoundariesAndExactTiers(t *testing.T) {

@@ -5,12 +5,38 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 func bindCompShareH3Charge(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
 	snap := *cmd.CompShareH3
+	// This only runs for a newly claimed billing receipt. Replays and historical
+	// snapshots retain their original billing basis, even after a quota grant.
+	var organizationQuota bool
+	if err := tx.QueryRowContext(ctx, `SELECT account_type='organization_service' AND EXISTS(
+ SELECT 1 FROM organization_media_accounts WHERE user_id=$1)
+ FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, snap.UserID).Scan(&organizationQuota); err != nil {
+		return err
+	}
+	snap.MediaQuotaRequestID = ""
+	if organizationQuota {
+		if snap.Duration < 4 || snap.Duration > 30 || snap.RequestID != cmd.RequestID || snap.UserID != cmd.UserID || snap.APIKeyID != cmd.APIKeyID {
+			return service.ErrMediaQuotaConflict
+		}
+		reservation, err := reserveOrganizationMediaQuota(ctx, tx, service.MediaQuotaClaim{
+			UserID: snap.UserID, APIKeyID: snap.APIKeyID, RequestID: snap.RequestID,
+			Digest: snap.PayloadHash, Kind: "video", Model: service.CompShareH3Model, Units: int64(snap.Duration),
+		})
+		if err != nil {
+			return err
+		}
+		if reservation == nil || reservation.Replay {
+			return service.ErrMediaQuotaConflict
+		}
+		snap.MediaQuotaRequestID = snap.RequestID
+	}
 	billing := *cmd
 	billing.CompShareH3 = nil
 	snap.Billing = &billing
@@ -20,6 +46,9 @@ func bindCompShareH3Charge(ctx context.Context, tx *sql.Tx, cmd *service.UsageBi
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO media_task_charges(task_key,user_id,api_key_id,group_id,credits,request_id,h3_snapshot)
  VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)`, snap.RequestID, snap.UserID, snap.APIKeyID, snap.GroupID, snap.Credits, snap.RequestID, string(raw))
+	if err == nil {
+		cmd.CompShareH3.MediaQuotaRequestID = snap.MediaQuotaRequestID
+	}
 	return err
 }
 
@@ -48,26 +77,122 @@ func (r *usageBillingRepository) GetCompShareH3(ctx context.Context, id string, 
 }
 
 func (r *usageBillingRepository) ClaimCompShareH3(ctx context.Context, id string) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `UPDATE media_task_charges SET dispatched_at=NOW()
- WHERE request_id=$1 AND h3_snapshot IS NOT NULL AND dispatched_at IS NULL AND settled_at IS NULL`, id)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
-	n, err := result.RowsAffected()
-	return n == 1, err
+	defer tx.Rollback()
+	userID, err := lockCompShareH3RequestOwner(ctx, tx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var raw []byte
+	var dispatched, settled bool
+	if err = tx.QueryRowContext(ctx, `SELECT h3_snapshot,dispatched_at IS NOT NULL,settled_at IS NOT NULL
+ FROM media_task_charges WHERE request_id=$1 AND h3_snapshot IS NOT NULL FOR UPDATE`, id).Scan(&raw, &dispatched, &settled); err != nil {
+		return false, err
+	}
+	if dispatched || settled {
+		return false, nil
+	}
+	var snap service.CompShareH3Snapshot
+	if err = json.Unmarshal(raw, &snap); err != nil {
+		return false, err
+	}
+	if snap.MediaQuotaRequestID != "" {
+		if snap.RequestID != id || snap.UserID != userID {
+			return false, service.ErrMediaQuotaConflict
+		}
+		if err = validateCompShareH3QuotaReservation(ctx, tx, &snap, true); err != nil {
+			return false, err
+		}
+		if err = validateOrganizationMediaQuotaDispatch(ctx, tx, userID, snap.MediaQuotaRequestID); err != nil {
+			return false, err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE media_task_charges SET dispatched_at=NOW() WHERE request_id=$1`, id); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 func (r *usageBillingRepository) BindCompShareH3(ctx context.Context, id, taskID string) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE media_task_charges SET task_id=$2 WHERE request_id=$1
- AND h3_snapshot IS NOT NULL AND (task_id IS NULL OR task_id=$2)`, id, taskID)
+	if taskID == "" || len(taskID) > 256 {
+		return service.ErrMediaQuotaConflict
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	n, err := result.RowsAffected()
-	if err == nil && n != 1 {
+	defer tx.Rollback()
+	userID, err := lockCompShareH3RequestOwner(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	var raw []byte
+	var boundTask string
+	if err = tx.QueryRowContext(ctx, `SELECT h3_snapshot,COALESCE(task_id,'') FROM media_task_charges
+ WHERE request_id=$1 AND h3_snapshot IS NOT NULL FOR UPDATE`, id).Scan(&raw, &boundTask); err != nil {
+		return err
+	}
+	if boundTask != "" && boundTask != taskID {
 		return errors.New("H3 task binding conflict")
 	}
-	return err
+	var snap service.CompShareH3Snapshot
+	if err = json.Unmarshal(raw, &snap); err != nil {
+		return err
+	}
+	if snap.MediaQuotaRequestID != "" {
+		if snap.RequestID != id || snap.UserID != userID {
+			return service.ErrMediaQuotaConflict
+		}
+		if err = validateCompShareH3QuotaReservation(ctx, tx, &snap, false); err != nil {
+			return err
+		}
+		if err = bindOrganizationMediaQuota(ctx, tx, userID, snap.MediaQuotaRequestID, taskID); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE media_task_charges SET task_id=$2 WHERE request_id=$1`, id, taskID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Lock user before receipt, matching quantity grants and reservations. Selecting
+// the immutable owner does not lock the receipt in the opposite order.
+func lockCompShareH3RequestOwner(ctx context.Context, tx *sql.Tx, id string) (int64, error) {
+	var userID int64
+	err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id=(
+ SELECT user_id FROM media_task_charges WHERE request_id=$1 AND h3_snapshot IS NOT NULL)
+ AND deleted_at IS NULL FOR UPDATE`, id).Scan(&userID)
+	return userID, err
+}
+
+// A marked H3 receipt must retain its original quantity reservation. The
+// generic quota methods intentionally permit missing rows for legacy tasks;
+// that compatibility must never turn a marked H3 task into balance-only work.
+func validateCompShareH3QuotaReservation(ctx context.Context, tx *sql.Tx, snap *service.CompShareH3Snapshot, dispatch bool) error {
+	if snap.MediaQuotaRequestID == "" || snap.MediaQuotaRequestID != snap.RequestID {
+		return service.ErrMediaQuotaConflict
+	}
+	var keyID, units int64
+	var kind, model, status string
+	err := tx.QueryRowContext(ctx, `SELECT api_key_id,kind,model,units,status
+ FROM organization_media_reservations WHERE user_id=$1 AND request_id=$2`, snap.UserID, snap.MediaQuotaRequestID).Scan(&keyID, &kind, &model, &units, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return service.ErrMediaQuotaConflict
+	}
+	if err != nil {
+		return err
+	}
+	if keyID != snap.APIKeyID || units != int64(snap.Duration) || kind != "video" || model != service.CompShareH3Model || (dispatch && status != "reserved") {
+		return service.ErrMediaQuotaConflict
+	}
+	return nil
 }
 
 // The row lock covers the terminal marker, all refunds and the usage receipt.
@@ -78,6 +203,10 @@ func (r *usageBillingRepository) SettleCompShareH3(ctx context.Context, id strin
 		return 0, err
 	}
 	defer tx.Rollback()
+	var lockedUser int64
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&lockedUser); err != nil {
+		return 0, err
+	}
 	var raw []byte
 	var settled bool
 	var createdAt string
@@ -100,6 +229,23 @@ func (r *usageBillingRepository) SettleCompShareH3(ctx context.Context, id strin
 	refund := snap.Credits - amount
 	if refund < 0 {
 		return 0, errors.New("invalid H3 refund")
+	}
+	if snap.MediaQuotaRequestID != "" {
+		if snap.RequestID != id || snap.UserID != userID || snap.APIKeyID != keyID {
+			return 0, service.ErrMediaQuotaConflict
+		}
+		if err = validateCompShareH3QuotaReservation(ctx, tx, &snap, false); err != nil {
+			return 0, err
+		}
+		actual, measurement := int64(0), "provider_failure"
+		if status == "succeeded" {
+			actual, measurement = int64(math.Ceil(seconds)), "provider_output"
+		} else if status == "submission_rejected" {
+			measurement = "submission_rejected"
+		}
+		if err = settleOrganizationMediaQuota(ctx, tx, userID, snap.MediaQuotaRequestID, "", actual, measurement); err != nil {
+			return 0, err
+		}
 	}
 	if refund > 0 {
 		result, err := tx.ExecContext(ctx, `UPDATE users SET balance=balance+$1,updated_at=NOW() WHERE id=$2 AND deleted_at IS NULL`, refund, userID)
