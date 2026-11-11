@@ -19,7 +19,8 @@ import (
 )
 
 // Opt-in real PostgreSQL test. The DSN is a disposable local fixture, never a deployed DB.
-func TestCompShareH3PostgresAtomicSettlement(t *testing.T) {
+func compShareH3PostgresTestDB(t *testing.T) *sql.DB {
+	t.Helper()
 	dsn := os.Getenv("H3_TEST_POSTGRES_DSN")
 	if dsn == "" {
 		t.Skip("set H3_TEST_POSTGRES_DSN to an isolated local PostgreSQL fixture")
@@ -29,31 +30,34 @@ func TestCompShareH3PostgresAtomicSettlement(t *testing.T) {
 	require.Equal(t, "windhub-h3-test-pg", u.Hostname(), "refuse non-fixture DB")
 	admin, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer admin.Close()
+	t.Cleanup(func() { admin.Close() })
 	schema := fmt.Sprintf("h3_test_%d", time.Now().UnixNano())
 	_, err = admin.Exec(`CREATE SCHEMA ` + schema)
 	require.NoError(t, err)
-	defer admin.Exec(`DROP SCHEMA ` + schema + ` CASCADE`)
+	t.Cleanup(func() {
+		_, err := admin.Exec(`DROP SCHEMA ` + schema + ` CASCADE`)
+		require.NoError(t, err)
+	})
 	q := u.Query()
 	q.Set("search_path", schema)
 	u.RawQuery = q.Encode()
 	db, err := sql.Open("postgres", u.String())
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { db.Close() })
 	db.SetMaxOpenConns(12)
 	_, err = db.Exec(`
- CREATE TABLE users(id bigint PRIMARY KEY,balance numeric(20,10),updated_at timestamptz,deleted_at timestamptz);
+ CREATE TABLE users(id bigint PRIMARY KEY,balance numeric(20,10),updated_at timestamptz,deleted_at timestamptz,account_type text NOT NULL DEFAULT 'personal');
  CREATE TABLE api_keys(id bigint PRIMARY KEY,quota numeric DEFAULT 1000,quota_used numeric DEFAULT 0,status text DEFAULT 'active',usage_5h numeric DEFAULT 0,usage_1d numeric DEFAULT 0,usage_7d numeric DEFAULT 0,window_5h_start timestamptz,window_1d_start timestamptz,window_7d_start timestamptz,updated_at timestamptz,deleted_at timestamptz);
  CREATE TABLE accounts(id bigint PRIMARY KEY,extra jsonb,updated_at timestamptz,deleted_at timestamptz);
  CREATE TABLE usage_billing_dedup(id bigserial,request_id text,api_key_id bigint,request_fingerprint text,UNIQUE(request_id,api_key_id));
  CREATE TABLE usage_billing_dedup_archive(LIKE usage_billing_dedup INCLUDING ALL);
  CREATE TABLE usage_logs(request_id text,api_key_id bigint,total_cost numeric,actual_cost numeric,output_cost numeric,account_stats_cost numeric,refunded_credits numeric DEFAULT 0,refunded_at timestamptz,video_resolution text,video_duration_seconds int,UNIQUE(request_id,api_key_id));
- INSERT INTO users VALUES(1,1000,NULL,NULL);
+ INSERT INTO users(id,balance) VALUES(1,1000);
  INSERT INTO api_keys(id) VALUES(7);
  INSERT INTO accounts(id,extra) VALUES(18,'{"quota_used":0,"quota_total_limit":10000,"quota_daily_limit":10000,"quota_weekly_limit":10000}');
  `)
 	require.NoError(t, err)
-	for _, name := range []string{"191_media_task_charges.sql", "192_toapis_task_webhook.sql", "195_usage_logs_refund.sql", "251_compshare_h3_settlement.sql"} {
+	for _, name := range []string{"191_media_task_charges.sql", "192_toapis_task_webhook.sql", "195_usage_logs_refund.sql", "238_organization_media_quotas.sql", "251_compshare_h3_settlement.sql"} {
 		raw, e := migrations.FS.ReadFile(name)
 		require.NoError(t, e)
 		if name == "192_toapis_task_webhook.sql" { // Only the task binding DDL is needed, not webhook fixtures.
@@ -65,6 +69,11 @@ func TestCompShareH3PostgresAtomicSettlement(t *testing.T) {
 		}
 		require.NoError(t, e, name)
 	}
+	return db
+}
+
+func TestCompShareH3PostgresAtomicSettlement(t *testing.T) {
+	db := compShareH3PostgresTestDB(t)
 	repo := &usageBillingRepository{db: db}
 	ctx := context.Background()
 	cmd := func(id string) *service.UsageBillingCommand {

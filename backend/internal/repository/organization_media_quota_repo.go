@@ -98,16 +98,26 @@ func scanMediaReservation(row interface{ Scan(...any) error }) (*service.MediaQu
 }
 
 func (r *organizationMediaQuotaRepository) Reserve(ctx context.Context, c service.MediaQuotaClaim) (*service.MediaQuotaReservation, error) {
-	if c.Units <= 0 || c.RequestID == "" || (c.Kind != "image" && c.Kind != "video" && c.Kind != "audio" && c.Kind != "model3d") {
-		return nil, service.ErrMediaQuotaConflict
-	}
 	tx, err := r.lock(ctx, c.UserID)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
+	v, err := reserveOrganizationMediaQuota(ctx, tx, c)
+	if err != nil {
+		return nil, err
+	}
+	return v, tx.Commit()
+}
+
+// The caller holds the organization user row for the lifetime of tx. H3 uses
+// the same transaction for its monetary receipt and its quantity reservation.
+func reserveOrganizationMediaQuota(ctx context.Context, tx *sql.Tx, c service.MediaQuotaClaim) (*service.MediaQuotaReservation, error) {
+	if c.Units <= 0 || c.RequestID == "" || (c.Kind != "image" && c.Kind != "video" && c.Kind != "audio" && c.Kind != "model3d") {
+		return nil, service.ErrMediaQuotaConflict
+	}
 	var blocked bool
-	err = tx.QueryRowContext(ctx, `SELECT blocked FROM organization_media_accounts WHERE user_id=$1`, c.UserID).Scan(&blocked)
+	err := tx.QueryRowContext(ctx, `SELECT blocked FROM organization_media_accounts WHERE user_id=$1`, c.UserID).Scan(&blocked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -174,7 +184,7 @@ func (r *organizationMediaQuotaRepository) Reserve(ctx context.Context, c servic
 			return nil, err
 		}
 	}
-	return v, tx.Commit()
+	return v, nil
 }
 
 func (r *organizationMediaQuotaRepository) Bind(ctx context.Context, userID int64, requestID, taskID string) error {
@@ -186,8 +196,18 @@ func (r *organizationMediaQuotaRepository) Bind(ctx context.Context, userID int6
 		return err
 	}
 	defer tx.Rollback()
+	if err := bindOrganizationMediaQuota(ctx, tx, userID, requestID, taskID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func bindOrganizationMediaQuota(ctx context.Context, tx *sql.Tx, userID int64, requestID, taskID string) error {
+	if taskID == "" || len(taskID) > 256 {
+		return service.ErrMediaQuotaConflict
+	}
 	var id int64
-	err = tx.QueryRowContext(ctx, `UPDATE organization_media_reservations SET task_id=COALESCE(task_id,$3),status=CASE WHEN status='reserved' THEN 'submitted' ELSE status END WHERE user_id=$1 AND request_id=$2 RETURNING id`, userID, requestID, taskID).Scan(&id)
+	err := tx.QueryRowContext(ctx, `UPDATE organization_media_reservations SET task_id=COALESCE(task_id,$3),status=CASE WHEN status='reserved' THEN 'submitted' ELSE status END WHERE user_id=$1 AND request_id=$2 RETURNING id`, userID, requestID, taskID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -202,11 +222,17 @@ func (r *organizationMediaQuotaRepository) Bind(ctx context.Context, userID int6
 	if bound != id {
 		return service.ErrMediaQuotaConflict
 	}
-	return tx.Commit()
+	return nil
 }
 func (r *organizationMediaQuotaRepository) ValidateDispatch(ctx context.Context, userID int64, requestID string) error {
+	return validateOrganizationMediaQuotaDispatch(ctx, r.db, userID, requestID)
+}
+
+func validateOrganizationMediaQuotaDispatch(ctx context.Context, db interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, userID int64, requestID string) error {
 	var expired bool
-	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organization_media_reservations r JOIN organization_media_allocations a ON a.reservation_id=r.id JOIN organization_media_lots l ON l.id=a.lot_id JOIN organization_media_grants g ON g.id=l.grant_id WHERE r.user_id=$1 AND r.request_id=$2 AND g.expires_at<=NOW())`, userID, requestID).Scan(&expired)
+	err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organization_media_reservations r JOIN organization_media_allocations a ON a.reservation_id=r.id JOIN organization_media_lots l ON l.id=a.lot_id JOIN organization_media_grants g ON g.id=l.grant_id WHERE r.user_id=$1 AND r.request_id=$2 AND g.expires_at<=NOW())`, userID, requestID).Scan(&expired)
 	if err != nil {
 		return err
 	}
@@ -219,14 +245,21 @@ func (r *organizationMediaQuotaRepository) ValidateDispatch(ctx context.Context,
 // requestID is preferred; polling binds by (authenticated organization, taskID).
 // Only a verified terminal outcome releases quota. An unknown outcome stays held.
 func (r *organizationMediaQuotaRepository) Settle(ctx context.Context, userID int64, requestID, taskID string, actual int64, measurement string) error {
-	if actual < 0 && !(actual == -1 && measurement == "fixed_duration") {
-		return service.ErrMediaQuotaConflict
-	}
 	tx, err := r.lock(ctx, userID)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := settleOrganizationMediaQuota(ctx, tx, userID, requestID, taskID, actual, measurement); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func settleOrganizationMediaQuota(ctx context.Context, tx *sql.Tx, userID int64, requestID, taskID string, actual int64, measurement string) error {
+	if actual < 0 && !(actual == -1 && measurement == "fixed_duration") {
+		return service.ErrMediaQuotaConflict
+	}
 	v, err := scanMediaReservation(tx.QueryRowContext(ctx, `SELECT `+mediaReservationColumns+` FROM organization_media_reservations WHERE user_id=$1 AND (($2<>'' AND request_id=$2) OR ($2='' AND $3<>'' AND id IN(SELECT reservation_id FROM organization_media_task_bindings WHERE user_id=$1 AND task_id=$3))) ORDER BY id LIMIT 1`, userID, requestID, taskID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
@@ -250,7 +283,7 @@ func (r *organizationMediaQuotaRepository) Settle(ctx context.Context, userID in
 		if _, err = tx.ExecContext(ctx, `UPDATE organization_media_reservations SET status='review',actual_units=$2,measurement=$3 WHERE id=$1`, v.ID, actual, measurement); err != nil {
 			return err
 		}
-		return tx.Commit()
+		return nil
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT a.lot_id,a.units FROM organization_media_allocations a JOIN organization_media_lots l ON l.id=a.lot_id JOIN organization_media_grants g ON g.id=l.grant_id WHERE a.reservation_id=$1 ORDER BY g.expires_at,a.lot_id`, v.ID)
 	if err != nil {
@@ -289,7 +322,7 @@ func (r *organizationMediaQuotaRepository) Settle(ctx context.Context, userID in
 	if _, err = tx.ExecContext(ctx, `UPDATE organization_media_reservations SET status=$2,actual_units=$3,measurement=$4,completed_at=NOW() WHERE id=$1`, v.ID, status, actual, measurement); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (r *organizationMediaQuotaRepository) FailVerifiedTask(ctx context.Context, taskID string) error {

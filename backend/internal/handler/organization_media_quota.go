@@ -118,7 +118,7 @@ func (h *OpenAIGatewayHandler) OrganizationMediaQuotaMiddleware() gin.HandlerFun
 		}
 		if lookup && h.gatewayService != nil {
 			if snap, e := h.gatewayService.GetCompShareH3(c.Request.Context(), c.Param("request_id"), key.UserID, key.ID); e == nil && snap != nil {
-				c.Header("X-Media-Billing-Mode", "balance")
+				c.Header("X-Media-Billing-Mode", snap.BillingMode())
 				c.Next()
 				return
 			}
@@ -162,8 +162,10 @@ func (h *OpenAIGatewayHandler) OrganizationMediaQuotaMiddleware() gin.HandlerFun
 				return
 			}
 			model := gjson.GetBytes(body, "model").String()
-			if kind == "video" && service.IsCompShareH3Model(model) && h.gatewayService != nil && h.gatewayService.HasCompShareH3Route(c.Request.Context(), key) {
-				c.Header("X-Media-Billing-Mode", "balance")
+			if kind == "video" && service.IsCompShareH3Model(model) {
+				// H3 reserves organization seconds with its frozen billing receipt in
+				// one transaction. Its native content contract and idempotency keys
+				// must not also create a generic reservation from the raw request.
 				c.Next()
 				return
 			}
