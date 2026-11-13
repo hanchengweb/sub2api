@@ -332,7 +332,7 @@ func compShareH3ContentURL(body []byte) (string, error) {
 	}
 	raw := gjson.GetBytes(body, "task.content.url").String()
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") || u.Hostname() != "compshare-files.cn-wlcb.ufileos.com" {
+	if err != nil || u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") || (u.Hostname() != "compshare-files.cn-wlcb.ufileos.com" && u.Hostname() != "cdn-files.compshare.cn") {
 		return "", errors.New("CompShare returned an unsupported video content URL")
 	}
 	return u.String(), nil

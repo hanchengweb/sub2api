@@ -102,7 +102,7 @@ func TestCompShareH3TerminalResponseUsesFrozenBillingMode(t *testing.T) {
 			wantMode = "organization_quota"
 		}
 		repo := &compShareH3RepoStub{snap: snap}
-		upstream := &grokMediaContentUpstreamStub{responses: []*http.Response{grokMediaContentStatusResponse(`{"task":{"id":"provider-fixture","status":"succeeded","resolution":"768P","usage":{"output_seconds":4},"content":{"url":"https://compshare-files.cn-wlcb.ufileos.com/fixture.mp4"}}}`)}}
+		upstream := &grokMediaContentUpstreamStub{responses: []*http.Response{grokMediaContentStatusResponse(`{"task":{"id":"provider-fixture","status":"succeeded","resolution":"768P","usage":{"output_seconds":4},"content":{"url":"https://cdn-files.compshare.cn/fixture.mp4"}}}`)}}
 		svc := &OpenAIGatewayService{cfg: &config.Config{}, usageBillingRepo: repo, httpUpstream: upstream}
 		c, w := grokMediaContentTestContext(http.MethodGet, "/v1/videos/provider-fixture", nil)
 		c.Set(CompShareH3ContextKey, snap)
@@ -325,14 +325,31 @@ func TestCompShareH3ExactRouteAndDownloadSecurity(t *testing.T) {
 	a = compShareH3TestAccount()
 	a.Credentials["model_mapping"] = map[string]any{"other-model": "other-model"}
 	require.False(t, a.IsModelSupported(CompShareH3Model))
-	for _, raw := range []string{"https://127.0.0.1/v.mp4", "https://compshare-files.cn-wlcb.ufileos.com.evil.invalid/v.mp4", "https://other.ufileos.com/v.mp4", "https://user@compshare-files.cn-wlcb.ufileos.com/v.mp4", "https://compshare-files.cn-wlcb.ufileos.com:8443/v.mp4"} {
+	for _, raw := range []string{
+		"https://127.0.0.1/v.mp4",
+		"https://compshare-files.cn-wlcb.ufileos.com.evil.invalid/v.mp4",
+		"https://other.ufileos.com/v.mp4",
+		"https://user@compshare-files.cn-wlcb.ufileos.com/v.mp4",
+		"https://compshare-files.cn-wlcb.ufileos.com:8443/v.mp4",
+		"http://cdn-files.compshare.cn/v.mp4",
+		"https://cdn-files.compshare.cn.evil.invalid/v.mp4",
+		"https://other.compshare.cn/v.mp4",
+		"https://user@cdn-files.compshare.cn/v.mp4",
+		"https://cdn-files.compshare.cn:8443/v.mp4",
+	} {
 		body, _ := json.Marshal(map[string]any{"task": map[string]any{"status": "succeeded", "content": map[string]string{"url": raw}}})
 		_, err := compShareH3ContentURL(body)
 		require.Error(t, err)
 	}
-	good := `{"task":{"status":"succeeded","content":{"url":"https://compshare-files.cn-wlcb.ufileos.com/v.mp4?signature=fixture"}}}`
-	_, err := compShareH3ContentURL([]byte(good))
-	require.NoError(t, err)
+	for _, host := range []string{"compshare-files.cn-wlcb.ufileos.com", "cdn-files.compshare.cn"} {
+		for _, port := range []string{"", ":443"} {
+			raw := "https://" + host + port + "/v.mp4?signature=fixture"
+			body, _ := json.Marshal(map[string]any{"task": map[string]any{"status": "succeeded", "content": map[string]string{"url": raw}}})
+			got, err := compShareH3ContentURL(body)
+			require.NoError(t, err)
+			require.Equal(t, raw, got)
+		}
+	}
 	snap := compShareH3TestSnapshot()
 	snap.TaskID = "provider-fixture"
 	repo := &compShareH3RepoStub{snap: snap}
@@ -340,10 +357,32 @@ func TestCompShareH3ExactRouteAndDownloadSecurity(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream, usageBillingRepo: repo}
 	c, w := grokMediaContentTestContext(http.MethodGet, "/v1/videos/provider-fixture/content", nil)
 	c.Set(CompShareH3ContextKey, snap)
-	_, err = svc.ForwardGrokMedia(context.Background(), c, compShareH3TestAccount(), GrokMediaEndpointVideoContent, "provider-fixture", nil, "")
+	_, err := svc.ForwardGrokMedia(context.Background(), c, compShareH3TestAccount(), GrokMediaEndpointVideoContent, "provider-fixture", nil, "")
 	require.Error(t, err)
 	require.NotContains(t, w.Body.String(), "signature=")
 	require.Empty(t, upstream.request.Header.Get("Authorization"))
+}
+
+func TestCompShareH3CDNContentStreamsWithoutProviderCredential(t *testing.T) {
+	snap := compShareH3TestSnapshot()
+	snap.TaskID = "provider-fixture"
+	repo := &compShareH3RepoStub{snap: snap}
+	contentURL := "https://cdn-files.compshare.cn/v.mp4?signature=fixture"
+	upstream := &grokMediaContentUpstreamStub{responses: []*http.Response{
+		grokMediaContentStatusResponse(`{"task":{"id":"provider-fixture","status":"succeeded","resolution":"768P","usage":{"output_seconds":4},"content":{"url":"` + contentURL + `"}}}`),
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"video/mp4"}}, Body: io.NopCloser(strings.NewReader("video-payload"))},
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream, usageBillingRepo: repo}
+	c, w := grokMediaContentTestContext(http.MethodGet, "/v1/videos/provider-fixture/content", nil)
+	c.Set(CompShareH3ContextKey, snap)
+	_, err := svc.ForwardGrokMedia(context.Background(), c, compShareH3TestAccount(), GrokMediaEndpointVideoContent, snap.TaskID, nil, "")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "video-payload", w.Body.String())
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, contentURL, upstream.requests[1].URL.String())
+	require.Empty(t, upstream.requests[1].Header.Get("Authorization"))
+	require.Equal(t, 1, repo.settleCalls)
 }
 
 func TestCompShareH3DurableOwnerBindingWithoutCache(t *testing.T) {
