@@ -499,7 +499,7 @@ def is_manifest(path: Path) -> bool:
 
 
 def read_text(path: Path) -> str:
-    if path.stat().st_size > 2 * 1024 * 1024:
+    if path.stat().st_size > 32 * 1024 * 1024:
         raise ValueError(f'清单过大，无法完整确认引用：{path}')
     return path.read_text(errors='ignore')
 
