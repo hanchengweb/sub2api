@@ -111,6 +111,20 @@ class ExtractRefsTest(unittest.TestCase):
         for name in ['runtime-before.json', '.env.production', 'docker-compose.yml.bak-release', 'rollback.yaml']:
             self.assertTrue(retention.is_manifest(Path(name)), name)
 
+    def test_manifest_size_limit_reads_multi_megabyte_receipts_but_rejects_huge_files(self):
+        # 2026-11-13 起 sub2api 备份里的 applied-receipt.private.json 有 2.59MB，
+        # 旧的 2MB 上限让每次清理都整次失败，磁盘一路涨到 96%。
+        with tempfile.TemporaryDirectory() as directory:
+            image = 'sha256:' + 'b' * 64
+            receipt = Path(directory) / 'applied-receipt.private.json'
+            receipt.write_text(json.dumps({'image': image, 'padding': 'x' * (3 * 1024 * 1024)}))
+            self.assertIn(image, retention.extract_refs(retention.read_text(receipt)))
+            huge = Path(directory) / 'state.private.json'
+            with huge.open('wb') as f:
+                f.truncate(32 * 1024 * 1024 + 1)
+            with self.assertRaises(ValueError):
+                retention.read_text(huge)
+
     def test_recognizes_every_manifest_format_on_the_host(self):
         digest = 'sha256:' + 'a' * 64
         refs = retention.extract_refs(
