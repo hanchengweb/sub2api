@@ -57,6 +57,7 @@ func (s *OfficialSupplier) call(ctx context.Context, p mediatasks.Provider, id, 
 		Status        *int   `json:"status"`
 		SpeakerID     string `json:"speaker_id"`
 		Code          *int   `json:"code"`
+		Remaining     *int   `json:"available_training_times"`
 		SpeakerStatus []struct {
 			ModelType int `json:"model_type"`
 		} `json:"speaker_status"`
@@ -64,21 +65,35 @@ func (s *OfficialSupplier) call(ctx context.Context, p mediatasks.Provider, id, 
 	if json.NewDecoder(io.LimitReader(res.Body, 64<<10)).Decode(&r) != nil || r.Status == nil || r.SpeakerID != speaker || (r.Code != nil && *r.Code != 0) {
 		return unknown
 	}
-	switch *r.Status {
+	if r.Remaining != nil && (*r.Remaining < 0 || *r.Remaining > 1000) {
+		r.Remaining = nil
+	}
+	result := statusResult(*r.Status, func() bool {
+		for _, status := range r.SpeakerStatus {
+			if status.ModelType == 5 {
+				return true
+			}
+		}
+		return false
+	}())
+	result.Remaining = r.Remaining
+	return result
+}
+
+func statusResult(status int, hasModel bool) TrainingResult {
+	switch status {
 	case 0:
 		return TrainingResult{Status: "untrained"}
 	case 1:
 		return TrainingResult{Status: "training"}
 	case 2, 4:
-		for _, status := range r.SpeakerStatus {
-			if status.ModelType == 5 {
-				return TrainingResult{Status: "ready"}
-			}
+		if hasModel {
+			return TrainingResult{Status: "ready", Activated: status == 4}
 		}
-		return unknown
+		return TrainingResult{Status: "indeterminate", ErrorCode: "voice_clone_unconfirmed", Activated: status == 4}
 	case 3:
 		return TrainingResult{Status: "failed", ErrorCode: "voice_clone_training_failed"}
 	default:
-		return unknown
+		return TrainingResult{Status: "indeterminate", ErrorCode: "voice_clone_unconfirmed"}
 	}
 }

@@ -126,16 +126,25 @@ func (s *Service) Clone(ctx context.Context, o mediatasks.Owner, requestID, name
 	}
 	call, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 	defer cancel()
-	// Never overwrite a voice that was trained before this private asset existed.
+	// Never overwrite a voice unless the speaker is empty, or this platform itself
+	// trained it and released it when its asset was deleted.
 	// A crash during this check remains blocked by the persisted pending marker.
 	preflight := s.Supplier.Query(call, p, a.RequestID, a.SpeakerID)
-	if preflight.Status != "untrained" {
+	a.Remaining = preflight.Remaining
+	recycled := a.Recycled && preflight.Status != "untrained" && preflight.Reusable()
+	if preflight.Status != "untrained" && !recycled {
 		a.Status = "failed"
 		a.Error = &mediatasks.TaskError{Code: "voice_clone_slot_not_verified_empty", Message: "克隆名额尚未确认可用，请联系管理员核对原名额。"}
+		// A definitive supplier answer retires the speaker; network doubt does not.
+		a.RetireSlot = preflight.Unusable() || (!a.Recycled && preflight.Status == "ready")
 		if e = s.Store.UpdateTraining(context.WithoutCancel(ctx), a); e != nil {
 			return nil, e
 		}
 		return a.Public(), nil
+	}
+	if recycled {
+		baseline := *preflight.Remaining
+		a.TrainingBaseline = &baseline
 	}
 	a.Error = nil
 	if e = s.Store.UpdateTraining(context.WithoutCancel(ctx), a); e != nil {
@@ -157,6 +166,14 @@ func (s *Service) apply(a *Asset, r TrainingResult) {
 	a.Error = nil
 	if r.ErrorCode != "" {
 		a.Error = &mediatasks.TaskError{Code: r.ErrorCode, Message: "克隆结果需要核对，请查询原声音资产，勿重复上传。"}
+	}
+	a.Remaining = r.Remaining
+	// On a recycled speaker the previous owner's voice also reports "ready" or
+	// "failed"; only a consumed training attempt proves the result is this one.
+	// A rejected request (4xx) is this request's own definitive answer.
+	if a.TrainingBaseline != nil && r.ErrorCode != "voice_clone_rejected" && (a.Status == "ready" || a.Status == "failed") && (r.Remaining == nil || *r.Remaining >= *a.TrainingBaseline) {
+		a.Status = "training"
+		a.Error = nil
 	}
 }
 func (s *Service) Refresh(ctx context.Context, o mediatasks.Owner, id string) (*Asset, error) {

@@ -168,14 +168,34 @@ This API never purchases capacity, creates speaker IDs, trains a voice or perfor
 synthesis.
 
 Migration 252 adopts every historical claim, including soft-deleted assets, into
-its organization ownership. All clone assets count as used, including failed,
-indeterminate and soft-deleted assets. Reductions cannot go below used capacity
+its organization ownership. A slot is used while a clone asset holds its speaker,
+including failed and indeterminate assets. Reductions cannot go below used capacity
 and release only unused reservations. A managed organization can claim only its
 own reserved speakers; a managed zero total cannot borrow shared inventory.
 Legacy organizations also cannot claim another organization's reservation. Catalog
 availability applies the same ownership filter. Existing asset reads and synthesis
 retain their existing authorization path. Inventory rows are locked in the same
 global `(account_id, speaker_id)` order for administration and clone claims.
+
+### Releasing deleted clones (migration 253)
+
+Deleting a clone keeps the asset row (request replay, audit) and, once its
+training has settled (`ready` or `failed`), returns the speaker in the same
+transaction: a managed organization keeps the reservation, a legacy one returns
+it to the shared pool. A clone still training or unconfirmed keeps its speaker.
+Migration 253 applies the same rule to historical deletions.
+
+A prepaid `S_` speaker can be trained 15 times and an activated speaker never
+again; this service never activates speakers. A released speaker carries
+`released_at`, meaning this platform trained it. The clone preflight still
+refuses any trained speaker unless it carries that marker and the supplier
+reports a finished, unactivated voice with `available_training_times > 0`. The
+remaining count before overwriting is stored as the asset's `training_baseline`;
+a later `ready` or `failed` is adopted only after the supplier count drops below
+it, so a lost training request can never surface the previous owner's voice.
+An activated or exhausted speaker, or one trained outside this platform, is
+marked `retired_at`: it is never offered, allocated or counted as allocatable,
+and operators replace it with new prepaid inventory.
 
 Errors use the HTTP status as envelope `code` and a fixed `message`:
 
