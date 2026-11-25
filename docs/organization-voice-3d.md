@@ -197,6 +197,22 @@ An activated or exhausted speaker, or one trained outside this platform, is
 marked `retired_at`: it is never offered, allocated or counted as allocatable,
 and operators replace it with new prepaid inventory.
 
+Rollback below 253 needs a data step first. An older binary counts every clone
+row as used and would offer released speakers. Before switching back, re-attach
+each released, unclaimed speaker to its newest deleted asset:
+
+```sql
+UPDATE organization_voice_speaker_slots s SET asset_id = d.id
+FROM (SELECT DISTINCT ON (account_id, speaker_id) id, account_id, speaker_id
+      FROM organization_voice_assets WHERE kind = 'clone' AND deleted_at IS NOT NULL
+      ORDER BY account_id, speaker_id, deleted_at DESC) d
+WHERE s.asset_id IS NULL AND s.released_at IS NOT NULL
+  AND s.account_id = d.account_id AND s.speaker_id = d.speaker_id;
+```
+
+A released speaker already reclaimed by a new clone needs no step. The added
+columns are harmless to older binaries and stay in place.
+
 Errors use the HTTP status as envelope `code` and a fixed `message`:
 
 | HTTP | Message |
