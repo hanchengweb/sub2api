@@ -198,20 +198,43 @@ marked `retired_at`: it is never offered, allocated or counted as allocatable,
 and operators replace it with new prepaid inventory.
 
 Rollback below 253 needs a data step first. An older binary counts every clone
-row as used and would offer released speakers. Before switching back, re-attach
-each released, unclaimed speaker to its newest deleted asset:
+row as used and would offer unclaimed speakers, including retired ones. Disable
+new clone creation before switching back, then re-attach every unclaimed speaker
+with a deleted clone to its newest deleted asset (not only `released_at` rows):
 
 ```sql
 UPDATE organization_voice_speaker_slots s SET asset_id = d.id
 FROM (SELECT DISTINCT ON (account_id, speaker_id) id, account_id, speaker_id
       FROM organization_voice_assets WHERE kind = 'clone' AND deleted_at IS NOT NULL
-      ORDER BY account_id, speaker_id, deleted_at DESC) d
-WHERE s.asset_id IS NULL AND s.released_at IS NOT NULL
+      ORDER BY account_id, speaker_id, deleted_at DESC, id DESC) d
+WHERE s.asset_id IS NULL
   AND s.account_id = d.account_id AND s.speaker_id = d.speaker_id;
 ```
 
-A released speaker already reclaimed by a new clone needs no step. The added
-columns are harmless to older binaries and stay in place.
+This cannot restore old accounting after a speaker has been reused: two historical
+clone rows may refer to one speaker. Older slot administration can return 503
+(`used > total` or claimed-speaker count differs from clone-row count). Do not
+delete asset history to force those counts to match. Prefer a forward fix; existing
+asset synthesis retains its own authorization path. After the data step, identify
+affected organizations with this read-only query before any application rollback:
+
+```sql
+WITH legacy AS (
+    SELECT user_id, COUNT(*) AS used FROM organization_voice_assets
+    WHERE kind='clone' GROUP BY user_id
+), held AS (
+    SELECT a.user_id, COUNT(*) AS used FROM organization_voice_speaker_slots s
+    JOIN organization_voice_assets a ON a.id=s.asset_id GROUP BY a.user_id
+)
+SELECT l.user_id, l.used AS legacy_used, COALESCE(h.used,0) AS held_speakers,
+       p.total_slots
+FROM legacy l LEFT JOIN held h ON h.user_id=l.user_id
+LEFT JOIN organization_voice_slot_policies p ON p.user_id=l.user_id
+WHERE l.used <> COALESCE(h.used,0) OR (p.managed AND l.used > p.total_slots);
+```
+
+Keep the added columns and all history on application rollback. The data step
+does not recreate an old voice already overwritten at the supplier.
 
 Errors use the HTTP status as envelope `code` and a fixed `message`:
 
