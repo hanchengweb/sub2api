@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"strings"
@@ -82,14 +83,7 @@ func TestVoiceSlotRollbackStepRestoresOldAccounting(t *testing.T) {
 	require.NoError(t, store.UpdateTraining(ctx, retired))
 	require.NoError(t, store.Delete(ctx, retired.Owner, retired.ID))
 
-	raw, err := os.ReadFile("../../../docs/organization-voice-3d.md")
-	require.NoError(t, err)
-	_, section, ok := strings.Cut(strings.ReplaceAll(string(raw), "\r\n", "\n"), "Rollback below 253")
-	require.True(t, ok)
-	_, section, ok = strings.Cut(section, "```sql\n")
-	require.True(t, ok)
-	rollback, _, ok := strings.Cut(section, "```")
-	require.True(t, ok)
+	rollback, _ := voiceRollbackSQL(t)
 	_, err = db.Exec(rollback)
 	require.NoError(t, err)
 	var restored bool
@@ -102,6 +96,59 @@ func TestVoiceSlotRollbackStepRestoresOldAccounting(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM organization_voice_speaker_slots s JOIN organization_voice_assets a ON a.id=s.asset_id WHERE a.user_id=1`).Scan(&held))
 	require.Equal(t, 2, legacyUsed)
 	require.Equal(t, 1, held)
+}
+
+// voiceRollbackSQL returns the data step and the affected-organization query
+// exactly as the operations document publishes them.
+func voiceRollbackSQL(t *testing.T) (step, check string) {
+	t.Helper()
+	raw, err := os.ReadFile("../../../docs/organization-voice-3d.md")
+	require.NoError(t, err)
+	_, section, ok := strings.Cut(strings.ReplaceAll(string(raw), "\r\n", "\n"), "Rollback below 253")
+	require.True(t, ok)
+	blocks := make([]string, 0, 2)
+	for len(blocks) < 2 {
+		_, section, ok = strings.Cut(section, "```sql\n")
+		require.True(t, ok)
+		var block string
+		block, section, ok = strings.Cut(section, "```")
+		require.True(t, ok)
+		blocks = append(blocks, block)
+	}
+	return blocks[0], blocks[1]
+}
+
+// A speaker one organization released and another now reserves leaves both with
+// inconsistent legacy accounting, so the rollback check must list both.
+func TestVoiceSlotRollbackQueryListsBothSidesOfAReassignedSpeaker(t *testing.T) {
+	db, store, manager := voiceSlotTestDB(t, true)
+	ctx := context.Background()
+	slots := voiceInventory()[:1]
+	released, _, err := store.ClaimClone(ctx, voiceClaim(1), slots)
+	require.NoError(t, err)
+	released.Status = "ready"
+	require.NoError(t, store.UpdateTraining(ctx, released))
+	require.NoError(t, store.Delete(ctx, released.Owner, released.ID))
+	_, err = manager.SetSlots(ctx, 2, slots, voiceChange(2, 0, 1), 9)
+	require.NoError(t, err)
+
+	step, check := voiceRollbackSQL(t)
+	_, err = db.Exec(step)
+	require.NoError(t, err)
+	rows, err := db.Query(check)
+	require.NoError(t, err)
+	defer rows.Close()
+	listed := map[int64][2]int64{}
+	for rows.Next() {
+		var user, legacyUsed, held int64
+		var total sql.NullInt64
+		require.NoError(t, rows.Scan(&user, &legacyUsed, &held, &total))
+		listed[user] = [2]int64{legacyUsed, held}
+	}
+	require.NoError(t, rows.Err())
+	// The older binary counts clone rows as used and attributes a claimed speaker
+	// to its reservation first, then to the asset that holds it.
+	require.Equal(t, map[int64][2]int64{1: {1, 0}, 2: {0, 1}}, listed)
 }
 
 func TestVoiceSlotMigration253HistoricalCountsAndReplay(t *testing.T) {
