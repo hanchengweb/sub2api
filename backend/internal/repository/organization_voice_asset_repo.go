@@ -13,13 +13,17 @@ import (
 type organizationVoiceAssetRepository struct {
 	db            *sql.DB
 	memberReclaim bool
+	idleTracking  bool
 }
 
 // usableVoiceSlot excludes speakers the supplier can no longer train.
 const usableVoiceSlot = `retired_at IS NULL AND COALESCE(remaining_trainings,1)>0`
 
 func NewOrganizationVoiceAssetRepository(db *sql.DB) voiceassets.Store {
-	return &organizationVoiceAssetRepository{db: db, memberReclaim: os.Getenv("WXM_VOICE_MEMBER_RECLAIM_ENABLED") == "true" && os.Getenv("WXM_VOICE_MEMBER_RECLAIM_EXECUTE") == "true"}
+	return &organizationVoiceAssetRepository{db: db,
+		memberReclaim: os.Getenv("WXM_VOICE_MEMBER_RECLAIM_ENABLED") == "true" && os.Getenv("WXM_VOICE_MEMBER_RECLAIM_EXECUTE") == "true",
+		idleTracking:  os.Getenv("WXM_VOICE_EXPIRY_RECLAIM_ENABLED") == "true",
+	}
 }
 
 const voiceAssetColumns = `id::text,user_id,actor_id::text,group_id,kind,name,model,speaker_id,account_id,enabled,status,COALESCE(request_id::text,''),digest,error_code,deleted_at IS NOT NULL,created_at,updated_at,training_baseline`
@@ -201,6 +205,12 @@ func (r *organizationVoiceAssetRepository) UpdateTraining(ctx context.Context, a
 	var baseline any
 	if a.TrainingBaseline != nil {
 		baseline = *a.TrainingBaseline
+	}
+	// A clone that only now becomes usable starts its idle period here.
+	if r.idleTracking && a.Status == "ready" {
+		if _, e := r.db.ExecContext(ctx, `UPDATE organization_voice_assets SET last_used_at=NOW() WHERE id=$1 AND kind='clone' AND deleted_at IS NULL AND status<>'ready'`, a.ID); e != nil {
+			return e
+		}
 	}
 	_, e := r.db.ExecContext(ctx, `UPDATE organization_voice_assets SET status=$2,error_code=$3,training_baseline=COALESCE(training_baseline,$4::INTEGER),updated_at=NOW() WHERE id=$1 AND kind='clone' AND deleted_at IS NULL AND (status<>'ready' OR $2='ready')`, a.ID, a.Status, code, baseline)
 	if e != nil {

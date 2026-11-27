@@ -99,3 +99,29 @@ func TestVoiceReclaimSchemaRemovalStepAllowsReapplying254(t *testing.T) {
 	require.Zero(t, left)
 	require.NoError(t, applyMigrationsFS(ctx, db, files))
 }
+
+// A clone whose training result arrives late has not been idle: its period starts
+// when it becomes usable, and later refreshes do not extend it.
+func TestVoiceExpiryStartsWhenACloneBecomesUsable(t *testing.T) {
+	t.Setenv("WXM_VOICE_EXPIRY_RECLAIM_ENABLED", "true")
+	ctx := context.Background()
+	db, store, r := voiceReclaimTestDB(t, voiceassets.ReclaimConfig{ExpiryEnabled: true, ExpiryExecute: true, IdleDays: 180})
+	actor := uuid.NewString()
+	o := mediatasks.Owner{UserID: 1, ActorID: actor}
+	id := reclaimAsset(t, db, 1, actor, "clone", "indeterminate", "S_late", 400)
+	asset, err := store.Get(ctx, o, id)
+	require.NoError(t, err)
+	asset.Status, asset.Error = "ready", nil
+	require.NoError(t, store.UpdateTraining(ctx, asset))
+	items, err := r.Run(ctx, 1)
+	require.NoError(t, err)
+	require.Empty(t, items, "a voice that only now became usable cannot be idle")
+
+	_, err = db.Exec(`UPDATE organization_voice_assets SET last_used_at=NOW()-INTERVAL '181 days' WHERE id=$1`, id)
+	require.NoError(t, err)
+	require.NoError(t, store.UpdateTraining(ctx, asset))
+	items, err = r.Run(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.True(t, items[0].Reclaimed)
+}

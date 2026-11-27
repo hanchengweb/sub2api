@@ -325,7 +325,9 @@ When idle tracking is enabled, an authorized clone synthesis resolution records
 `last_used_at` atomically with a live-asset check. This conservatively counts an
 allowed attempt even if quota reservation or generation later fails. Listing,
 renaming, training refresh, existing task/content replay and client heartbeats do
-not count. Tracking is off when the capability is off. Route all clone synthesis
+not count, except that a clone becoming `ready` starts its idle period then, so a
+late training result is never idle on arrival. Tracking is off when the
+capability is off. Route all clone synthesis
 through `voice_asset_id` before enabling idle deletion; direct speaker usage is
 not observed by this tracker.
 
