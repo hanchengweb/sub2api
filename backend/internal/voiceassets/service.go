@@ -18,6 +18,7 @@ type Service struct {
 	Routes   Routes
 	Supplier Supplier
 	Decode   func(context.Context, []byte, string) ([]byte, error)
+	Reclaim  *Reclaimer
 }
 
 func validName(s string) bool {
@@ -251,6 +252,14 @@ func (s *Service) ResolveVoiceAsset(ctx context.Context, o mediatasks.Owner, r m
 	p, e := s.Routes.Reopen(ctx, o, &mediatasks.Task{Owner: o, Kind: mediatasks.Audio, Model: a.Model, AccountID: a.AccountID})
 	if e != nil {
 		return r, p, e
+	}
+	if a.Kind == "clone" && s.Reclaim != nil && s.Reclaim.Config.ExpiryEnabled {
+		if s.Reclaim.Store == nil {
+			return r, p, mediatasks.ErrUnavailable
+		}
+		if e = s.Reclaim.Store.TouchVoiceUse(ctx, o, a.ID); e != nil {
+			return r, p, e
+		}
 	}
 	r.ResolvedVoice, r.ResourceID = a.SpeakerID, a.Model
 	return r, p, nil

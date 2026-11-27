@@ -4,17 +4,22 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+
 	"github.com/Wei-Shaw/sub2api/internal/mediatasks"
 	"github.com/Wei-Shaw/sub2api/internal/voiceassets"
 )
 
-type organizationVoiceAssetRepository struct{ db *sql.DB }
+type organizationVoiceAssetRepository struct {
+	db            *sql.DB
+	memberReclaim bool
+}
 
 // usableVoiceSlot excludes speakers the supplier can no longer train.
 const usableVoiceSlot = `retired_at IS NULL AND COALESCE(remaining_trainings,1)>0`
 
 func NewOrganizationVoiceAssetRepository(db *sql.DB) voiceassets.Store {
-	return &organizationVoiceAssetRepository{db}
+	return &organizationVoiceAssetRepository{db: db, memberReclaim: os.Getenv("WXM_VOICE_MEMBER_RECLAIM_ENABLED") == "true" && os.Getenv("WXM_VOICE_MEMBER_RECLAIM_EXECUTE") == "true"}
 }
 
 const voiceAssetColumns = `id::text,user_id,actor_id::text,group_id,kind,name,model,speaker_id,account_id,enabled,status,COALESCE(request_id::text,''),digest,error_code,deleted_at IS NOT NULL,created_at,updated_at,training_baseline`
@@ -86,6 +91,15 @@ func (r *organizationVoiceAssetRepository) ClaimClone(ctx context.Context, a *vo
 	if !errors.Is(e, mediatasks.ErrNotFound) {
 		return nil, false, e
 	}
+	if r.memberReclaim {
+		var inactive bool
+		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organization_voice_member_states WHERE user_id=$1 AND actor_id=$2 AND state IN ('disabled','deleted'))`, a.Owner.UserID, a.Owner.ActorID).Scan(&inactive); e != nil {
+			return nil, false, e
+		}
+		if inactive {
+			return nil, false, mediatasks.ErrRoute
+		}
+	}
 	slots, e = configuredVoiceSlots(ctx, tx, a.Owner.UserID, slots, true)
 	if e != nil {
 		return nil, false, e
@@ -149,16 +163,18 @@ func (r *organizationVoiceAssetRepository) Delete(ctx context.Context, o mediata
 		return e
 	}
 	defer tx.Rollback()
-	var owner int64
-	// Same organization lock as clone claims and slot administration.
-	if e = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id=$1 AND account_type='organization_service' AND deleted_at IS NULL FOR UPDATE`, o.UserID).Scan(&owner); e != nil {
-		if errors.Is(e, sql.ErrNoRows) {
-			return mediatasks.ErrNotFound
-		}
+	if e = lockVoiceOrganization(ctx, tx, o.UserID); e != nil {
 		return e
 	}
+	if e = deleteVoiceAsset(ctx, tx, o, id); e != nil {
+		return e
+	}
+	return tx.Commit()
+}
+
+func deleteVoiceAsset(ctx context.Context, tx *sql.Tx, o mediatasks.Owner, id string) error {
 	var kind, status, code string
-	e = tx.QueryRowContext(ctx, `UPDATE organization_voice_assets SET enabled=FALSE,deleted_at=NOW(),updated_at=NOW() WHERE id=$1 AND user_id=$2 AND actor_id=$3 AND deleted_at IS NULL RETURNING kind,status,error_code`, id, o.UserID, o.ActorID).Scan(&kind, &status, &code)
+	e := tx.QueryRowContext(ctx, `UPDATE organization_voice_assets SET enabled=FALSE,deleted_at=NOW(),updated_at=NOW() WHERE id=$1 AND user_id=$2 AND actor_id=$3 AND deleted_at IS NULL RETURNING kind,status,error_code`, id, o.UserID, o.ActorID).Scan(&kind, &status, &code)
 	if errors.Is(e, sql.ErrNoRows) {
 		return mediatasks.ErrNotFound
 	}
@@ -175,7 +191,7 @@ func (r *organizationVoiceAssetRepository) Delete(ctx context.Context, o mediata
 			return e
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 func (r *organizationVoiceAssetRepository) UpdateTraining(ctx context.Context, a *voiceassets.Asset) error {
 	code := ""
