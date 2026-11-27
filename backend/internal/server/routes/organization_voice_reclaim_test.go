@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/mediatasks"
@@ -24,6 +25,9 @@ type voiceReclaimHTTPStore struct {
 	writes int
 }
 
+func (s *voiceReclaimHTTPStore) TrackVoiceUsage(context.Context) (time.Time, error) {
+	return time.Time{}, nil
+}
 func (s *voiceReclaimHTTPStore) ReclaimOrganizations(context.Context) ([]int64, error) {
 	return nil, nil
 }

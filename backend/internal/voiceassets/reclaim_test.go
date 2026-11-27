@@ -14,6 +14,7 @@ import (
 type reclaimStoreFixture struct {
 	ReclaimStore
 	calls, states, touches int
+	tracked                int
 	config                 ReclaimConfig
 	err                    error
 	scanned                chan ReclaimConfig
@@ -26,6 +27,10 @@ func (f *reclaimStoreFixture) Reclaim(_ context.Context, _ int64, c ReclaimConfi
 		f.scanned <- c
 	}
 	return []ReclaimCandidate{}, f.err
+}
+func (f *reclaimStoreFixture) TrackVoiceUsage(context.Context) (time.Time, error) {
+	f.tracked++
+	return time.Unix(0, 0), f.err
 }
 func (f *reclaimStoreFixture) ReclaimOrganizations(context.Context) ([]int64, error) {
 	return []int64{1}, nil
@@ -62,7 +67,7 @@ func TestVoiceReclaimConfigAndIndependentSafetyGates(t *testing.T) {
 	_, err = r.MemberState(ctx, 1, MemberState{ActorID: uuid.NewString(), State: "disabled", Version: 1})
 	require.ErrorIs(t, err, mediatasks.ErrRoute)
 	r.Start()()
-	require.Zero(t, store.calls+store.states, "disabled and execute-only gates must not touch storage")
+	require.Zero(t, store.calls+store.states+store.tracked, "disabled and execute-only gates must not touch storage")
 	r.Config = ReclaimConfig{MemberEnabled: true, MemberExecute: true, ExpiryEnabled: true, ExpiryExecute: true, IdleDays: 180}
 	_, err = r.Preview(ctx, 1)
 	require.NoError(t, err)
@@ -72,6 +77,7 @@ func TestVoiceReclaimConfigAndIndependentSafetyGates(t *testing.T) {
 		require.ErrorIs(t, err, mediatasks.ErrInvalid)
 	}
 	require.Zero(t, store.states)
+	require.Zero(t, store.tracked, "previews and member events never start idle tracking")
 }
 
 func TestVoiceUseOnlyTracksAuthorizedCloneResolutionWhenEnabled(t *testing.T) {
@@ -114,4 +120,13 @@ func TestVoiceReclaimStartupScanAndStop(t *testing.T) {
 	stop()
 	stop()
 	require.Equal(t, 1, store.calls)
+	require.Equal(t, 1, store.tracked, "the idle scan records that tracking is running")
+}
+
+func TestVoiceMemberOnlyScanDoesNotTrackIdleUse(t *testing.T) {
+	store := &reclaimStoreFixture{}
+	r := &Reclaimer{Store: store, Config: ReclaimConfig{MemberEnabled: true}}
+	require.NoError(t, r.sweep(context.Background()))
+	require.Equal(t, 1, store.calls)
+	require.Zero(t, store.tracked)
 }

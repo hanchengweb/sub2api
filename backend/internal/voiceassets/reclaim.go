@@ -15,6 +15,10 @@ import (
 // shortcut: previews list one batch; add cursor paging when operators need more than 100 candidates.
 const ReclaimBatchLimit = 100
 
+// ReclaimTrackingGap is how long the idle-tracking heartbeat may be missing
+// before the observation window restarts.
+const ReclaimTrackingGap = 24 * time.Hour
+
 type ReclaimConfig struct {
 	MemberEnabled, MemberExecute bool
 	ExpiryEnabled, ExpiryExecute bool
@@ -62,6 +66,9 @@ type ReclaimStore interface {
 	Reclaim(context.Context, int64, ReclaimConfig) ([]ReclaimCandidate, error)
 	ReclaimOrganizations(context.Context) ([]int64, error)
 	TouchVoiceUse(context.Context, mediatasks.Owner, string) error
+	// TrackVoiceUsage records that idle tracking is running and returns the start
+	// of the unbroken observation window.
+	TrackVoiceUsage(context.Context) (time.Time, error)
 }
 
 type Reclaimer struct {
@@ -105,11 +112,21 @@ func (r *Reclaimer) Preview(ctx context.Context, userID int64) ([]ReclaimCandida
 }
 
 func (r *Reclaimer) sweep(ctx context.Context) error {
+	var failures []error
+	// Idle time counts only while use is being recorded, so mark that first. A
+	// failure here must not stop member reclamation.
+	if r.Config.ExpiryEnabled {
+		since, err := r.Store.TrackVoiceUsage(ctx)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("idle tracking: %w", err))
+		} else {
+			log.Printf("voice_reclaim idle_tracking since=%s earliest_idle_candidates=%s", since.UTC().Format(time.RFC3339), since.AddDate(0, 0, r.Config.IdleDays).UTC().Format(time.RFC3339))
+		}
+	}
 	users, err := r.Store.ReclaimOrganizations(ctx)
 	if err != nil {
-		return err
+		return errors.Join(append(failures, err)...)
 	}
-	var failures []error
 	for _, userID := range users {
 		if ctx.Err() != nil {
 			return ctx.Err()

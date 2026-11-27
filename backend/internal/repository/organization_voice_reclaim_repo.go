@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"sort"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/mediatasks"
 	"github.com/Wei-Shaw/sub2api/internal/voiceassets"
@@ -72,6 +73,16 @@ func (r *organizationVoiceAssetRepository) TouchVoiceUse(ctx context.Context, o 
 	return tx.Commit()
 }
 
+// TrackVoiceUsage keeps the observation start unless the heartbeat lapsed, for
+// example while idle reclamation was switched off.
+func (r *organizationVoiceAssetRepository) TrackVoiceUsage(ctx context.Context) (time.Time, error) {
+	var since time.Time
+	err := r.db.QueryRowContext(ctx, `INSERT INTO organization_voice_usage_tracking AS t(since,seen_at) VALUES(NOW(),NOW())
+	ON CONFLICT(singleton) DO UPDATE SET since=CASE WHEN t.seen_at < NOW()-$1::BIGINT*INTERVAL '1 second' THEN NOW() ELSE t.since END,seen_at=NOW()
+	RETURNING since`, int64(voiceassets.ReclaimTrackingGap/time.Second)).Scan(&since)
+	return since, err
+}
+
 func (r *organizationVoiceAssetRepository) ReclaimOrganizations(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT a.user_id FROM organization_voice_assets a JOIN users u ON u.id=a.user_id
 	WHERE u.account_type='organization_service' AND u.deleted_at IS NULL AND a.kind='clone' AND a.deleted_at IS NULL AND a.status IN ('ready','failed') ORDER BY a.user_id`)
@@ -111,9 +122,10 @@ func (r *organizationVoiceAssetRepository) Reclaim(ctx context.Context, userID i
 	CASE WHEN $2 AND m.state IN ('disabled','deleted') THEN 'member_'||m.state ELSE 'idle_expired' END
 	FROM organization_voice_assets a LEFT JOIN organization_voice_member_states m ON m.user_id=a.user_id AND m.actor_id=a.actor_id
 	WHERE a.user_id=$1 AND a.kind='clone' AND a.deleted_at IS NULL AND a.status IN ('ready','failed')
-	AND (($2 AND m.state IN ('disabled','deleted')) OR ($3 AND a.last_used_at < NOW()-$4::INTEGER*INTERVAL '1 day'))
+	AND (($2 AND m.state IN ('disabled','deleted')) OR ($3 AND a.last_used_at < NOW()-$4::INTEGER*INTERVAL '1 day'
+		AND EXISTS(SELECT 1 FROM organization_voice_usage_tracking WHERE since < NOW()-$4::INTEGER*INTERVAL '1 day' AND seen_at >= NOW()-$8::BIGINT*INTERVAL '1 second')))
 	ORDER BY CASE WHEN $2 AND m.state IN ('disabled','deleted') THEN $6::BOOLEAN ELSE $7::BOOLEAN END DESC,a.last_used_at,a.id
-	LIMIT $5 FOR UPDATE OF a`, userID, c.MemberEnabled, c.ExpiryEnabled, c.IdleDays, voiceassets.ReclaimBatchLimit, c.MemberExecute, c.ExpiryExecute)
+	LIMIT $5 FOR UPDATE OF a`, userID, c.MemberEnabled, c.ExpiryEnabled, c.IdleDays, voiceassets.ReclaimBatchLimit, c.MemberExecute, c.ExpiryExecute, int64(voiceassets.ReclaimTrackingGap/time.Second))
 	if err != nil {
 		return nil, err
 	}

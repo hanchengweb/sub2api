@@ -267,10 +267,11 @@ to reclaim prepaid slots.
 
 ### Automatic clone reclamation (migration 254)
 
-Migration 254 adds `last_used_at`, `organization_voice_member_states` and the
-append-only `organization_voice_reclaims` audit. It does not delete voices or
-release inventory. Historical assets start their idle grace period at migration
-time; new assets start at creation. Keep these columns and tables on rollback.
+Migration 254 adds `last_used_at`, `organization_voice_member_states`,
+`organization_voice_usage_tracking` and the append-only
+`organization_voice_reclaims` audit. It does not delete voices or release
+inventory. Existing assets are dated from the migration, new ones from creation.
+Keep these columns and tables on application rollback.
 
 All four flags below default to false; an EXECUTE flag alone has no effect:
 
@@ -307,9 +308,18 @@ Disabled or deleted members' settled clones become candidates. Executing member
 reclamation also blocks new clone claims for a known inactive member. An `active`
 event permits new recordings again; **it never restores reclaimed voices**,
 whose speakers may already have been overwritten. Official presets and unsettled
-training remain untouched. Clients must handle an asset's 404 by clearing it and
+training remain untouched. A refused claim returns the existing 503
+`media_route_unavailable` response, whose message names the model channel rather
+than the member state. Clients must handle an asset's 404 by clearing it and
 requesting a new recording. The tenant should disclose this impact before
 disablement.
+
+Nothing settles training in the background. An unfinished clone keeps its speaker
+until `POST /v1/voice-assets/{id}/refresh` is called for that member, so after
+disabling a member the tenant backend should list their assets and refresh each
+unfinished one. A clone marked `voice_clone_verification_pending` is never queried
+again, and an unfinished clone that was already deleted cannot be refreshed; both
+keep their speakers.
 
 When idle tracking is enabled, an authorized clone synthesis resolution records
 `last_used_at` atomically with a live-asset check. This conservatively counts an
@@ -318,6 +328,17 @@ renaming, training refresh, existing task/content replay and client heartbeats d
 not count. Tracking is off when the capability is off. Route all clone synthesis
 through `voice_asset_id` before enabling idle deletion; direct speaker usage is
 not observed by this tracker.
+
+Idle time counts only while use is being recorded. The hourly scan keeps the
+start of tracking and a heartbeat in `organization_voice_usage_tracking`. A clone
+is an idle candidate only when both its last use and that start are older than the
+idle period, so after first enabling the flag there are **no idle candidates, in
+preview or execution, for one full idle period** (180 days by default). If the
+heartbeat is missing for more than 24 hours (flag switched off, long outage) the
+window starts again. Shorter gaps are tolerated and uses during them are not
+recorded. Run every instance with the same flags: an instance with tracking off
+does not record the uses it serves. The scan logs
+`voice_reclaim idle_tracking since=... earliest_idle_candidates=...`.
 
 With either capability enabled, the application scans on startup and hourly.
 Each organization processes at most 100 candidates per scan; responses and logs
@@ -349,6 +370,8 @@ Rollout:
    in the isolated test environment. Enable only the required ENABLED flags,
    keeping both EXECUTE flags false. Inspect the preview endpoint and
    `voice_reclaim` logs; check limits, actors, idle cutoff and unsettled holds.
+   Member candidates appear at once; idle candidates appear only after one full
+   idle period of tracking, so review them then.
 3. With the idle period and member policy confirmed, enable each EXECUTE flag
    independently and restart. Read back audit rows, soft-deleted assets and
    speaker ownership.
@@ -358,6 +381,22 @@ Rollout:
    and audits. Deletion/overwritten supplier voices cannot be undone by turning
    a flag off; do not run automatic data restoration. Versions below 253 also
    require the separate rollback data step and accounting check above.
+
+Removing migration 254 is not part of an application rollback; older binaries
+ignore its objects. If the schema itself must be removed, first run a binary
+without reclamation and export the three tables. This **discards the reclaim
+audit, member versions and usage history** and restores no voice:
+
+```sql
+BEGIN;
+DROP TABLE organization_voice_reclaims;
+DROP TABLE organization_voice_member_states;
+DROP TABLE organization_voice_usage_tracking;
+DROP INDEX organization_voice_assets_reclaim;
+ALTER TABLE organization_voice_assets DROP COLUMN last_used_at;
+DELETE FROM schema_migrations WHERE filename = '254_organization_voice_reclaim.sql';
+COMMIT;
+```
 
 ## Isolated test runtime and rollback
 

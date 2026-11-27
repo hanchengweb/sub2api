@@ -1,7 +1,7 @@
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '15s';
 
--- Historical assets get a full grace period from this migration, not creation.
+-- Historical assets are dated from this migration, not creation.
 ALTER TABLE organization_voice_assets
     ADD COLUMN last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 CREATE INDEX organization_voice_assets_reclaim ON organization_voice_assets(user_id,last_used_at,id)
@@ -14,6 +14,14 @@ CREATE TABLE organization_voice_member_states (
     version BIGINT NOT NULL CHECK (version > 0),
     observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY(user_id,actor_id)
+);
+
+-- Use is recorded only while idle tracking is enabled. Idle time counts from
+-- `since`; without a row, or with a stale heartbeat, nothing is known to be idle.
+CREATE TABLE organization_voice_usage_tracking (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    since TIMESTAMPTZ NOT NULL,
+    seen_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE organization_voice_reclaims (

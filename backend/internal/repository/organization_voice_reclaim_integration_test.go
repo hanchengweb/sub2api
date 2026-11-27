@@ -18,7 +18,18 @@ func voiceReclaimTestDB(t *testing.T, config voiceassets.ReclaimConfig) (*sql.DB
 	db, store, _ := voiceSlotTestDB(t, true)
 	applyVoiceMigration(t, db, "254_organization_voice_reclaim.sql")
 	store.(*organizationVoiceAssetRepository).memberReclaim = config.MemberEnabled && config.MemberExecute
+	// Idle cases assume use has been recorded for longer than any tested period.
+	observeVoiceUse(t, db, 1000*24*time.Hour, 0)
 	return db, store, &voiceassets.Reclaimer{Store: store.(voiceassets.ReclaimStore), Config: config}
+}
+
+// observeVoiceUse sets how long ago idle tracking started and last reported.
+func observeVoiceUse(t *testing.T, db *sql.DB, since, seen time.Duration) {
+	t.Helper()
+	_, err := db.Exec(`INSERT INTO organization_voice_usage_tracking(since,seen_at)
+	VALUES(NOW()-$1::BIGINT*INTERVAL '1 second',NOW()-$2::BIGINT*INTERVAL '1 second')
+	ON CONFLICT(singleton) DO UPDATE SET since=EXCLUDED.since,seen_at=EXCLUDED.seen_at`, int64(since/time.Second), int64(seen/time.Second))
+	require.NoError(t, err)
 }
 
 func reclaimAsset(t *testing.T, db *sql.DB, user int64, actor, kind, status, speaker string, days int) string {
@@ -192,6 +203,7 @@ func TestVoiceExpiryMigrationGivesHistoricalAssetsFullGrace(t *testing.T) {
 	require.NoError(t, err)
 	before := time.Now().Add(-time.Second)
 	applyVoiceMigration(t, db, "254_organization_voice_reclaim.sql")
+	observeVoiceUse(t, db, 1000*24*time.Hour, 0)
 	var last time.Time
 	require.NoError(t, db.QueryRow(`SELECT last_used_at FROM organization_voice_assets WHERE id=$1`, a.ID).Scan(&last))
 	require.True(t, last.After(before))
