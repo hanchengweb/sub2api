@@ -106,12 +106,14 @@ func (r *organizationVoiceAssetRepository) Reclaim(ctx context.Context, userID i
 	if err = lockVoiceOrganization(ctx, tx, userID); err != nil {
 		return nil, err
 	}
+	// A preview-only category must not fill the batch and starve the other executor.
 	rows, err := tx.QueryContext(ctx, `SELECT a.id::text,a.user_id,a.actor_id::text,a.account_id,a.speaker_id,a.last_used_at,
 	CASE WHEN $2 AND m.state IN ('disabled','deleted') THEN 'member_'||m.state ELSE 'idle_expired' END
 	FROM organization_voice_assets a LEFT JOIN organization_voice_member_states m ON m.user_id=a.user_id AND m.actor_id=a.actor_id
 	WHERE a.user_id=$1 AND a.kind='clone' AND a.deleted_at IS NULL AND a.status IN ('ready','failed')
 	AND (($2 AND m.state IN ('disabled','deleted')) OR ($3 AND a.last_used_at < NOW()-$4::INTEGER*INTERVAL '1 day'))
-	ORDER BY a.last_used_at,a.id LIMIT $5 FOR UPDATE OF a`, userID, c.MemberEnabled, c.ExpiryEnabled, c.IdleDays, voiceassets.ReclaimBatchLimit)
+	ORDER BY CASE WHEN $2 AND m.state IN ('disabled','deleted') THEN $6::BOOLEAN ELSE $7::BOOLEAN END DESC,a.last_used_at,a.id
+	LIMIT $5 FOR UPDATE OF a`, userID, c.MemberEnabled, c.ExpiryEnabled, c.IdleDays, voiceassets.ReclaimBatchLimit, c.MemberExecute, c.ExpiryExecute)
 	if err != nil {
 		return nil, err
 	}

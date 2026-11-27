@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -19,17 +20,32 @@ import (
 )
 
 type OrganizationMediaTaskHandler struct {
-	engine  *mediatasks.Engine
-	enabled bool
-	voices  *voiceassets.Service
+	engine      *mediatasks.Engine
+	enabled     bool
+	voices      *voiceassets.Service
+	reclaim     *voiceassets.Reclaimer
+	stopReclaim func()
 }
 
 func NewOrganizationMediaTaskHandler(store mediatasks.Store, assets voiceassets.Store, accounts service.AccountRepository, quota service.OrganizationMediaQuotaRepository, groups service.GroupRepository, composite *service.CompositeRouteResolver) *OrganizationMediaTaskHandler {
 	routes := mediaTaskRoutes{accounts: accounts, groups: groups, composite: composite}
 	voices := &voiceassets.Service{Store: assets, Routes: routes, Supplier: voiceassets.NewOfficialSupplier()}
+	config, err := voiceassets.ReclaimConfigFromEnv()
+	if err != nil {
+		log.Printf("voice_reclaim configuration: %v", err)
+	}
+	reclaimStore, _ := assets.(voiceassets.ReclaimStore)
+	reclaim := &voiceassets.Reclaimer{Store: reclaimStore, Config: config}
+	voices.Reclaim = reclaim
 	engine := mediatasks.NewEngine(store, mediaTaskQuota{quota}, routes, mediatasks.NewOfficialSupplier())
 	engine.VoiceAssets = voices
-	return &OrganizationMediaTaskHandler{engine: engine, voices: voices, enabled: os.Getenv("WXM_OFFICIAL_MEDIA_ENABLED") == "true"}
+	return &OrganizationMediaTaskHandler{engine: engine, voices: voices, reclaim: reclaim, stopReclaim: reclaim.Start(), enabled: os.Getenv("WXM_OFFICIAL_MEDIA_ENABLED") == "true"}
+}
+
+func (h *OrganizationMediaTaskHandler) Stop() {
+	if h != nil && h.stopReclaim != nil {
+		h.stopReclaim()
+	}
 }
 func mediaTaskError(c *gin.Context, err error) {
 	status, code, message := 503, "media_task_unavailable", "媒体任务暂时不可用，请稍后查询。"

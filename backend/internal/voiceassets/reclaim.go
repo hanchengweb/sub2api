@@ -12,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/mediatasks"
 )
 
+// shortcut: previews list one batch; add cursor paging when operators need more than 100 candidates.
 const ReclaimBatchLimit = 100
 
 type ReclaimConfig struct {

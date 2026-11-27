@@ -274,3 +274,22 @@ func TestVoiceReclaimLocksSpeakersInGlobalOrder(t *testing.T) {
 	require.NoError(t, blocker.Commit())
 	require.NoError(t, <-done)
 }
+
+func TestVoiceReclaimPreviewBatchCannotStarveOtherExecutor(t *testing.T) {
+	ctx := context.Background()
+	db, store, r := voiceReclaimTestDB(t, voiceassets.ReclaimConfig{MemberEnabled: true, ExpiryEnabled: true, ExpiryExecute: true, IdleDays: 180})
+	inactive, active := uuid.NewString(), uuid.NewString()
+	require.NoError(t, r.Store.RecordMemberState(ctx, 1, voiceassets.MemberState{ActorID: inactive, State: "disabled", Version: 1}))
+	for range voiceassets.ReclaimBatchLimit {
+		reclaimAsset(t, db, 1, inactive, "clone", "ready", "S_"+uuid.NewString(), 182)
+	}
+	id := reclaimAsset(t, db, 1, active, "clone", "ready", "S_active", 181)
+	items, err := r.Run(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, items, voiceassets.ReclaimBatchLimit)
+	_, err = store.Get(ctx, mediatasks.Owner{UserID: 1, ActorID: active}, id)
+	require.ErrorIs(t, err, mediatasks.ErrNotFound, "member preview must not fill every scan and starve idle execution")
+	var deleted int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM organization_voice_assets WHERE actor_id=$1 AND deleted_at IS NOT NULL`, inactive).Scan(&deleted))
+	require.Zero(t, deleted, "member preview remains read-only")
+}
