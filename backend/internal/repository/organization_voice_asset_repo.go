@@ -166,7 +166,7 @@ func (r *organizationVoiceAssetRepository) Delete(ctx context.Context, o mediata
 	if e != nil {
 		return e
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if e = lockVoiceOrganization(ctx, tx, o.UserID); e != nil {
 		return e
 	}

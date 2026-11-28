@@ -17,10 +17,25 @@ func voiceReclaimTestDB(t *testing.T, config voiceassets.ReclaimConfig) (*sql.DB
 	t.Helper()
 	db, store, _ := voiceSlotTestDB(t, true)
 	applyVoiceMigration(t, db, "254_organization_voice_reclaim.sql")
-	store.(*organizationVoiceAssetRepository).memberReclaim = config.MemberEnabled && config.MemberExecute
+	setVoiceMemberReclaim(t, store, config.MemberEnabled && config.MemberExecute)
 	// Idle cases assume use has been recorded for longer than any tested period.
 	observeVoiceUse(t, db, 1000*24*time.Hour, 0)
-	return db, store, &voiceassets.Reclaimer{Store: store.(voiceassets.ReclaimStore), Config: config}
+	return db, store, &voiceassets.Reclaimer{Store: voiceReclaimStore(t, store), Config: config}
+}
+
+// setVoiceMemberReclaim mirrors the member execution flag the repository reads at startup.
+func setVoiceMemberReclaim(t *testing.T, store voiceassets.Store, enabled bool) {
+	t.Helper()
+	repo, ok := store.(*organizationVoiceAssetRepository)
+	require.True(t, ok)
+	repo.memberReclaim = enabled
+}
+
+func voiceReclaimStore(t *testing.T, store voiceassets.Store) voiceassets.ReclaimStore {
+	t.Helper()
+	reclaim, ok := store.(voiceassets.ReclaimStore)
+	require.True(t, ok)
+	return reclaim
 }
 
 // observeVoiceUse sets how long ago idle tracking started and last reported.
@@ -69,7 +84,7 @@ func TestVoiceMemberReclaimPreviewExecuteReplayAndReenable(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM organization_voice_reclaims`).Scan(&n))
 	require.Zero(t, n)
 	r.Config.MemberExecute = true
-	store.(*organizationVoiceAssetRepository).memberReclaim = true
+	setVoiceMemberReclaim(t, store, true)
 	items, err := r.MemberState(ctx, 1, event)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
@@ -207,7 +222,7 @@ func TestVoiceExpiryMigrationGivesHistoricalAssetsFullGrace(t *testing.T) {
 	var last time.Time
 	require.NoError(t, db.QueryRow(`SELECT last_used_at FROM organization_voice_assets WHERE id=$1`, a.ID).Scan(&last))
 	require.True(t, last.After(before))
-	r := &voiceassets.Reclaimer{Store: store.(voiceassets.ReclaimStore), Config: voiceassets.ReclaimConfig{ExpiryEnabled: true, ExpiryExecute: true, IdleDays: 180}}
+	r := &voiceassets.Reclaimer{Store: voiceReclaimStore(t, store), Config: voiceassets.ReclaimConfig{ExpiryEnabled: true, ExpiryExecute: true, IdleDays: 180}}
 	items, err := r.Run(context.Background(), 1)
 	require.NoError(t, err)
 	require.Empty(t, items)
@@ -269,7 +284,7 @@ func TestVoiceReclaimLocksSpeakersInGlobalOrder(t *testing.T) {
 	reclaimAsset(t, db, 1, actor, "clone", "ready", "S_b", 182)
 	blocker, err := db.Begin()
 	require.NoError(t, err)
-	defer blocker.Rollback()
+	defer func() { _ = blocker.Rollback() }()
 	_, err = blocker.Exec(`SET LOCAL statement_timeout='5s'; SELECT id FROM users WHERE id=2 FOR UPDATE; SELECT speaker_id FROM organization_voice_speaker_slots WHERE speaker_id='S_a' FOR UPDATE`)
 	require.NoError(t, err)
 	done := make(chan error, 1)

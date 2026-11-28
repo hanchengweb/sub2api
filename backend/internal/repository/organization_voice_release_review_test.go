@@ -137,7 +137,7 @@ func TestVoiceSlotRollbackQueryListsBothSidesOfAReassignedSpeaker(t *testing.T) 
 	require.NoError(t, err)
 	rows, err := db.Query(check)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	listed := map[int64][2]int64{}
 	for rows.Next() {
 		var user, legacyUsed, held int64

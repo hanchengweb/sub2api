@@ -84,7 +84,9 @@ func TestVoiceUseOnlyTracksAuthorizedCloneResolutionWhenEnabled(t *testing.T) {
 	s, _, _ := fixtureService()
 	o := mediatasks.Owner{UserID: 1, GroupID: 4, ActorID: uuid.NewString()}
 	a := &Asset{ID: uuid.NewString(), Owner: o, Kind: "clone", Model: mediatasks.CloneModel, SpeakerID: "S_prepaid", AccountID: 7, Enabled: true, Status: "ready"}
-	s.Store.(*memoryStore).values[a.ID] = a
+	assets, ok := s.Store.(*memoryStore)
+	require.True(t, ok)
+	assets.values[a.ID] = a
 	store := &reclaimStoreFixture{}
 	s.Reclaim = &Reclaimer{Store: store}
 	r := mediatasks.Request{Model: a.Model, VoiceAssetID: a.ID}

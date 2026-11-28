@@ -27,7 +27,7 @@ func (r *organizationVoiceAssetRepository) RecordMemberState(ctx context.Context
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = lockVoiceOrganization(ctx, tx, userID); err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func (r *organizationVoiceAssetRepository) TouchVoiceUse(ctx context.Context, o 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = lockVoiceOrganization(ctx, tx, o.UserID); err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func (r *organizationVoiceAssetRepository) ReclaimOrganizations(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var users []int64
 	for rows.Next() {
 		var id int64
@@ -113,7 +113,7 @@ func (r *organizationVoiceAssetRepository) Reclaim(ctx context.Context, userID i
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = lockVoiceOrganization(ctx, tx, userID); err != nil {
 		return nil, err
 	}
@@ -132,13 +132,13 @@ func (r *organizationVoiceAssetRepository) Reclaim(ctx context.Context, userID i
 	for rows.Next() {
 		var item voiceassets.ReclaimCandidate
 		if err = rows.Scan(&item.AssetID, &item.UserID, &item.ActorID, &item.AccountID, &item.SpeakerID, &item.LastUsedAt, &item.Reason); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		items = append(items, item)
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return nil, err
 	}
