@@ -4,27 +4,44 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+
 	"github.com/Wei-Shaw/sub2api/internal/mediatasks"
 	"github.com/Wei-Shaw/sub2api/internal/voiceassets"
 )
 
-type organizationVoiceAssetRepository struct{ db *sql.DB }
-
-func NewOrganizationVoiceAssetRepository(db *sql.DB) voiceassets.Store {
-	return &organizationVoiceAssetRepository{db}
+type organizationVoiceAssetRepository struct {
+	db            *sql.DB
+	memberReclaim bool
+	idleTracking  bool
 }
 
-const voiceAssetColumns = `id::text,user_id,actor_id::text,group_id,kind,name,model,speaker_id,account_id,enabled,status,COALESCE(request_id::text,''),digest,error_code,deleted_at IS NOT NULL,created_at,updated_at`
+// usableVoiceSlot excludes speakers the supplier can no longer train.
+const usableVoiceSlot = `retired_at IS NULL AND COALESCE(remaining_trainings,1)>0`
+
+func NewOrganizationVoiceAssetRepository(db *sql.DB) voiceassets.Store {
+	return &organizationVoiceAssetRepository{db: db,
+		memberReclaim: os.Getenv("WXM_VOICE_MEMBER_RECLAIM_ENABLED") == "true" && os.Getenv("WXM_VOICE_MEMBER_RECLAIM_EXECUTE") == "true",
+		idleTracking:  os.Getenv("WXM_VOICE_EXPIRY_RECLAIM_ENABLED") == "true",
+	}
+}
+
+const voiceAssetColumns = `id::text,user_id,actor_id::text,group_id,kind,name,model,speaker_id,account_id,enabled,status,COALESCE(request_id::text,''),digest,error_code,deleted_at IS NOT NULL,created_at,updated_at,training_baseline`
 
 func scanVoiceAsset(row interface{ Scan(...any) error }) (*voiceassets.Asset, error) {
 	a := new(voiceassets.Asset)
 	var code string
-	e := row.Scan(&a.ID, &a.Owner.UserID, &a.Owner.ActorID, &a.Owner.GroupID, &a.Kind, &a.Name, &a.Model, &a.SpeakerID, &a.AccountID, &a.Enabled, &a.Status, &a.RequestID, &a.Digest, &code, &a.Deleted, &a.CreatedAt, &a.UpdatedAt)
+	var baseline sql.NullInt32
+	e := row.Scan(&a.ID, &a.Owner.UserID, &a.Owner.ActorID, &a.Owner.GroupID, &a.Kind, &a.Name, &a.Model, &a.SpeakerID, &a.AccountID, &a.Enabled, &a.Status, &a.RequestID, &a.Digest, &code, &a.Deleted, &a.CreatedAt, &a.UpdatedAt, &baseline)
 	if errors.Is(e, sql.ErrNoRows) {
 		return nil, mediatasks.ErrNotFound
 	}
 	if e != nil {
 		return nil, e
+	}
+	if baseline.Valid {
+		v := int(baseline.Int32)
+		a.TrainingBaseline = &v
 	}
 	if code != "" {
 		a.Error = &mediatasks.TaskError{Code: code, Message: "克隆结果需要核对，请查询原声音资产，勿重复上传。"}
@@ -78,6 +95,15 @@ func (r *organizationVoiceAssetRepository) ClaimClone(ctx context.Context, a *vo
 	if !errors.Is(e, mediatasks.ErrNotFound) {
 		return nil, false, e
 	}
+	if r.memberReclaim {
+		var inactive bool
+		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organization_voice_member_states WHERE user_id=$1 AND actor_id=$2 AND state IN ('disabled','deleted'))`, a.Owner.UserID, a.Owner.ActorID).Scan(&inactive); e != nil {
+			return nil, false, e
+		}
+		if inactive {
+			return nil, false, mediatasks.ErrRoute
+		}
+	}
 	slots, e = configuredVoiceSlots(ctx, tx, a.Owner.UserID, slots, true)
 	if e != nil {
 		return nil, false, e
@@ -93,17 +119,18 @@ func (r *organizationVoiceAssetRepository) ClaimClone(ctx context.Context, a *vo
 		}
 		var account int64
 		var speaker string
-		e = tx.QueryRowContext(ctx, `SELECT account_id,speaker_id FROM organization_voice_speaker_slots
-            WHERE account_id=$1 AND speaker_id=$2 AND asset_id IS NULL
+		var recycled bool
+		e = tx.QueryRowContext(ctx, `SELECT account_id,speaker_id,released_at IS NOT NULL FROM organization_voice_speaker_slots
+            WHERE account_id=$1 AND speaker_id=$2 AND asset_id IS NULL AND `+usableVoiceSlot+`
             AND (($4 AND allocated_user_id=$3) OR (NOT $4 AND allocated_user_id IS NULL))
-            FOR UPDATE SKIP LOCKED`, slot.AccountID, slot.SpeakerID, a.Owner.UserID, managed).Scan(&account, &speaker)
+            FOR UPDATE SKIP LOCKED`, slot.AccountID, slot.SpeakerID, a.Owner.UserID, managed).Scan(&account, &speaker, &recycled)
 		if errors.Is(e, sql.ErrNoRows) {
 			continue
 		}
 		if e != nil {
 			return nil, false, e
 		}
-		a.AccountID, a.SpeakerID = account, speaker
+		a.AccountID, a.SpeakerID, a.Recycled = account, speaker, recycled
 		found = true
 		break
 	}
@@ -130,23 +157,75 @@ func (r *organizationVoiceAssetRepository) ClaimClone(ctx context.Context, a *vo
 func (r *organizationVoiceAssetRepository) Patch(ctx context.Context, o mediatasks.Owner, id string, name *string, enabled *bool) (*voiceassets.Asset, error) {
 	return scanVoiceAsset(r.db.QueryRowContext(ctx, `UPDATE organization_voice_assets SET name=COALESCE($4,name),enabled=COALESCE($5,enabled),updated_at=NOW() WHERE id=$1 AND user_id=$2 AND actor_id=$3 AND deleted_at IS NULL RETURNING `+voiceAssetColumns, id, o.UserID, o.ActorID, name, enabled))
 }
+
+// Delete keeps the asset row for replay and audit. A clone whose training has
+// finished returns its speaker: a managed organization keeps the reservation, a
+// legacy one returns it to the shared pool. Training still in flight keeps it.
 func (r *organizationVoiceAssetRepository) Delete(ctx context.Context, o mediatasks.Owner, id string) error {
-	v, e := r.db.ExecContext(ctx, `UPDATE organization_voice_assets SET enabled=FALSE,deleted_at=NOW(),updated_at=NOW() WHERE id=$1 AND user_id=$2 AND actor_id=$3 AND deleted_at IS NULL`, id, o.UserID, o.ActorID)
+	tx, e := r.db.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
-	n, e := v.RowsAffected()
-	if e == nil && n == 0 {
+	defer func() { _ = tx.Rollback() }()
+	if e = lockVoiceOrganization(ctx, tx, o.UserID); e != nil {
+		return e
+	}
+	if e = deleteVoiceAsset(ctx, tx, o, id); e != nil {
+		return e
+	}
+	return tx.Commit()
+}
+
+func deleteVoiceAsset(ctx context.Context, tx *sql.Tx, o mediatasks.Owner, id string) error {
+	var kind, status, code string
+	e := tx.QueryRowContext(ctx, `UPDATE organization_voice_assets SET enabled=FALSE,deleted_at=NOW(),updated_at=NOW() WHERE id=$1 AND user_id=$2 AND actor_id=$3 AND deleted_at IS NULL RETURNING kind,status,error_code`, id, o.UserID, o.ActorID).Scan(&kind, &status, &code)
+	if errors.Is(e, sql.ErrNoRows) {
 		return mediatasks.ErrNotFound
 	}
-	return e
+	if e != nil {
+		return e
+	}
+	if kind == "clone" && (status == "ready" || status == "failed") {
+		trained := status == "ready" || code == "voice_clone_training_failed" || code == "voice_clone_rejected"
+		_, e = tx.ExecContext(ctx, `UPDATE organization_voice_speaker_slots SET asset_id=NULL,
+            allocated_user_id=CASE WHEN EXISTS(SELECT 1 FROM organization_voice_slot_policies WHERE user_id=$2 AND managed) THEN $2::BIGINT END,
+            released_at=CASE WHEN $3 THEN NOW() ELSE released_at END
+            WHERE asset_id=$1`, id, o.UserID, trained)
+		if e != nil {
+			return e
+		}
+	}
+	return nil
 }
 func (r *organizationVoiceAssetRepository) UpdateTraining(ctx context.Context, a *voiceassets.Asset) error {
 	code := ""
 	if a.Error != nil {
 		code = a.Error.Code
 	}
-	_, e := r.db.ExecContext(ctx, `UPDATE organization_voice_assets SET status=$2,error_code=$3,updated_at=NOW() WHERE id=$1 AND kind='clone' AND deleted_at IS NULL AND (status<>'ready' OR $2='ready')`, a.ID, a.Status, code)
+	var baseline any
+	if a.TrainingBaseline != nil {
+		baseline = *a.TrainingBaseline
+	}
+	// A clone that only now becomes usable starts its idle period here.
+	if r.idleTracking && a.Status == "ready" {
+		if _, e := r.db.ExecContext(ctx, `UPDATE organization_voice_assets SET last_used_at=NOW() WHERE id=$1 AND kind='clone' AND deleted_at IS NULL AND status<>'ready'`, a.ID); e != nil {
+			return e
+		}
+	}
+	_, e := r.db.ExecContext(ctx, `UPDATE organization_voice_assets SET status=$2,error_code=$3,training_baseline=COALESCE(training_baseline,$4::INTEGER),updated_at=NOW() WHERE id=$1 AND kind='clone' AND deleted_at IS NULL AND (status<>'ready' OR $2='ready')`, a.ID, a.Status, code, baseline)
+	if e != nil {
+		return e
+	}
+	if a.Remaining == nil && !a.RetireSlot {
+		return nil
+	}
+	var remaining any
+	if a.Remaining != nil {
+		remaining = *a.Remaining
+	}
+	// Supplier facts belong to the speaker, so record them even after deletion.
+	_, e = r.db.ExecContext(ctx, `UPDATE organization_voice_speaker_slots SET remaining_trainings=COALESCE($2::INTEGER,remaining_trainings),
+        retired_at=CASE WHEN $3 THEN COALESCE(retired_at,NOW()) ELSE retired_at END WHERE asset_id=$1`, a.ID, remaining, a.RetireSlot)
 	return e
 }
 func (r *organizationVoiceAssetRepository) HasFreeSlot(ctx context.Context, o mediatasks.Owner, slots []voiceassets.Slot) (bool, error) {
@@ -154,7 +233,7 @@ func (r *organizationVoiceAssetRepository) HasFreeSlot(ctx context.Context, o me
 	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(
         SELECT 1 FROM jsonb_to_recordset($1::jsonb) AS c(account_id BIGINT,speaker_id TEXT)
         LEFT JOIN organization_voice_speaker_slots s USING(account_id,speaker_id)
-        WHERE s.asset_id IS NULL AND (
+        WHERE s.asset_id IS NULL AND s.retired_at IS NULL AND COALESCE(s.remaining_trainings,1)>0 AND (
             (EXISTS(SELECT 1 FROM organization_voice_slot_policies WHERE user_id=$2 AND managed) AND s.allocated_user_id=$2)
             OR (NOT EXISTS(SELECT 1 FROM organization_voice_slot_policies WHERE user_id=$2 AND managed) AND s.allocated_user_id IS NULL)))`, voiceSlotsJSON(voiceassets.SortedSlots(slots)), o.UserID).Scan(&free)
 	return free, err

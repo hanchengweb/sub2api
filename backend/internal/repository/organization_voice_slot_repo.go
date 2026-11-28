@@ -61,8 +61,9 @@ func voiceSlotSummary(ctx context.Context, tx *sql.Tx, userID int64, slots []voi
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	// Deleted, failed and indeterminate assets still own supplier capacity.
-	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM organization_voice_assets WHERE user_id=$1 AND kind='clone'`, userID).Scan(&value.Used); err != nil {
+	// Used means a speaker is held by an asset. Failed and indeterminate assets,
+	// and deleted ones whose training never settled, still hold theirs.
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM organization_voice_speaker_slots s JOIN organization_voice_assets a ON a.id=s.asset_id WHERE a.user_id=$1`, userID).Scan(&value.Used); err != nil {
 		return nil, err
 	}
 	if !value.Managed {
@@ -75,7 +76,8 @@ func voiceSlotSummary(ctx context.Context, tx *sql.Tx, userID int64, slots []voi
 	err = tx.QueryRowContext(ctx, `
         SELECT COUNT(*) FROM jsonb_to_recordset($1::jsonb) AS c(account_id BIGINT,speaker_id TEXT)
         LEFT JOIN organization_voice_speaker_slots s USING(account_id,speaker_id)
-        WHERE s.asset_id IS NULL AND s.allocated_user_id IS NULL`, voiceSlotsJSON(slots)).Scan(&value.Allocatable)
+        WHERE s.asset_id IS NULL AND s.allocated_user_id IS NULL
+        AND s.retired_at IS NULL AND COALESCE(s.remaining_trainings,1)>0`, voiceSlotsJSON(slots)).Scan(&value.Allocatable)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +115,8 @@ type lockedVoiceSlot struct {
 	voiceassets.Slot
 	Claimed bool
 	Owner   int64
+	// Dead speakers can never be trained again and are not handed out.
+	Dead bool
 }
 
 func (r *organizationVoiceAssetRepository) SetSlots(ctx context.Context, userID int64, slots []voiceassets.Slot, change voiceassets.SlotChange, actorID int64) (*voiceassets.SlotSummary, error) {
@@ -201,9 +205,10 @@ func (r *organizationVoiceAssetRepository) SetSlots(ctx context.Context, userID 
 		}
 		var slot lockedVoiceSlot
 		slot.Slot = pair
-		err = tx.QueryRowContext(ctx, `SELECT s.asset_id IS NOT NULL,COALESCE(s.allocated_user_id,a.user_id,0)
+		err = tx.QueryRowContext(ctx, `SELECT s.asset_id IS NOT NULL,COALESCE(s.allocated_user_id,a.user_id,0),
+            s.retired_at IS NOT NULL OR COALESCE(s.remaining_trainings,1)=0
             FROM organization_voice_speaker_slots s LEFT JOIN organization_voice_assets a ON a.id=s.asset_id
-            WHERE s.account_id=$1 AND s.speaker_id=$2 FOR UPDATE OF s`, pair.AccountID, pair.SpeakerID).Scan(&slot.Claimed, &slot.Owner)
+            WHERE s.account_id=$1 AND s.speaker_id=$2 FOR UPDATE OF s`, pair.AccountID, pair.SpeakerID).Scan(&slot.Claimed, &slot.Owner, &slot.Dead)
 		if err != nil {
 			return nil, err
 		}
@@ -225,12 +230,12 @@ func (r *organizationVoiceAssetRepository) SetSlots(ctx context.Context, userID 
 		return nil, mediatasks.ErrUnavailable
 	}
 	for _, slot := range locked {
-		if int64(len(keep)) < change.Total && slot.Owner == userID && !slot.Claimed {
+		if int64(len(keep)) < change.Total && slot.Owner == userID && !slot.Claimed && !slot.Dead {
 			keep[slot.Slot] = true
 		}
 	}
 	for _, slot := range locked {
-		if int64(len(keep)) < change.Total && slot.Owner == 0 && !slot.Claimed && eligible[slot.Slot] {
+		if int64(len(keep)) < change.Total && slot.Owner == 0 && !slot.Claimed && !slot.Dead && eligible[slot.Slot] {
 			keep[slot.Slot] = true
 		}
 	}

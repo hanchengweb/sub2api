@@ -27,12 +27,14 @@ func TestOfficialVoiceCatalogMatchesGeneration(t *testing.T) {
 
 type memoryStore struct {
 	sync.Mutex
-	values map[string]*Asset
-	used   map[Slot]bool
+	values   map[string]*Asset
+	used     map[Slot]bool
+	released map[Slot]bool
+	retired  map[Slot]bool
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{values: map[string]*Asset{}, used: map[Slot]bool{}}
+	return &memoryStore{values: map[string]*Asset{}, used: map[Slot]bool{}, released: map[Slot]bool{}, retired: map[Slot]bool{}}
 }
 func owned(a *Asset, o mediatasks.Owner) bool {
 	return a.Owner.UserID == o.UserID && a.Owner.ActorID == o.ActorID && !a.Deleted
@@ -79,9 +81,9 @@ func (s *memoryStore) ClaimClone(_ context.Context, a *Asset, slots []Slot) (*As
 		}
 	}
 	for _, slot := range slots {
-		if !s.used[slot] {
+		if !s.used[slot] && !s.retired[slot] {
 			s.used[slot] = true
-			a.AccountID, a.SpeakerID = slot.AccountID, slot.SpeakerID
+			a.AccountID, a.SpeakerID, a.Recycled = slot.AccountID, slot.SpeakerID, s.released[slot]
 			s.values[a.ID] = cloneAsset(a)
 			return a, true, nil
 		}
@@ -114,19 +116,34 @@ func (s *memoryStore) Delete(ctx context.Context, o mediatasks.Owner, id string)
 	a.Deleted = true
 	a.Enabled = false
 	s.values[id] = a
+	if a.Kind == "clone" && (a.Status == "ready" || a.Status == "failed") {
+		slot := Slot{a.AccountID, a.SpeakerID}
+		s.used[slot] = false
+		if a.Status == "ready" || (a.Error != nil && a.Error.Code == "voice_clone_training_failed") {
+			s.released[slot] = true
+		}
+	}
 	return nil
 }
 func (s *memoryStore) UpdateTraining(_ context.Context, a *Asset) error {
 	s.Lock()
 	defer s.Unlock()
-	s.values[a.ID] = cloneAsset(a)
+	if old := s.values[a.ID]; old != nil && old.TrainingBaseline != nil {
+		a.TrainingBaseline = old.TrainingBaseline
+	}
+	if a.RetireSlot {
+		s.retired[Slot{a.AccountID, a.SpeakerID}] = true
+	}
+	stored := cloneAsset(a)
+	stored.Recycled, stored.Remaining, stored.RetireSlot = false, nil, false
+	s.values[a.ID] = stored
 	return nil
 }
 func (s *memoryStore) HasFreeSlot(_ context.Context, _ mediatasks.Owner, slots []Slot) (bool, error) {
 	s.Lock()
 	defer s.Unlock()
 	for _, slot := range slots {
-		if !s.used[slot] {
+		if !s.used[slot] && !s.retired[slot] {
 			return true, nil
 		}
 	}
@@ -234,8 +251,12 @@ func TestCloneUnknownReplayRefreshAndAccountPinning(t *testing.T) {
 	_, _, e = s.ResolveVoiceAsset(ctx, o, mediatasks.Request{Model: a.Model, VoiceAssetID: a.ID})
 	require.ErrorIs(t, e, mediatasks.ErrRoute)
 	require.NoError(t, s.Delete(ctx, o, a.ID))
-	_, e = s.Clone(ctx, o, uuid.NewString(), "另一声音", "wav", "这是测试语音", wavSample(), true)
-	require.ErrorIs(t, e, ErrNoSlot)
+	// The released speaker is offered again, but without a supplier training
+	// count it cannot be proven reusable, so nothing is trained over it.
+	next, e := s.Clone(ctx, o, uuid.NewString(), "另一声音", "wav", "这是测试语音", wavSample(), true)
+	require.NoError(t, e)
+	require.Equal(t, "failed", next.Status)
+	require.Equal(t, "voice_clone_slot_not_verified_empty", next.Error.Code)
 	require.Equal(t, int32(1), provider.trains.Load())
 }
 func TestCloneRejectsBeforeProviderAndNeverPurchases(t *testing.T) {
@@ -337,4 +358,150 @@ func TestDecodeMP3AndM4AFromMemoryOnly(t *testing.T) {
 			require.True(t, ValidSample(canonical, "wav"))
 		})
 	}
+}
+
+// speakerSupplier models one supplier speaker: a voice, a training counter and
+// whether the last training request was accepted.
+type speakerSupplier struct {
+	sync.Mutex
+	trained   bool
+	activated bool
+	remaining int
+	dropTrain bool
+	trains    int
+}
+
+func (s *speakerSupplier) result() TrainingResult {
+	n := s.remaining
+	if !s.trained {
+		return TrainingResult{Status: "untrained", Remaining: &n}
+	}
+	return TrainingResult{Status: "ready", Activated: s.activated, Remaining: &n}
+}
+func (s *speakerSupplier) Train(context.Context, mediatasks.Provider, string, string, string, []byte, string) TrainingResult {
+	s.Lock()
+	defer s.Unlock()
+	s.trains++
+	if !s.dropTrain {
+		s.trained = true
+		s.remaining--
+	}
+	return TrainingResult{Status: "indeterminate", ErrorCode: "voice_clone_unconfirmed"}
+}
+func (s *speakerSupplier) Query(context.Context, mediatasks.Provider, string, string) TrainingResult {
+	s.Lock()
+	defer s.Unlock()
+	return s.result()
+}
+
+func speakerService(sup *speakerSupplier) (*Service, mediatasks.Owner) {
+	s := &Service{Store: newMemoryStore(), Routes: &fixtureRoutes{slots: []Slot{{7, "S_prepaid"}}}, Supplier: sup, Decode: func(_ context.Context, b []byte, _ string) ([]byte, error) { return b, nil }}
+	return s, mediatasks.Owner{UserID: 1, GroupID: 3, ActorID: uuid.NewString()}
+}
+
+func readyClone(t *testing.T, s *Service, o mediatasks.Owner) *Asset {
+	t.Helper()
+	a, e := s.Clone(context.Background(), o, uuid.NewString(), "声音", "wav", "", wavSample(), true)
+	require.NoError(t, e)
+	a, e = s.Refresh(context.Background(), o, a.ID)
+	require.NoError(t, e)
+	return a
+}
+
+func TestDeletedCloneReleasesSpeakerForRetraining(t *testing.T) {
+	sup := &speakerSupplier{remaining: 15}
+	s, o := speakerService(sup)
+	ctx := context.Background()
+	first := readyClone(t, s, o)
+	require.True(t, first.CanSynthesize)
+	free, e := s.Cloning(ctx, o)
+	require.NoError(t, e)
+	require.False(t, free)
+
+	require.NoError(t, s.Delete(ctx, o, first.ID))
+	free, e = s.Cloning(ctx, o)
+	require.NoError(t, e)
+	require.True(t, free)
+
+	// Another member of the same organization reuses the released speaker.
+	other := o
+	other.ActorID = uuid.NewString()
+	second := readyClone(t, s, other)
+	require.True(t, second.CanSynthesize)
+	require.Equal(t, 2, sup.trains)
+	require.Equal(t, 13, sup.remaining)
+	_, e = s.Get(ctx, o, first.ID)
+	require.ErrorIs(t, e, mediatasks.ErrNotFound)
+}
+
+func TestRecycledSpeakerIsNotReadyUntilATrainingIsConsumed(t *testing.T) {
+	sup := &speakerSupplier{remaining: 15}
+	s, o := speakerService(sup)
+	ctx := context.Background()
+	require.NoError(t, s.Delete(ctx, o, readyClone(t, s, o).ID))
+
+	// The training request is lost: the supplier still reports the previous
+	// owner's voice, which must not be adopted by the new asset.
+	sup.dropTrain = true
+	a := readyClone(t, s, o)
+	require.Equal(t, "training", a.Status)
+	require.False(t, a.CanSynthesize)
+	_, _, e := s.ResolveVoiceAsset(ctx, o, mediatasks.Request{Model: a.Model, VoiceAssetID: a.ID})
+	require.ErrorIs(t, e, mediatasks.ErrRoute)
+
+	sup.Lock()
+	sup.remaining--
+	sup.Unlock()
+	a, e = s.Refresh(ctx, o, a.ID)
+	require.NoError(t, e)
+	require.True(t, a.CanSynthesize)
+}
+
+func TestUnusableSpeakersAreRetired(t *testing.T) {
+	for name, mutate := range map[string]func(*speakerSupplier){
+		"activated": func(s *speakerSupplier) { s.activated = true },
+		"exhausted": func(s *speakerSupplier) { s.remaining = 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			sup := &speakerSupplier{remaining: 15}
+			s, o := speakerService(sup)
+			ctx := context.Background()
+			require.NoError(t, s.Delete(ctx, o, readyClone(t, s, o).ID))
+			mutate(sup)
+			a, e := s.Clone(ctx, o, uuid.NewString(), "声音", "wav", "", wavSample(), true)
+			require.NoError(t, e)
+			require.Equal(t, "failed", a.Status)
+			require.Equal(t, 1, sup.trains)
+			require.NoError(t, s.Delete(ctx, o, a.ID))
+			free, e := s.Cloning(ctx, o)
+			require.NoError(t, e)
+			require.False(t, free)
+			_, e = s.Clone(ctx, o, uuid.NewString(), "声音", "wav", "", wavSample(), true)
+			require.ErrorIs(t, e, ErrNoSlot)
+		})
+	}
+}
+
+func TestSpeakerTrainedOutsideThePlatformIsNeverOverwritten(t *testing.T) {
+	sup := &speakerSupplier{remaining: 14, trained: true}
+	s, o := speakerService(sup)
+	a, e := s.Clone(context.Background(), o, uuid.NewString(), "声音", "wav", "", wavSample(), true)
+	require.NoError(t, e)
+	require.Equal(t, "failed", a.Status)
+	require.Zero(t, sup.trains)
+	require.NoError(t, s.Delete(context.Background(), o, a.ID))
+	_, e = s.Clone(context.Background(), o, uuid.NewString(), "声音", "wav", "", wavSample(), true)
+	require.ErrorIs(t, e, ErrNoSlot)
+}
+
+func TestDeletingCloneDuringTrainingKeepsSpeaker(t *testing.T) {
+	sup := &speakerSupplier{remaining: 15, dropTrain: true}
+	s, o := speakerService(sup)
+	a, e := s.Clone(context.Background(), o, uuid.NewString(), "声音", "wav", "", wavSample(), true)
+	require.NoError(t, e)
+	require.Equal(t, "indeterminate", a.Status)
+	require.NoError(t, s.Delete(context.Background(), o, a.ID))
+	free, e := s.Cloning(context.Background(), o)
+	require.NoError(t, e)
+	require.False(t, free)
 }

@@ -459,9 +459,18 @@ func (h *UserHandler) GetUserAPIKeys(c *gin.Context) {
 		return
 	}
 
+	// 按用户列出的 key 不带属主，单独查账号类型决定是否脱敏；没有 key 时不用查。
+	var owner *service.User
+	if len(keys) > 0 {
+		if owner, err = h.adminService.GetUser(c.Request.Context(), userID); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
+
 	out := make([]dto.APIKey, 0, len(keys))
 	for i := range keys {
-		out = append(out, *dto.APIKeyFromService(&keys[i]))
+		out = append(out, *dto.APIKeyFromServiceForOwner(&keys[i], owner))
 	}
 	response.Paginated(c, out, total, page, pageSize)
 }

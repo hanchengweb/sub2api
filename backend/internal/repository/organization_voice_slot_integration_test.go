@@ -23,7 +23,7 @@ func voiceSlotTestDB(t *testing.T, migrate bool) (*sql.DB, voiceassets.Store, vo
 	require.NoError(t, err)
 	files := []string{"247_organization_audio_model3d.sql", "249_organization_voice_assets.sql"}
 	if migrate {
-		files = append(files, "252_organization_voice_clone_slots.sql")
+		files = append(files, "252_organization_voice_clone_slots.sql", "253_organization_voice_slot_release.sql")
 	}
 	for _, file := range files {
 		raw, e := os.ReadFile("../../migrations/" + file)
@@ -245,29 +245,127 @@ func TestVoiceSlotMigrationAdoptsHistoricalDeletedClaims(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO organization_voice_speaker_slots(account_id,speaker_id,asset_id) VALUES(7,'S_historical',$1)`, id)
 	require.NoError(t, err)
-	raw, err := os.ReadFile("../../migrations/252_organization_voice_clone_slots.sql")
+	applyVoiceMigration(t, db, "252_organization_voice_clone_slots.sql")
+	var owner int64
+	require.NoError(t, db.QueryRow(`SELECT allocated_user_id FROM organization_voice_speaker_slots WHERE speaker_id='S_historical'`).Scan(&owner))
+	require.EqualValues(t, 1, owner)
+	// 253 returns the finished deleted claim; a legacy organization gives it back
+	// to the shared pool, marked as trained by this platform.
+	applyVoiceMigration(t, db, "253_organization_voice_slot_release.sql")
+	var allocated sql.NullInt64
+	var released bool
+	require.NoError(t, db.QueryRow(`SELECT allocated_user_id,released_at IS NOT NULL FROM organization_voice_speaker_slots WHERE speaker_id='S_historical' AND asset_id IS NULL`).Scan(&allocated, &released))
+	require.False(t, allocated.Valid)
+	require.True(t, released)
+	value, err := manager.SlotSummary(context.Background(), 1, voiceInventory())
+	require.NoError(t, err)
+	require.False(t, value.Managed)
+	require.Zero(t, value.Used)
+	_, err = store.Get(context.Background(), mediatasks.Owner{UserID: 1, ActorID: actor}, id)
+	require.ErrorIs(t, err, mediatasks.ErrNotFound, "soft-deleted asset remains private and unavailable")
+}
+
+func applyVoiceMigration(t *testing.T, db *sql.DB, file string) {
+	t.Helper()
+	raw, err := os.ReadFile("../../migrations/" + file)
 	require.NoError(t, err)
 	tx, err := db.Begin()
 	require.NoError(t, err)
 	_, err = tx.Exec(string(raw))
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
+}
+
+func TestVoiceSlotMigrationReturnsManagedDeletedClaimsOnly(t *testing.T) {
+	db, _, manager := voiceSlotTestDB(t, false)
+	applyVoiceMigration(t, db, "252_organization_voice_clone_slots.sql")
+	_, err := db.Exec(`INSERT INTO organization_voice_slot_policies(user_id,total_slots,version) VALUES(1,3,1)`)
+	require.NoError(t, err)
+	actor := uuid.NewString()
+	for _, row := range []struct {
+		speaker, status, code string
+		deleted               bool
+	}{{"S_a", "ready", "", true}, {"S_b", "indeterminate", "voice_clone_unconfirmed", true}, {"S_c", "ready", "", false}} {
+		id := uuid.NewString()
+		_, err = db.Exec(`INSERT INTO organization_voice_assets(id,user_id,actor_id,group_id,kind,name,model,speaker_id,account_id,status,error_code,deleted_at)
+            VALUES($1,1,$2,4,'clone','synthetic','seed-icl-2.0',$3,7,$4,$5,CASE WHEN $6 THEN NOW() END)`, id, actor, row.speaker, row.status, row.code, row.deleted)
+		require.NoError(t, err)
+		_, err = db.Exec(`INSERT INTO organization_voice_speaker_slots(account_id,speaker_id,asset_id,allocated_user_id) VALUES(7,$1,$2,1)`, row.speaker, id)
+		require.NoError(t, err)
+	}
+	var held int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM organization_voice_speaker_slots WHERE asset_id IS NOT NULL`).Scan(&held))
+	require.Equal(t, 3, held)
+	applyVoiceMigration(t, db, "253_organization_voice_slot_release.sql")
+	after, err := manager.SlotSummary(context.Background(), 1, voiceInventory())
+	require.NoError(t, err)
+	require.EqualValues(t, 2, after.Used, "only the finished deleted clone is returned")
+	require.EqualValues(t, 1, after.Available)
 	var owner int64
-	require.NoError(t, db.QueryRow(`SELECT allocated_user_id FROM organization_voice_speaker_slots WHERE speaker_id='S_historical'`).Scan(&owner))
-	require.EqualValues(t, 1, owner)
-	value, err := manager.SlotSummary(context.Background(), 1, voiceInventory())
+	require.NoError(t, db.QueryRow(`SELECT allocated_user_id FROM organization_voice_speaker_slots WHERE speaker_id='S_a' AND asset_id IS NULL AND released_at IS NOT NULL`).Scan(&owner))
+	require.EqualValues(t, 1, owner, "managed reservation stays with its organization")
+}
+
+func TestVoiceSlotDeleteReturnsFinishedCloneAndRetiresDeadSpeakers(t *testing.T) {
+	db, store, manager := voiceSlotTestDB(t, true)
+	ctx := context.Background()
+	slots := voiceInventory()
+	_, err := manager.SetSlots(ctx, 1, slots, voiceChange(1, 0, 2), 9)
 	require.NoError(t, err)
-	require.False(t, value.Managed)
-	require.EqualValues(t, 1, value.Used)
-	require.EqualValues(t, 1, value.Total)
-	_, err = manager.SetSlots(context.Background(), 1, voiceInventory(), voiceChange(1, 0, 0), 9)
-	require.ErrorIs(t, err, voiceassets.ErrSlotBelowUsed)
-	value, err = manager.SetSlots(context.Background(), 1, voiceInventory(), voiceChange(1, 0, 1), 9)
+	first, _, err := store.ClaimClone(ctx, voiceClaim(1), slots)
 	require.NoError(t, err)
-	require.EqualValues(t, 1, value.Total)
-	require.Zero(t, value.Available)
-	_, err = store.Get(context.Background(), mediatasks.Owner{UserID: 1, ActorID: actor}, id)
-	require.ErrorIs(t, err, mediatasks.ErrNotFound, "soft-delete ownership remains private and unavailable")
+	require.False(t, first.Recycled)
+	second, _, err := store.ClaimClone(ctx, voiceClaim(1), slots)
+	require.NoError(t, err)
+	first.Status = "ready"
+	require.NoError(t, store.UpdateTraining(ctx, first))
+
+	require.NoError(t, store.Delete(ctx, first.Owner, first.ID))
+	summary, err := manager.SlotSummary(ctx, 1, slots)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, summary.Used)
+	require.EqualValues(t, 1, summary.Available)
+	free, err := store.HasFreeSlot(ctx, first.Owner, slots)
+	require.NoError(t, err)
+	require.True(t, free)
+	_, _, err = store.ClaimClone(ctx, voiceClaim(2), slots)
+	require.NoError(t, err, "legacy organization takes the unreserved shared speaker")
+	again, created, err := store.ClaimClone(ctx, voiceClaim(1), slots)
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, first.SpeakerID, again.SpeakerID)
+	require.True(t, again.Recycled)
+
+	// Baseline survives later updates; supplier facts reach the speaker row.
+	baseline, remaining := 14, 13
+	again.Status = "indeterminate"
+	again.TrainingBaseline, again.Remaining = &baseline, &remaining
+	require.NoError(t, store.UpdateTraining(ctx, again))
+	got, err := store.Get(ctx, again.Owner, again.ID)
+	require.NoError(t, err)
+	require.Equal(t, 14, *got.TrainingBaseline)
+	var stored int
+	require.NoError(t, db.QueryRow(`SELECT remaining_trainings FROM organization_voice_speaker_slots WHERE asset_id=$1`, again.ID).Scan(&stored))
+	require.Equal(t, 13, stored)
+
+	// The training is still unsettled: deletion keeps the speaker held.
+	require.NoError(t, store.Delete(ctx, second.Owner, second.ID))
+	summary, err = manager.SlotSummary(ctx, 1, slots)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, summary.Used)
+
+	// A retired speaker is neither offered nor counted as allocatable.
+	again.Status, again.RetireSlot = "failed", true
+	again.Error = &mediatasks.TaskError{Code: "voice_clone_slot_not_verified_empty"}
+	require.NoError(t, store.UpdateTraining(ctx, again))
+	require.NoError(t, store.Delete(ctx, again.Owner, again.ID))
+	free, err = store.HasFreeSlot(ctx, again.Owner, slots)
+	require.NoError(t, err)
+	require.False(t, free)
+	_, _, err = store.ClaimClone(ctx, voiceClaim(1), slots)
+	require.ErrorIs(t, err, voiceassets.ErrNoSlot)
+	_, err = manager.SetSlots(ctx, 1, slots, voiceChange(1, 1, 2), 9)
+	require.ErrorIs(t, err, voiceassets.ErrSlotInventory, "a dead speaker cannot fill a reservation")
 }
 
 func TestVoiceSlotInventoryRechecksOnlyConfiguredSupplierSlots(t *testing.T) {

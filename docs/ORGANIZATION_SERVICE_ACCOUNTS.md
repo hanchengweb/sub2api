@@ -64,6 +64,25 @@ lost, the caller must inspect the existing identity instead of creating a
 different account. Automatic identity lookup/recovery is a subsequent API
 step; uniqueness alone is not an end-to-end delivery receipt.
 
+## Organization keys in administrator responses
+
+Administrator endpoints do not return an organization service key in plaintext.
+`GET /api/v1/admin/users/:id/api-keys`,
+`GET /api/v1/admin/groups/:id/api-keys`, `PUT /api/v1/admin/api-keys/:id` and
+the key embedded in administrator usage lists (including
+`/api/v1/admin/organization-services/.../usage`) return `key` as the first six
+and last four characters, for example `abcdef...wxyz`. Keys of personal accounts
+are returned as before. A key whose owner cannot be confirmed as personal is
+masked as well.
+
+Issuance is unchanged. `POST .../organization-services/.../keys` receives the
+key from the caller and its receipt contains `key_id`, never the key, so the
+caller must retain what it sends. A masked value cannot be turned back into a
+credential: if the caller loses the key, issue a new one and revoke the old one.
+
+This covers API responses only. The database, and therefore database backups,
+still store the full key.
+
 ## Migration and rollout
 
 Production target is `wxm-tenant-platform-hz-01`, domain `windhub.online`.

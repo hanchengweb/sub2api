@@ -168,14 +168,83 @@ This API never purchases capacity, creates speaker IDs, trains a voice or perfor
 synthesis.
 
 Migration 252 adopts every historical claim, including soft-deleted assets, into
-its organization ownership. All clone assets count as used, including failed,
-indeterminate and soft-deleted assets. Reductions cannot go below used capacity
+its organization ownership. A slot is used while a clone asset holds its speaker,
+including failed and indeterminate assets. Reductions cannot go below used capacity
 and release only unused reservations. A managed organization can claim only its
 own reserved speakers; a managed zero total cannot borrow shared inventory.
 Legacy organizations also cannot claim another organization's reservation. Catalog
 availability applies the same ownership filter. Existing asset reads and synthesis
 retain their existing authorization path. Inventory rows are locked in the same
 global `(account_id, speaker_id)` order for administration and clone claims.
+
+### Releasing deleted clones (migration 253)
+
+Deleting a clone keeps the asset row (request replay, audit) and, once its
+training has settled (`ready` or `failed`), returns the speaker in the same
+transaction: a managed organization keeps the reservation, a legacy one returns
+it to the shared pool. A clone still training or unconfirmed keeps its speaker.
+Migration 253 applies the same rule to historical deletions.
+
+A prepaid `S_` speaker can be trained 15 times and an activated speaker never
+again; this service never activates speakers. A released speaker carries
+`released_at`, meaning this platform trained it. The clone preflight still
+refuses any trained speaker unless it carries that marker and the supplier
+reports a finished, unactivated voice with `available_training_times > 0`. The
+remaining count before overwriting is stored as the asset's `training_baseline`;
+a later `ready` or `failed` is adopted only after the supplier count drops below
+it, so a lost training request can never surface the previous owner's voice.
+An activated or exhausted speaker, or one trained outside this platform, is
+marked `retired_at`: it is never offered, allocated or counted as allocatable,
+and operators replace it with new prepaid inventory.
+
+Rollback below 253 needs a data step first. An older binary counts every clone
+row as used and would offer unclaimed speakers, including retired ones. Disable
+new clone creation before switching back, then re-attach every unclaimed speaker
+with a deleted clone to its newest deleted asset (not only `released_at` rows):
+
+```sql
+UPDATE organization_voice_speaker_slots s SET asset_id = d.id
+FROM (SELECT DISTINCT ON (account_id, speaker_id) id, account_id, speaker_id
+      FROM organization_voice_assets WHERE kind = 'clone' AND deleted_at IS NOT NULL
+      ORDER BY account_id, speaker_id, deleted_at DESC, id DESC) d
+WHERE s.asset_id IS NULL
+  AND s.account_id = d.account_id AND s.speaker_id = d.speaker_id;
+```
+
+This cannot restore old accounting once a released speaker has moved on. Older
+slot administration then returns 503 (`used > total`, or the claimed-speaker count
+differs from the clone-row count) in two cases:
+
+- the speaker was claimed again, so two clone rows refer to one speaker;
+- another organization now reserves the speaker. The data step attaches the
+  earlier organization's deleted asset to that reservation, so neither
+  organization's counts match and the reserving organization cannot clone on it.
+
+Do not delete asset history to force those counts to match. Prefer a forward fix;
+existing asset synthesis retains its own authorization path. After the data step,
+list affected organizations with this read-only query before any application
+rollback. It counts as the older binary does: every clone row is used, and a
+claimed speaker belongs to its reservation first, then to the asset holding it:
+
+```sql
+WITH legacy AS (
+    SELECT user_id, COUNT(*) AS used FROM organization_voice_assets
+    WHERE kind='clone' GROUP BY user_id
+), held AS (
+    SELECT COALESCE(s.allocated_user_id, a.user_id) AS user_id, COUNT(*) AS used
+    FROM organization_voice_speaker_slots s
+    JOIN organization_voice_assets a ON a.id=s.asset_id GROUP BY 1
+)
+SELECT user_id, COALESCE(l.used,0) AS legacy_used,
+       COALESCE(h.used,0) AS held_speakers, p.total_slots
+FROM legacy l FULL JOIN held h USING (user_id)
+LEFT JOIN organization_voice_slot_policies p USING (user_id)
+WHERE COALESCE(l.used,0) <> COALESCE(h.used,0)
+   OR (p.managed AND COALESCE(l.used,0) > p.total_slots);
+```
+
+Keep the added columns and all history on application rollback. The data step
+does not recreate an old voice already overwritten at the supplier.
 
 Errors use the HTTP status as envelope `code` and a fixed `message`:
 
@@ -195,6 +264,146 @@ rollback. Rolling back to an application that predates reservation-aware clone
 claims requires disabling new clone creation; otherwise that version could claim
 speakers reserved for another organization. Existing assets must not be deleted
 to reclaim prepaid slots.
+
+### Automatic clone reclamation (migration 254)
+
+Migration 254 adds `last_used_at`, `organization_voice_member_states`,
+`organization_voice_usage_tracking` and the append-only
+`organization_voice_reclaims` audit. It does not delete voices or release
+inventory. Existing assets are dated from the migration, new ones from creation.
+Keep these columns and tables on application rollback.
+
+All four flags below default to false; an EXECUTE flag alone has no effect:
+
+| Capability | Preview / tracking | Deletion |
+|---|---|---|
+| Inactive members | `WXM_VOICE_MEMBER_RECLAIM_ENABLED=true` | Also `WXM_VOICE_MEMBER_RECLAIM_EXECUTE=true` |
+| Idle clones | `WXM_VOICE_EXPIRY_RECLAIM_ENABLED=true` | Also `WXM_VOICE_EXPIRY_RECLAIM_EXECUTE=true` |
+
+`WXM_VOICE_EXPIRY_IDLE_DAYS` defaults to **180** and accepts integers from 1 to
+36500. Invalid values disable idle reclamation and log a configuration error.
+Member reclamation has no grace period. Choose the idle period and confirm the
+member disablement policy before enabling deletion.
+
+WindHub does not own the tenant member ledger. A trusted tenant backend must
+publish committed member changes with its organization service key using:
+
+```http
+PUT /v1/voice-assets/member-state
+Content-Type: application/json
+
+{"actor_id":"11111111-1111-4111-8111-111111111111","state":"disabled","version":1}
+```
+
+This request and `GET /v1/voice-assets/reclaim-preview` consume nothing, so a
+depleted organization balance or an exhausted key quota does not block them.
+Authentication is unchanged: expired or disabled keys, disabled organization
+accounts and non-organization accounts are still refused.
+
+States are `active`, `disabled` and `deleted`. `actor_id` is the same stable
+member UUID used in `X-WindHub-Actor`; `version` is a positive, monotonically
+increasing integer per member. Retry the same state/version safely; old versions
+and conflicting same-version states return 409. Do not forward organization
+keys to desktop clients. The authenticated key determines the organization;
+the body cannot select another organization. Use a transactional outbox/retry
+path and backfill existing inactive members before enabling execution. WindHub's
+organization-service `users.status` is not a tenant member status.
+
+Disabled or deleted members' settled clones become candidates. Executing member
+reclamation also blocks new clone claims for a known inactive member. An `active`
+event permits new recordings again; **it never restores reclaimed voices**,
+whose speakers may already have been overwritten. Official presets and unsettled
+training remain untouched. A refused claim returns the existing 503
+`media_route_unavailable` response, whose message names the model channel rather
+than the member state. Clients must handle an asset's 404 by clearing it and
+requesting a new recording. The tenant should disclose this impact before
+disablement.
+
+Nothing settles training in the background. An unfinished clone keeps its speaker
+until `POST /v1/voice-assets/{id}/refresh` is called for that member, so after
+disabling a member the tenant backend should list their assets and refresh each
+unfinished one. A clone marked `voice_clone_verification_pending` is never queried
+again, and an unfinished clone that was already deleted cannot be refreshed; both
+keep their speakers.
+
+When idle tracking is enabled, an authorized clone synthesis resolution records
+`last_used_at` atomically with a live-asset check. This conservatively counts an
+allowed attempt even if quota reservation or generation later fails. Listing,
+renaming, training refresh, existing task/content replay and client heartbeats do
+not count, except that a clone becoming `ready` starts its idle period then, so a
+late training result is never idle on arrival. Tracking is off when the
+capability is off. Route all clone synthesis
+through `voice_asset_id` before enabling idle deletion; direct speaker usage is
+not observed by this tracker.
+
+Idle time counts only while use is being recorded. The hourly scan keeps the
+start of tracking and a heartbeat in `organization_voice_usage_tracking`. A clone
+is an idle candidate only when both its last use and that start are older than the
+idle period, so after first enabling the flag there are **no idle candidates, in
+preview or execution, for one full idle period** (180 days by default). If the
+heartbeat is missing for more than 24 hours (flag switched off, long outage) the
+window starts again. Shorter gaps are tolerated and uses during them are not
+recorded. Run every instance with the same flags: an instance with tracking off
+does not record the uses it serves. The scan logs
+`voice_reclaim idle_tracking since=... earliest_idle_candidates=...`.
+
+With either capability enabled, the application scans on startup and hourly.
+Each organization processes at most 100 candidates per scan; responses and logs
+mark `limit_reached` so a capped preview is not mistaken for a complete inventory.
+Executable candidates lead the batch so one preview-only category cannot starve
+the other executor. Preview returns one batch; keep execution off and add cursor
+paging before an organization needs complete per-asset review above this limit.
+With execution flags false it only reports candidates. The authenticated
+`GET /v1/voice-assets/reclaim-preview` always previews the caller's organization,
+even when execution is enabled; it never deletes assets. Responses include actor,
+asset, reason and last-use time; internal speaker/account IDs stay private.
+Inactive-member reasons take precedence over idle expiry, so expiry execution
+cannot bypass a member preview gate. Training/indeterminate assets are skipped.
+
+Deletion and audit insertion share the original organization lock and one
+transaction. Speakers are locked in the same global order as slot administration.
+The audit records user/organization, actor, asset, supplier account/speaker,
+`member_disabled` / `member_deleted` / `idle_expired`, and reclamation time; the
+asset ID is unique. Managed reservations remain with their organization; legacy
+ones return to the shared pool under the migration-253 reuse checks. Audit failure
+rolls back both deletion and release. No supplier request runs during reclamation.
+
+Rollout:
+
+1. Retain the current application/image and database backup; apply migrations
+   through 254 with all four flags false. Verify migration receipts and keep 253
+   unchanged (checksums are enforced).
+2. Wire tenant events and validate membership backfill and clone synthesis paths
+   in the isolated test environment. Enable only the required ENABLED flags,
+   keeping both EXECUTE flags false. Inspect the preview endpoint and
+   `voice_reclaim` logs; check limits, actors, idle cutoff and unsettled holds.
+   Member candidates appear at once; idle candidates appear only after one full
+   idle period of tracking, so review them then.
+3. With the idle period and member policy confirmed, enable each EXECUTE flag
+   independently and restart. Read back audit rows, soft-deleted assets and
+   speaker ownership.
+4. To stop or roll back, set both EXECUTE flags false and restart first, then
+   disable both ENABLED flags and tenant event delivery, and restore the retained
+   application if needed. Preserve migration 254, member versions, asset history
+   and audits. Deletion/overwritten supplier voices cannot be undone by turning
+   a flag off; do not run automatic data restoration. Versions below 253 also
+   require the separate rollback data step and accounting check above.
+
+Removing migration 254 is not part of an application rollback; older binaries
+ignore its objects. If the schema itself must be removed, first run a binary
+without reclamation and export the three tables. This **discards the reclaim
+audit, member versions and usage history** and restores no voice:
+
+```sql
+BEGIN;
+DROP TABLE organization_voice_reclaims;
+DROP TABLE organization_voice_member_states;
+DROP TABLE organization_voice_usage_tracking;
+DROP INDEX organization_voice_assets_reclaim;
+ALTER TABLE organization_voice_assets DROP COLUMN last_used_at;
+DELETE FROM schema_migrations WHERE filename = '254_organization_voice_reclaim.sql';
+COMMIT;
+```
 
 ## Isolated test runtime and rollback
 

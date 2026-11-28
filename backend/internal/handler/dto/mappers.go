@@ -44,7 +44,7 @@ func UserFromService(u *service.User) *User {
 		out.APIKeys = make([]APIKey, 0, len(u.APIKeys))
 		for i := range u.APIKeys {
 			k := u.APIKeys[i]
-			out.APIKeys = append(out.APIKeys, *APIKeyFromService(&k))
+			out.APIKeys = append(out.APIKeys, *APIKeyFromServiceForOwner(&k, u))
 		}
 	}
 	if len(u.Subscriptions) > 0 {
@@ -708,6 +708,8 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 	}
 	usageLog := usageLogFromServiceUser(l)
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
+	// 日志上的 key 不带属主，按日志的用户决定是否脱敏。
+	usageLog.APIKey = APIKeyFromServiceForOwner(l.APIKey, l.User)
 	return &AdminUsageLog{
 		UsageLog:              usageLog,
 		UpstreamModel:         l.UpstreamModel,

@@ -16,6 +16,8 @@ func registerOrganizationMediaTasks(r *gin.Engine, h *handler.OrganizationMediaT
 	own.GET("/voice-assets/catalog", h.VoiceAssetCatalog)
 	own.GET("/voice-assets", h.VoiceAssetsList)
 	own.POST("/voice-assets", h.VoiceAssetCreate)
+	own.PUT("/voice-assets/member-state", h.VoiceMemberState)
+	own.GET("/voice-assets/reclaim-preview", h.VoiceReclaimPreview)
 	own.GET("/voice-assets/:id", h.VoiceAssetGet)
 	own.PATCH("/voice-assets/:id", h.VoiceAssetPatch)
 	own.DELETE("/voice-assets/:id", h.VoiceAssetDelete)

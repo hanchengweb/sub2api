@@ -20,7 +20,7 @@ func TestOrganizationVoiceSlotsAtomicAcrossOwnersAndNeverReused(t *testing.T) {
 	db, _ := mediaQuotaTestDB(t)
 	tx, e := db.Begin()
 	require.NoError(t, e)
-	for _, file := range []string{"247_organization_audio_model3d.sql", "249_organization_voice_assets.sql", "252_organization_voice_clone_slots.sql"} {
+	for _, file := range []string{"247_organization_audio_model3d.sql", "249_organization_voice_assets.sql", "252_organization_voice_clone_slots.sql", "253_organization_voice_slot_release.sql"} {
 		migration, e := os.ReadFile("../../migrations/" + file)
 		require.NoError(t, e)
 		_, e = tx.Exec(string(migration))

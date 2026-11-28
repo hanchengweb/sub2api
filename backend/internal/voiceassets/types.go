@@ -33,6 +33,14 @@ type Asset struct {
 	RequestID     string                `json:"-"`
 	Digest        string                `json:"-"`
 	Deleted       bool                  `json:"-"`
+	// Recycled is set by a claim of a speaker this platform trained and released.
+	Recycled bool `json:"-"`
+	// TrainingBaseline is the supplier's remaining trainings before overwriting a
+	// recycled speaker; a later "ready" only counts once that number has dropped.
+	TrainingBaseline *int `json:"-"`
+	// Remaining and RetireSlot carry supplier facts to the slot row on update.
+	Remaining  *int `json:"-"`
+	RetireSlot bool `json:"-"`
 }
 
 func (a *Asset) Public() *Asset {
@@ -63,7 +71,26 @@ type Routes interface {
 	Reopen(context.Context, mediatasks.Owner, *mediatasks.Task) (mediatasks.Provider, error)
 	CloneSlots(context.Context, mediatasks.Owner) ([]Slot, error)
 }
-type TrainingResult struct{ Status, ErrorCode string }
+type TrainingResult struct {
+	Status, ErrorCode string
+	// Activated speakers are permanently fixed by the supplier and cannot retrain.
+	Activated bool
+	// Remaining is the supplier's available_training_times, when reported.
+	Remaining *int
+}
+
+// Reusable reports whether a speaker this platform already trained may be
+// trained again: training has finished, it is not activated, and attempts remain.
+func (r TrainingResult) Reusable() bool {
+	return (r.Status == "ready" || r.ErrorCode == "voice_clone_training_failed") && !r.Activated && r.Remaining != nil && *r.Remaining > 0
+}
+
+// Unusable reports a definitive supplier answer that the speaker can never be
+// trained by a new clone, so the slot must not be offered again.
+func (r TrainingResult) Unusable() bool {
+	return r.Activated || (r.Remaining != nil && *r.Remaining == 0)
+}
+
 type Supplier interface {
 	Train(context.Context, mediatasks.Provider, string, string, string, []byte, string) TrainingResult
 	Query(context.Context, mediatasks.Provider, string, string) TrainingResult
