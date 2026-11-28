@@ -295,6 +295,11 @@ Content-Type: application/json
 {"actor_id":"11111111-1111-4111-8111-111111111111","state":"disabled","version":1}
 ```
 
+This request and `GET /v1/voice-assets/reclaim-preview` consume nothing, so a
+depleted organization balance or an exhausted key quota does not block them.
+Authentication is unchanged: expired or disabled keys, disabled organization
+accounts and non-organization accounts are still refused.
+
 States are `active`, `disabled` and `deleted`. `actor_id` is the same stable
 member UUID used in `X-WindHub-Actor`; `version` is a positive, monotonically
 increasing integer per member. Retry the same state/version safely; old versions

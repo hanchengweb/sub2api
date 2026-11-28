@@ -355,6 +355,10 @@ func isOrganizationMediaTaskRequest(method, route string) bool {
 	if (method == http.MethodPatch || method == http.MethodDelete) && route == "/v1/voice-assets/:id" {
 		return true
 	}
+	// 成员停用通知和回收预览不产生用量，组织余额或 key 额度用尽时也要能到达。
+	if method == http.MethodPut && route == "/v1/voice-assets/member-state" || method == http.MethodGet && route == "/v1/voice-assets/reclaim-preview" {
+		return true
+	}
 	if method == http.MethodGet && route == "/v1/media/models" {
 		return true
 	}

@@ -11,6 +11,10 @@ func TestOrganizationMediaTaskBillingExceptionIsExact(t *testing.T) {
 		{"POST", "/v1/audio/:id", false}, {"POST", "/v1/audio/speech", false}, {"GET", "/v1/model3d/admin", false}, {"POST", "/v1/chat/completions", false}, {"GET", "/v1/media/models/other", false},
 		{"GET", "/v1/voice-assets", true}, {"POST", "/v1/voice-assets/clone", true}, {"PATCH", "/v1/voice-assets/:id", true}, {"DELETE", "/v1/voice-assets/:id", true}, {"POST", "/v1/voice-assets/:id/refresh", true},
 		{"POST", "/v1/voice-assets/:id", false}, {"GET", "/v1/voice-assets/:id/refresh", false}, {"DELETE", "/v1/voice-assets/clone", false}, {"POST", "/v1/voice-assets/admin", false},
+		{"PUT", "/v1/voice-assets/member-state", true}, {"GET", "/v1/voice-assets/reclaim-preview", true},
+		{"GET", "/v1/voice-assets/member-state", false}, {"POST", "/v1/voice-assets/member-state", false}, {"DELETE", "/v1/voice-assets/member-state", false},
+		{"PUT", "/v1/voice-assets/reclaim-preview", false}, {"POST", "/v1/voice-assets/reclaim-preview", false}, {"DELETE", "/v1/voice-assets/reclaim-preview", false},
+		{"PUT", "/v1/voice-assets/:id", false}, {"POST", "/v1/images/generations", false}, {"POST", "/v1/videos/generations", false},
 	} {
 		if got := isOrganizationMediaTaskRequest(row.method, row.path); got != row.allowed {
 			t.Fatalf("%s %s: %v", row.method, row.path, got)
